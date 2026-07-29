@@ -3,13 +3,6 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { authClient } from '@/lib/auth-client'
-import { createUserAccountDirectly } from '@/app/actions/auth'
-import { devSignIn } from '@/app/actions/dev-auth'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 
 export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
   const router = useRouter()
@@ -17,159 +10,170 @@ export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [status, setStatus] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
   const isSignUp = mode === 'sign-up'
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
+  async function handleClick() {
     setError(null)
+    setStatus('Submitting...')
     setLoading(true)
 
     try {
       if (isSignUp) {
-        if (!name.trim()) {
-          setError('Full name is required')
-          setLoading(false)
-          return
-        }
-        if (password.length < 8) {
-          setError('Password must be at least 8 characters')
-          setLoading(false)
-          return
-        }
-        
-        // For demo purposes, show success and redirect to signin
-        // In production, use a proper user management system
-        setLoading(false)
-        setTimeout(() => {
-          router.push('/sign-in?demo=true')
-        }, 1000)
-      } else {
-        // Try dev auth first in development mode
-        const devResult = await devSignIn(email, password)
-        if (devResult) {
-          if (devResult.success) {
-            // Dev auth succeeded, create a session by redirecting
-            // In production, this would be handled by Better Auth
-            setLoading(false)
-            router.push('/scanner')
-            router.refresh()
-            return
-          }
-        }
+        if (!name.trim()) { setError('Full name is required'); setLoading(false); setStatus(null); return }
+        if (password.length < 8) { setError('Password must be at least 8 characters'); setLoading(false); setStatus(null); return }
 
-        // Fall back to Better Auth in production or if dev auth is disabled
-        const result = await authClient.signIn.email({ email, password })
-        console.log('[v0] Signin result:', result)
-        if (result.error) {
-          const message = result.error.message || 'Invalid email or password'
-          console.error('[v0] Signin error:', result.error)
-          setError(message)
+        setStatus('Creating account...')
+        const res = await fetch('/api/auth/sign-up/email', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password, name }),
+        })
+        const data = await res.json()
+        if (!res.ok || data.code) {
+          setError(data.message || 'Could not create account')
           setLoading(false)
+          setStatus(null)
           return
         }
-        // After successful signin, redirect to home
+        setStatus('Account created! Redirecting...')
+        router.push('/sign-in')
+      } else {
+        if (!email || !password) { setError('Email and password are required'); setLoading(false); setStatus(null); return }
+
+        setStatus('Signing in...')
+        const res = await fetch('/api/auth/sign-in/email', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password }),
+        })
+        const data = await res.json()
+        if (!res.ok || data.code) {
+          setError(data.message || 'Invalid email or password')
+          setLoading(false)
+          setStatus(null)
+          return
+        }
+        setStatus('Signed in! Redirecting...')
         router.push('/')
         router.refresh()
       }
     } catch (err) {
-      console.error('[v0] Auth submit error:', err)
-      const message = err instanceof Error ? err.message : 'An unexpected error occurred'
-      setError(message)
+      setError(err instanceof Error ? err.message : 'An unexpected error occurred')
       setLoading(false)
+      setStatus(null)
     }
   }
 
   return (
-    <main className="min-h-screen bg-background flex items-center justify-center px-4">
-      <Card className="w-full max-w-sm">
-        <CardHeader>
-          <CardTitle>{isSignUp ? 'Create an account' : 'Welcome back'}</CardTitle>
-          <CardDescription>
-            {isSignUp
-              ? 'Sign up to get started with inventory scanning'
-              : 'Sign in to your account to continue'}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-            {isSignUp && (
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="name">Full Name</Label>
-                <Input
-                  id="name"
-                  type="text"
-                  placeholder="John Doe"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  required
-                  autoComplete="name"
-                />
-              </div>
-            )}
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="email">Email</Label>
-              <Input
-                id="email"
-                type="email"
-                placeholder="you@example.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                autoComplete="email"
+    <main style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 16px', background: 'var(--background, #fff)' }}>
+      <div style={{ width: '100%', maxWidth: 360, border: '1px solid #e5e7eb', borderRadius: 12, padding: 24, background: 'var(--card, #fff)' }}>
+        <h1 style={{ margin: '0 0 4px', fontSize: 18, fontWeight: 600 }}>
+          {isSignUp ? 'Create an account' : 'Welcome back'}
+        </h1>
+        <p style={{ margin: '0 0 20px', fontSize: 14, color: '#6b7280' }}>
+          {isSignUp ? 'Sign up to get started with inventory scanning' : 'Sign in to your account to continue'}
+        </p>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {isSignUp && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <label htmlFor="name" style={{ fontSize: 14, fontWeight: 500 }}>Full Name</label>
+              <input
+                id="name"
+                type="text"
+                placeholder="John Doe"
+                value={name}
+                onChange={e => setName(e.target.value)}
+                disabled={loading}
+                style={inputStyle}
               />
             </div>
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="password">Password</Label>
-              <Input
-                id="password"
-                type="password"
-                placeholder="••••••••"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                minLength={8}
-                autoComplete={isSignUp ? 'new-password' : 'current-password'}
-              />
-            </div>
+          )}
 
-            {error && (
-              <div className="rounded-md bg-destructive/15 px-3 py-2 text-sm text-destructive" role="alert">
-                {error}
-              </div>
-            )}
-
-            <Button type="submit" disabled={loading} className="w-full">
-              {loading
-                ? 'Please wait...'
-                : isSignUp
-                  ? 'Create account'
-                  : 'Sign in'}
-            </Button>
-          </form>
-
-          <div className="relative my-4">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-muted" />
-            </div>
-            <div className="relative flex justify-center text-xs uppercase">
-              <span className="bg-card px-2 text-muted-foreground">
-                {isSignUp ? 'Have an account?' : 'New user?'}
-              </span>
-            </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <label htmlFor="email" style={{ fontSize: 14, fontWeight: 500 }}>Email</label>
+            <input
+              id="email"
+              type="email"
+              placeholder="you@example.com"
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              disabled={loading}
+              style={inputStyle}
+            />
           </div>
 
-          <Link
-            href={isSignUp ? '/sign-in' : '/sign-up'}
-            className="block w-full"
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <label htmlFor="password" style={{ fontSize: 14, fontWeight: 500 }}>Password</label>
+            <input
+              id="password"
+              type="password"
+              placeholder="••••••••"
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              disabled={loading}
+              style={inputStyle}
+            />
+          </div>
+
+          {error && (
+            <div style={{ padding: '8px 12px', background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 8, fontSize: 13, color: '#dc2626' }}>
+              {error}
+            </div>
+          )}
+
+          {status && (
+            <div style={{ padding: '8px 12px', background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 8, fontSize: 13, color: '#16a34a' }}>
+              {status}
+            </div>
+          )}
+
+          <button
+            onClick={handleClick}
+            disabled={loading}
+            style={loading ? { ...btnStyle, opacity: 0.6, cursor: 'not-allowed' } : btnStyle}
           >
-            <Button variant="outline" className="w-full">
-              {isSignUp ? 'Sign in instead' : 'Create an account'}
-            </Button>
-          </Link>
-        </CardContent>
-      </Card>
+            {loading ? 'Please wait...' : isSignUp ? 'Create account' : 'Sign in'}
+          </button>
+        </div>
+
+        <div style={{ margin: '16px 0', textAlign: 'center', fontSize: 12, color: '#9ca3af' }}>
+          {isSignUp ? 'Have an account?' : 'New user?'}
+        </div>
+
+        <Link href={isSignUp ? '/sign-in' : '/sign-up'} style={{ display: 'block', width: '100%', textDecoration: 'none' }}>
+          <button style={{ ...btnStyle, background: '#fff', color: '#374151', border: '1px solid #d1d5db', width: '100%' }}>
+            {isSignUp ? 'Sign in instead' : 'Create an account'}
+          </button>
+        </Link>
+      </div>
     </main>
   )
+}
+
+const inputStyle: React.CSSProperties = {
+  height: 36,
+  width: '100%',
+  borderRadius: 8,
+  border: '1px solid #d1d5db',
+  padding: '0 10px',
+  fontSize: 14,
+  outline: 'none',
+  boxSizing: 'border-box',
+  background: 'transparent',
+}
+
+const btnStyle: React.CSSProperties = {
+  width: '100%',
+  height: 36,
+  borderRadius: 8,
+  border: 'none',
+  background: '#111827',
+  color: '#fff',
+  fontSize: 14,
+  fontWeight: 500,
+  cursor: 'pointer',
 }
