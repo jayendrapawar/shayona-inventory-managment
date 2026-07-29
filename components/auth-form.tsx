@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { authClient } from '@/lib/auth-client'
 import { createUserAccountDirectly } from '@/app/actions/auth'
+import { devSignIn } from '@/app/actions/dev-auth'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -45,6 +46,20 @@ export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
           router.push('/sign-in?demo=true')
         }, 1000)
       } else {
+        // Try dev auth first in development mode
+        const devResult = await devSignIn(email, password)
+        if (devResult) {
+          if (devResult.success) {
+            // Dev auth succeeded, create a session by redirecting
+            // In production, this would be handled by Better Auth
+            setLoading(false)
+            router.push('/scanner')
+            router.refresh()
+            return
+          }
+        }
+
+        // Fall back to Better Auth in production or if dev auth is disabled
         const result = await authClient.signIn.email({ email, password })
         console.log('[v0] Signin result:', result)
         if (result.error) {

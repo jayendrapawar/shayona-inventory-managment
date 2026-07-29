@@ -14,7 +14,7 @@ async function getUserId() {
 }
 
 // Normalize QR code by removing spaces and converting to uppercase
-export function normalizeQrCode(qr: string): string {
+function normalizeQrCode(qr: string): string {
   return qr.trim().toUpperCase()
 }
 
