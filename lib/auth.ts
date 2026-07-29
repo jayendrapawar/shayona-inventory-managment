@@ -14,13 +14,26 @@ const baseURL =
       ? `https://${process.env.VERCEL_URL}`
       : 'http://localhost:3000')
 
-// Build trusted origins list
-const trustedOrigins: string[] = [baseURL]
-
-// Add Vercel preview/production URLs when present
-if (process.env.VERCEL_URL) trustedOrigins.push(`https://${process.env.VERCEL_URL}`)
+// Static trusted origins — always include both known Vercel domains
+const staticTrustedOrigins: string[] = [
+  baseURL,
+  'https://shayona-footwear.vercel.app',
+  'https://shayona-inventory-managment.vercel.app',
+]
+if (process.env.VERCEL_URL)
+  staticTrustedOrigins.push(`https://${process.env.VERCEL_URL}`)
 if (process.env.VERCEL_PROJECT_PRODUCTION_URL)
-  trustedOrigins.push(`https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`)
+  staticTrustedOrigins.push(`https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`)
+
+// In development accept any origin — covers localhost, LAN IPs (192.168.x.x),
+// phones on the same WiFi, etc. In production the static list is used.
+const trustedOrigins =
+  process.env.NODE_ENV === 'development'
+    ? (request?: Request) => {
+        const origin = request?.headers.get('origin') || ''
+        return origin ? [origin] : []
+      }
+    : staticTrustedOrigins
 
 export const auth = betterAuth({
   database: pool,
@@ -32,10 +45,6 @@ export const auth = betterAuth({
     minPasswordLength: 8,
   },
   trustedOrigins,
-  advanced: {
-    // Disable origin check in development so any local IP works
-    disableCSRFCheck: process.env.NODE_ENV === 'development',
-  },
   session: {
     expiresIn: 60 * 60 * 24 * 7, // 7 days
     updateAge: 60 * 60 * 24,      // 1 day
