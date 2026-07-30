@@ -1,19 +1,6 @@
 import { redirect } from 'next/navigation'
-import { headers } from 'next/headers'
-import { auth } from '@/lib/auth'
-import { AuthForm } from '@/components/auth-form'
 
-export const metadata = {
-  title: 'Sign Up - Shayona Inventory',
-  description: 'Create your inventory management account',
-}
-
-export default async function SignUpPage() {
-  const session = await auth.api.getSession({ headers: await headers() })
-
-  if (session?.user) {
-    redirect('/')
-  }
-
-  return <AuthForm mode="sign-up" />
+// Sign-up is handled by Google OAuth — redirect to sign-in
+export default function SignUpPage() {
+  redirect('/sign-in')
 }

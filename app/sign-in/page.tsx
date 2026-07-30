@@ -1,7 +1,7 @@
 import { redirect } from 'next/navigation'
 import { headers } from 'next/headers'
 import { auth } from '@/lib/auth'
-import { AuthForm } from '@/components/auth-form'
+import { GoogleSignIn } from '@/components/google-sign-in'
 
 export const metadata = {
   title: 'Sign In - Shayona Inventory',
@@ -15,5 +15,5 @@ export default async function SignInPage() {
     redirect('/')
   }
 
-  return <AuthForm mode="sign-in" />
+  return <GoogleSignIn />
 }

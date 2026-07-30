@@ -39,12 +39,21 @@ export const auth = betterAuth({
   database: pool,
   secret: process.env.BETTER_AUTH_SECRET,
   baseURL,
-  emailAndPassword: {
-    enabled: true,
-    autoSignIn: false,
-    minPasswordLength: 8,
-  },
   trustedOrigins,
+  socialProviders: {
+    google: {
+      clientId: process.env.GOOGLE_CLIENT_ID!,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+    },
+  },
+  account: {
+    accountLinking: {
+      enabled: true,
+      // Trust Google's verified email — safe because Google only returns
+      // verified emails in the OAuth response.
+      trustedProviders: ['google'],
+    },
+  },
   session: {
     expiresIn: 60 * 60 * 24 * 7, // 7 days
     updateAge: 60 * 60 * 24,      // 1 day
