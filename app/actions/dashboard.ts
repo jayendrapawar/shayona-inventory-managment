@@ -200,3 +200,17 @@ export async function exportToExcel() {
 export async function getStatistics() {
   return getMyStatistics()
 }
+
+export async function exportOverallStockCsv() {
+  await getUserId() // auth check
+  const stockData = await getOverallStock()
+  return stockData.map((item) => ({
+    'Art Number': item.artNumber || '',
+    'Color Number': item.colorNumber || '',
+    'Size Number': item.sizeNumber || '',
+    'Total Quantity': item.quantity,
+    'Scan Count': item.scanCount,
+    'Last Updated By': item.lastScannedBy,
+    'Last Scan At': item.lastScanned.toISOString(),
+  }))
+}

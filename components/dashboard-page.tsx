@@ -14,6 +14,7 @@ import {
   getOverallStatistics,
   addManualEntry,
   exportToExcel,
+  exportOverallStockCsv,
 } from '@/app/actions/dashboard'
 import { signOut } from '@/lib/auth-client'
 import { useRouter } from 'next/navigation'
@@ -149,6 +150,25 @@ export function DashboardPage({ userName }: { userName: string }) {
       const a = document.createElement('a')
       a.href = url
       a.download = `inventory-${new Date().toISOString().split('T')[0]}.csv`
+      a.click()
+      window.URL.revokeObjectURL(url)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to export')
+    }
+  }
+
+  async function handleExportOverall() {
+    try {
+      const data = await exportOverallStockCsv()
+      const csv = [
+        Object.keys(data[0]).join(','),
+        ...data.map((row) => Object.values(row).map((v) => `"${v}"`).join(',')),
+      ].join('\n')
+      const blob = new Blob([csv], { type: 'text/csv' })
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `overall-stock-${new Date().toISOString().split('T')[0]}.csv`
       a.click()
       window.URL.revokeObjectURL(url)
     } catch (e) {
@@ -364,7 +384,7 @@ export function DashboardPage({ userName }: { userName: string }) {
           <>
             {overallStats && <StatsBar stats={overallStats} />}
 
-            {/* Search */}
+            {/* Search + export */}
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <Input
                 placeholder="Search by art, color, size, or person…"
@@ -372,9 +392,12 @@ export function DashboardPage({ userName }: { userName: string }) {
                 onChange={(e) => setOverallSearch(e.target.value)}
                 className="max-w-xs"
               />
-              <p className="text-xs text-muted-foreground">
-                Aggregated across all users · {filteredStock.length} SKUs
-              </p>
+              <div className="flex items-center gap-3">
+                <p className="text-xs text-muted-foreground">
+                  Aggregated across all users · {filteredStock.length} SKUs
+                </p>
+                <Button size="sm" onClick={handleExportOverall}>Export CSV</Button>
+              </div>
             </div>
 
             <Card>
