@@ -15,5 +15,9 @@ export default async function Dashboard() {
     redirect('/sign-in')
   }
 
-  return <DashboardPage />
+  return (
+    <DashboardPage
+      userName={session.user.name ?? session.user.email ?? 'You'}
+    />
+  )
 }
