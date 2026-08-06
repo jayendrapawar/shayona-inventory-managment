@@ -10,6 +10,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { recordScan, getRecentScans, deleteScan, updateScanQuantity } from '@/app/actions/scan'
 import { signOut } from '@/lib/auth-client'
+import { useLanguage } from '@/lib/language-context'
+import { LanguageToggle } from '@/components/language-toggle'
 
 interface Scan {
   id: number
@@ -22,6 +24,7 @@ interface Scan {
 
 export function ScannerPage() {
   const router = useRouter()
+  const { t } = useLanguage()
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [isCameraActive, setIsCameraActive] = useState(false)
@@ -65,7 +68,7 @@ export function ScannerPage() {
         scanQRCode()
       }
     } catch (err) {
-      setError('Unable to access camera. Please grant permission.')
+      setError(t('cameraPermissionError'))
       console.error('Camera error:', err)
     }
   }
@@ -180,32 +183,33 @@ export function ScannerPage() {
       <div className="mx-auto max-w-6xl space-y-6">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">Warehouse Scanner</h1>
-            <p className="text-muted-foreground">Scan QR codes or manually enter item details</p>
+            <h1 className="text-3xl font-bold tracking-tight">{t('warehouseScanner')}</h1>
+            <p className="text-muted-foreground">{t('scannerSubtitle')}</p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 items-center">
+            <LanguageToggle />
             <Button variant="outline" onClick={() => router.push('/dashboard')}>
-              Dashboard
+              {t('dashboardLink')}
             </Button>
             <Button variant="outline" onClick={handleLogout}>
-              Sign Out
+              {t('signOut')}
             </Button>
           </div>
         </div>
 
         <Tabs defaultValue="camera" className="w-full">
           <TabsList className="grid w-full grid-cols-3">
-            <TabsTrigger value="camera">Camera</TabsTrigger>
-            <TabsTrigger value="manual">Manual Entry</TabsTrigger>
-            <TabsTrigger value="inventory">Inventory</TabsTrigger>
+            <TabsTrigger value="camera">{t('cameraTab')}</TabsTrigger>
+            <TabsTrigger value="manual">{t('manualTab')}</TabsTrigger>
+            <TabsTrigger value="inventory">{t('inventoryTab')}</TabsTrigger>
           </TabsList>
 
           {/* Camera Tab */}
           <TabsContent value="camera" className="space-y-4">
             <Card>
               <CardHeader>
-                <CardTitle>QR Code Scanner</CardTitle>
-                <CardDescription>Use your device camera to scan QR codes</CardDescription>
+                <CardTitle>{t('qrCodeScanner')}</CardTitle>
+                <CardDescription>{t('qrScannerDesc')}</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="relative bg-black rounded-lg overflow-hidden aspect-video">
@@ -220,9 +224,9 @@ export function ScannerPage() {
                   {!isCameraActive && (
                     <div className="absolute inset-0 flex items-center justify-center bg-black/50">
                       <div className="text-center">
-                        <p className="text-white mb-4">Camera not active</p>
+                        <p className="text-white mb-4">{t('cameraNotActive')}</p>
                         <Button onClick={startCamera} size="lg">
-                          Start Camera
+                          {t('startCamera')}
                         </Button>
                       </div>
                     </div>
@@ -231,7 +235,7 @@ export function ScannerPage() {
 
                 {isCameraActive && (
                   <Button onClick={stopCamera} variant="outline" className="w-full">
-                    Stop Camera
+                    {t('stopCamera')}
                   </Button>
                 )}
 
@@ -248,16 +252,16 @@ export function ScannerPage() {
           <TabsContent value="manual" className="space-y-4">
             <Card>
               <CardHeader>
-                <CardTitle>Manual Entry</CardTitle>
-                <CardDescription>Enter QR codes or item details manually</CardDescription>
+                <CardTitle>{t('manualEntryTitle')}</CardTitle>
+                <CardDescription>{t('manualEntryDesc')}</CardDescription>
               </CardHeader>
               <CardContent>
                 <form onSubmit={handleManualInput} className="space-y-4">
                   <div className="space-y-2">
-                    <Label htmlFor="qr-code">QR Code or Art Number</Label>
+                    <Label htmlFor="qr-code">{t('qrCodeLabel')}</Label>
                     <Input
                       id="qr-code"
-                      placeholder="Enter QR code or item details"
+                      placeholder={t('qrCodePlaceholder')}
                       value={manualInput}
                       onChange={(e) => setManualInput(e.target.value)}
                       disabled={loading}
@@ -272,7 +276,7 @@ export function ScannerPage() {
                   )}
 
                   <Button type="submit" className="w-full" disabled={loading}>
-                    {loading ? 'Recording...' : 'Record Scan'}
+                    {loading ? t('recording') : t('recordScan')}
                   </Button>
                 </form>
               </CardContent>
@@ -283,26 +287,26 @@ export function ScannerPage() {
           <TabsContent value="inventory" className="space-y-4">
             <Card>
               <CardHeader>
-                <CardTitle>Scanned Inventory</CardTitle>
+                <CardTitle>{t('scannedInventory')}</CardTitle>
                 <CardDescription>
-                  {scans.length} total items scanned, {Object.keys(groupedScans).length} unique items
+                  {scans.length} {t('totalScannedItems')}, {Object.keys(groupedScans).length} {t('uniqueItemsScanned')}
                 </CardDescription>
               </CardHeader>
               <CardContent>
                 {scans.length === 0 ? (
                   <div className="text-center py-8 text-muted-foreground">
-                    No scans yet. Start scanning items to see them here.
+                    {t('noScansYet')}
                   </div>
                 ) : (
                   <div className="overflow-x-auto">
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead>Art Number</TableHead>
-                          <TableHead>Color</TableHead>
-                          <TableHead>Size</TableHead>
-                          <TableHead className="text-right">Qty</TableHead>
-                          <TableHead className="text-right">Actions</TableHead>
+                          <TableHead>{t('artNumberCol')}</TableHead>
+                          <TableHead>{t('colorCol')}</TableHead>
+                          <TableHead>{t('sizeCol')}</TableHead>
+                          <TableHead className="text-right">{t('qtyCol')}</TableHead>
+                          <TableHead className="text-right">{t('actionsCol')}</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -347,7 +351,7 @@ export function ScannerPage() {
                                 size="sm"
                                 onClick={() => handleDeleteScan(scan.id)}
                               >
-                                Delete
+                                {t('delete')}
                               </Button>
                             </TableCell>
                           </TableRow>

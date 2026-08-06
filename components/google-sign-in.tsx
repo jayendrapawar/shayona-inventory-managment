@@ -2,10 +2,13 @@
 
 import { useState } from 'react'
 import { authClient } from '@/lib/auth-client'
+import { useLanguage } from '@/lib/language-context'
+import { LanguageToggle } from '@/components/language-toggle'
 
 export function GoogleSignIn() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const { t } = useLanguage()
 
   async function handleGoogleSignIn() {
     setError(null)
@@ -32,6 +35,11 @@ export function GoogleSignIn() {
         background: 'var(--background, #fff)',
       }}
     >
+      {/* Language toggle — top-right corner */}
+      <div style={{ position: 'fixed', top: 16, right: 16 }}>
+        <LanguageToggle />
+      </div>
+
       <div
         style={{
           width: '100%',
@@ -45,10 +53,10 @@ export function GoogleSignIn() {
       >
         <div style={{ marginBottom: 24 }}>
           <h1 style={{ margin: '0 0 8px', fontSize: 20, fontWeight: 600 }}>
-            Shayona Inventory
+            {t('appName')}
           </h1>
           <p style={{ margin: 0, fontSize: 14, color: '#6b7280' }}>
-            Sign in to manage your inventory
+            {t('signInSubtitle')}
           </p>
         </div>
 
@@ -108,7 +116,7 @@ export function GoogleSignIn() {
               />
             </svg>
           )}
-          {loading ? 'Redirecting to Google...' : 'Continue with Google'}
+          {loading ? t('redirectingToGoogle') : t('continueWithGoogle')}
         </button>
       </div>
     </main>

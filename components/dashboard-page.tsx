@@ -16,6 +16,8 @@ import {
 } from '@/app/actions/dashboard'
 import { signOut } from '@/lib/auth-client'
 import { useRouter } from 'next/navigation'
+import { useLanguage } from '@/lib/language-context'
+import { LanguageToggle } from '@/components/language-toggle'
 
 interface InventoryItem {
   artNumber?: string
@@ -35,6 +37,7 @@ interface Statistics {
 
 export function DashboardPage() {
   const router = useRouter()
+  const { t } = useLanguage()
   const [inventory, setInventory] = useState<InventoryItem[]>([])
   const [filteredInventory, setFilteredInventory] = useState<InventoryItem[]>([])
   const [stats, setStats] = useState<Statistics | null>(null)
@@ -155,12 +158,18 @@ export function DashboardPage() {
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
-            <p className="text-muted-foreground">Inventory summary and management</p>
+            <h1 className="text-3xl font-bold tracking-tight">{t('dashboard')}</h1>
+            <p className="text-muted-foreground">{t('dashboardSubtitle')}</p>
           </div>
-          <Button variant="outline" onClick={handleLogout}>
-            Sign Out
-          </Button>
+          <div className="flex items-center gap-2">
+            <LanguageToggle />
+            <Button variant="outline" onClick={() => router.push('/scanner')}>
+              {t('scanner')}
+            </Button>
+            <Button variant="outline" onClick={handleLogout}>
+              {t('signOut')}
+            </Button>
+          </div>
         </div>
 
         {/* Statistics Cards */}
@@ -169,13 +178,13 @@ export function DashboardPage() {
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="text-sm font-medium text-muted-foreground">
-                  Total Scans
+                  {t('totalScans')}
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="text-3xl font-bold">{stats.totalScans}</div>
                 <p className="text-xs text-muted-foreground mt-1">
-                  {stats.scansLast24h} in last 24h
+                  {stats.scansLast24h} {t('inLast24h')}
                 </p>
               </CardContent>
             </Card>
@@ -183,31 +192,31 @@ export function DashboardPage() {
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="text-sm font-medium text-muted-foreground">
-                  Total Items
+                  {t('totalItems')}
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="text-3xl font-bold">{stats.totalItems}</div>
-                <p className="text-xs text-muted-foreground mt-1">units counted</p>
+                <p className="text-xs text-muted-foreground mt-1">{t('unitsCounted')}</p>
               </CardContent>
             </Card>
 
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="text-sm font-medium text-muted-foreground">
-                  Unique Items
+                  {t('uniqueItems')}
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="text-3xl font-bold">{stats.uniqueItems}</div>
-                <p className="text-xs text-muted-foreground mt-1">different SKUs</p>
+                <p className="text-xs text-muted-foreground mt-1">{t('differentSKUs')}</p>
               </CardContent>
             </Card>
 
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="text-sm font-medium text-muted-foreground">
-                  Avg Per Item
+                  {t('avgPerItem')}
                 </CardTitle>
               </CardHeader>
               <CardContent>
@@ -216,7 +225,7 @@ export function DashboardPage() {
                     ? (stats.totalItems / stats.uniqueItems).toFixed(1)
                     : '0'}
                 </div>
-                <p className="text-xs text-muted-foreground mt-1">units per SKU</p>
+                <p className="text-xs text-muted-foreground mt-1">{t('unitsPerSKU')}</p>
               </CardContent>
             </Card>
           </div>
@@ -233,11 +242,11 @@ export function DashboardPage() {
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex-1 max-w-sm">
             <Label htmlFor="search" className="sr-only">
-              Search inventory
+              {t('searchPlaceholder')}
             </Label>
             <Input
               id="search"
-              placeholder="Search by art, color, or size number..."
+              placeholder={t('searchPlaceholder')}
               value={searchQuery}
               onChange={(e) => handleSearch(e.target.value)}
             />
@@ -245,9 +254,9 @@ export function DashboardPage() {
 
           <div className="flex gap-2">
             <Button variant="outline" onClick={() => setShowManualForm(!showManualForm)}>
-              {showManualForm ? 'Cancel' : 'Add Manual Entry'}
+              {showManualForm ? t('cancel') : t('addManualEntry')}
             </Button>
-            <Button onClick={handleExport}>Export to CSV</Button>
+            <Button onClick={handleExport}>{t('exportToCSV')}</Button>
           </div>
         </div>
 
@@ -255,16 +264,16 @@ export function DashboardPage() {
         {showManualForm && (
           <Card>
             <CardHeader>
-              <CardTitle>Add Manual Entry</CardTitle>
+              <CardTitle>{t('addManualEntryTitle')}</CardTitle>
             </CardHeader>
             <CardContent>
               <form onSubmit={handleAddManualEntry} className="space-y-4">
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
-                    <Label htmlFor="artNumber">Art Number</Label>
+                    <Label htmlFor="artNumber">{t('artNumber')}</Label>
                     <Input
                       id="artNumber"
-                      placeholder="e.g., 12345"
+                      placeholder={t('artNumberPlaceholder')}
                       value={manualForm.artNumber}
                       onChange={(e) =>
                         setManualForm({ ...manualForm, artNumber: e.target.value })
@@ -274,10 +283,10 @@ export function DashboardPage() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="colorNumber">Color Number</Label>
+                    <Label htmlFor="colorNumber">{t('colorNumber')}</Label>
                     <Input
                       id="colorNumber"
-                      placeholder="e.g., 01"
+                      placeholder={t('colorNumberPlaceholder')}
                       value={manualForm.colorNumber}
                       onChange={(e) =>
                         setManualForm({ ...manualForm, colorNumber: e.target.value })
@@ -287,10 +296,10 @@ export function DashboardPage() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="sizeNumber">Size Number</Label>
+                    <Label htmlFor="sizeNumber">{t('sizeNumber')}</Label>
                     <Input
                       id="sizeNumber"
-                      placeholder="e.g., 40"
+                      placeholder={t('sizeNumberPlaceholder')}
                       value={manualForm.sizeNumber}
                       onChange={(e) =>
                         setManualForm({ ...manualForm, sizeNumber: e.target.value })
@@ -300,7 +309,7 @@ export function DashboardPage() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="quantity">Quantity</Label>
+                    <Label htmlFor="quantity">{t('quantity')}</Label>
                     <Input
                       id="quantity"
                       type="number"
@@ -316,10 +325,10 @@ export function DashboardPage() {
                   </div>
 
                   <div className="space-y-2 sm:col-span-2">
-                    <Label htmlFor="notes">Notes (optional)</Label>
+                    <Label htmlFor="notes">{t('notes')}</Label>
                     <Input
                       id="notes"
-                      placeholder="Any additional notes..."
+                      placeholder={t('notesPlaceholder')}
                       value={manualForm.notes}
                       onChange={(e) => setManualForm({ ...manualForm, notes: e.target.value })}
                     />
@@ -327,13 +336,13 @@ export function DashboardPage() {
                 </div>
 
                 <div className="flex gap-2">
-                  <Button type="submit">Add Entry</Button>
+                  <Button type="submit">{t('addEntry')}</Button>
                   <Button
                     type="button"
                     variant="outline"
                     onClick={() => setShowManualForm(false)}
                   >
-                    Cancel
+                    {t('cancel')}
                   </Button>
                 </div>
               </form>
@@ -344,29 +353,27 @@ export function DashboardPage() {
         {/* Inventory Table */}
         <Card>
           <CardHeader>
-            <CardTitle>Inventory Items</CardTitle>
+            <CardTitle>{t('inventoryItems')}</CardTitle>
             <CardDescription>
-              Showing {filteredInventory.length} of {inventory.length} items
+              {t('showing')} {filteredInventory.length} {t('of')} {inventory.length} {t('items')}
             </CardDescription>
           </CardHeader>
           <CardContent>
             {filteredInventory.length === 0 ? (
               <div className="text-center py-8 text-muted-foreground">
-                {inventory.length === 0
-                  ? 'No inventory items yet. Start scanning to populate the inventory.'
-                  : 'No items match your search. Try a different query.'}
+                {inventory.length === 0 ? t('noInventoryYet') : t('noSearchResults')}
               </div>
             ) : (
               <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Art Number</TableHead>
-                      <TableHead>Color</TableHead>
-                      <TableHead>Size</TableHead>
-                      <TableHead className="text-right">Quantity</TableHead>
-                      <TableHead className="text-right">Scans</TableHead>
-                      <TableHead>Last Scanned</TableHead>
+                      <TableHead>{t('artNumberCol')}</TableHead>
+                      <TableHead>{t('colorCol')}</TableHead>
+                      <TableHead>{t('sizeCol')}</TableHead>
+                      <TableHead className="text-right">{t('quantityCol')}</TableHead>
+                      <TableHead className="text-right">{t('scansCol')}</TableHead>
+                      <TableHead>{t('lastScannedCol')}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
