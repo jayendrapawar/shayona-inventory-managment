@@ -4,7 +4,6 @@ import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
@@ -29,6 +28,12 @@ interface InventoryItem {
   artNumber?: string
   colorNumber?: string
   sizeNumber?: string
+  division?: string
+  mrp?: number
+  mfgMonth?: number
+  mfgYear?: number
+  scannedByName?: string
+  entryType?: string
   quantity: number
   lastScanned: Date
   count: number
@@ -112,11 +117,18 @@ export function DashboardPage() {
     loadScannedInventory()
   }, [])
 
-  // Re-filter when underlying data changes
+  // Load Overall Stock when tab first switches to it
+  useEffect(() => {
+    if (activeTab === 'overall' && !stockLoaded) {
+      loadOverallStock()
+    }
+  }, [activeTab])
+
+  // Re-filter when tab or search changes
   useEffect(() => {
     applySearch(searchQuery)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [inventory, stockItems])
+  }, [activeTab, inventory, stockItems])
 
   async function loadScannedInventory() {
     try {
@@ -157,26 +169,29 @@ export function DashboardPage() {
 
   function applySearch(query: string) {
     const q = query.toLowerCase().trim()
-    setFilteredInventory(
-      q
-        ? inventory.filter(
-            (item) =>
-              item.artNumber?.toLowerCase().includes(q) ||
-              item.colorNumber?.toLowerCase().includes(q) ||
-              item.sizeNumber?.toLowerCase().includes(q)
-          )
-        : inventory
-    )
-    setFilteredStock(
-      q
-        ? stockItems.filter(
-            (item) =>
-              item.artNumber?.toLowerCase().includes(q) ||
-              item.colorNumber?.toLowerCase().includes(q) ||
-              item.sizeNumber?.toLowerCase().includes(q)
-          )
-        : stockItems
-    )
+    if (activeTab === 'scanned') {
+      setFilteredInventory(
+        q
+          ? inventory.filter(
+              (item) =>
+                item.artNumber?.toLowerCase().includes(q) ||
+                item.colorNumber?.toLowerCase().includes(q) ||
+                item.sizeNumber?.toLowerCase().includes(q)
+            )
+          : inventory
+      )
+    } else {
+      setFilteredStock(
+        q
+          ? stockItems.filter(
+              (item) =>
+                item.artNumber?.toLowerCase().includes(q) ||
+                item.colorNumber?.toLowerCase().includes(q) ||
+                item.sizeNumber?.toLowerCase().includes(q)
+            )
+          : stockItems
+      )
+    }
   }
 
   function handleSearch(query: string) {
@@ -187,26 +202,20 @@ export function DashboardPage() {
   function handleTabChange(tab: Tab) {
     setActiveTab(tab)
     setSearchQuery('')
-    setFilteredInventory(inventory)
-    setFilteredStock(stockItems)
-    if (tab === 'overall' && !stockLoaded) {
-      loadOverallStock()
-    }
+    // Reset filter to show all when switching tabs
+    if (tab === 'scanned') setFilteredInventory(inventory)
+    else setFilteredStock(stockItems)
   }
 
-  async function handleExportScanned() {
+  async function handleExport() {
     try {
-      const data = await exportToExcel()
-      downloadCSV(data, `scanned-inventory-${new Date().toISOString().split('T')[0]}.csv`)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to export data')
-    }
-  }
-
-  async function handleExportOverall() {
-    try {
-      const data = await exportOverallStockToCSV()
-      downloadCSV(data, `overall-stock-${new Date().toISOString().split('T')[0]}.csv`)
+      if (activeTab === 'scanned') {
+        const data = await exportToExcel()
+        downloadCSV(data, `scanned-inventory-${new Date().toISOString().split('T')[0]}.csv`)
+      } else {
+        const data = await exportOverallStockToCSV()
+        downloadCSV(data, `overall-stock-${new Date().toISOString().split('T')[0]}.csv`)
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to export data')
     }
@@ -325,6 +334,10 @@ export function DashboardPage() {
                     <TableHead className="text-xs sm:text-sm px-3 sm:px-4">{t('artNumberCol')}</TableHead>
                     <TableHead className="text-xs sm:text-sm px-3 sm:px-4">{t('colorCol')}</TableHead>
                     <TableHead className="text-xs sm:text-sm px-3 sm:px-4">{t('sizeCol')}</TableHead>
+                    <TableHead className="text-xs sm:text-sm px-3 sm:px-4 hidden sm:table-cell">{t('divisionCol')}</TableHead>
+                    <TableHead className="text-xs sm:text-sm px-3 sm:px-4 hidden sm:table-cell text-right">{t('mrpCol')}</TableHead>
+                    <TableHead className="text-xs sm:text-sm px-3 sm:px-4 hidden md:table-cell">{t('mfgCol')}</TableHead>
+                    <TableHead className="text-xs sm:text-sm px-3 sm:px-4 hidden md:table-cell">{t('scannedByCol')}</TableHead>
                     <TableHead className="text-xs sm:text-sm px-3 sm:px-4 text-right">{t('quantityCol')}</TableHead>
                     <TableHead className="text-xs sm:text-sm px-3 sm:px-4 text-right hidden sm:table-cell">{t('scansCol')}</TableHead>
                     <TableHead className="text-xs sm:text-sm px-3 sm:px-4 hidden md:table-cell">{t('lastScannedCol')}</TableHead>
@@ -341,6 +354,20 @@ export function DashboardPage() {
                       </TableCell>
                       <TableCell className="font-mono text-xs sm:text-sm px-3 sm:px-4">
                         {item.sizeNumber || '-'}
+                      </TableCell>
+                      <TableCell className="text-xs sm:text-sm px-3 sm:px-4 hidden sm:table-cell">
+                        {item.division || '-'}
+                      </TableCell>
+                      <TableCell className="text-xs sm:text-sm px-3 sm:px-4 hidden sm:table-cell text-right">
+                        {item.mrp != null ? `₹${item.mrp.toFixed(2)}` : '-'}
+                      </TableCell>
+                      <TableCell className="text-xs sm:text-sm px-3 sm:px-4 hidden md:table-cell">
+                        {item.mfgMonth && item.mfgYear
+                          ? `${String(item.mfgMonth).padStart(2, '0')}/${item.mfgYear}`
+                          : '-'}
+                      </TableCell>
+                      <TableCell className="text-xs sm:text-sm px-3 sm:px-4 hidden md:table-cell">
+                        {item.scannedByName || '-'}
                       </TableCell>
                       <TableCell className="text-right px-3 sm:px-4">
                         <Badge variant="secondary">{item.quantity}</Badge>
@@ -401,6 +428,9 @@ export function DashboardPage() {
                     <TableHead className="text-xs sm:text-sm px-3 sm:px-4">{t('artNumberCol')}</TableHead>
                     <TableHead className="text-xs sm:text-sm px-3 sm:px-4">{t('colorCol')}</TableHead>
                     <TableHead className="text-xs sm:text-sm px-3 sm:px-4">{t('sizeCol')}</TableHead>
+                    <TableHead className="text-xs sm:text-sm px-3 sm:px-4 hidden sm:table-cell">{t('divisionCol')}</TableHead>
+                    <TableHead className="text-xs sm:text-sm px-3 sm:px-4 hidden sm:table-cell text-right">{t('mrpCol')}</TableHead>
+                    <TableHead className="text-xs sm:text-sm px-3 sm:px-4 hidden md:table-cell">{t('mfgCol')}</TableHead>
                     <TableHead className="text-xs sm:text-sm px-3 sm:px-4 text-right">{t('totalQuantityCol')}</TableHead>
                     <TableHead className="text-xs sm:text-sm px-3 sm:px-4 text-right hidden sm:table-cell">{t('totalScansCol')}</TableHead>
                     <TableHead className="text-xs sm:text-sm px-3 sm:px-4 hidden md:table-cell">{t('lastUpdatedCol')}</TableHead>
@@ -417,6 +447,17 @@ export function DashboardPage() {
                       </TableCell>
                       <TableCell className="font-mono text-xs sm:text-sm px-3 sm:px-4">
                         {item.sizeNumber || '-'}
+                      </TableCell>
+                      <TableCell className="text-xs sm:text-sm px-3 sm:px-4 hidden sm:table-cell">
+                        {item.division || '-'}
+                      </TableCell>
+                      <TableCell className="text-xs sm:text-sm px-3 sm:px-4 hidden sm:table-cell text-right">
+                        {item.mrp != null ? `₹${item.mrp.toFixed(2)}` : '-'}
+                      </TableCell>
+                      <TableCell className="text-xs sm:text-sm px-3 sm:px-4 hidden md:table-cell">
+                        {item.mfgMonth && item.mfgYear
+                          ? `${String(item.mfgMonth).padStart(2, '0')}/${item.mfgYear}`
+                          : '-'}
                       </TableCell>
                       <TableCell className="text-right px-3 sm:px-4">
                         <Badge className="bg-green-100 text-green-800 hover:bg-green-100">
@@ -469,6 +510,30 @@ export function DashboardPage() {
           </div>
         </div>
 
+        {/* Tabs */}
+        <div className="flex border-b border-border">
+          <button
+            onClick={() => handleTabChange('scanned')}
+            className={`px-4 sm:px-6 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px ${
+              activeTab === 'scanned'
+                ? 'border-blue-600 text-blue-600'
+                : 'border-transparent text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            {t('scannedInventoryTab')}
+          </button>
+          <button
+            onClick={() => handleTabChange('overall')}
+            className={`px-4 sm:px-6 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px ${
+              activeTab === 'overall'
+                ? 'border-blue-600 text-blue-600'
+                : 'border-transparent text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            {t('overallStockTab')}
+          </button>
+        </div>
+
         {/* Error */}
         {error && (
           <div className="rounded-md bg-destructive/15 px-4 py-3 text-sm text-destructive">
@@ -476,72 +541,36 @@ export function DashboardPage() {
           </div>
         )}
 
-        <Tabs value={activeTab} onValueChange={(v) => handleTabChange(v as Tab)} className="w-full">
-          <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="scanned">{t('scannedInventoryTab')}</TabsTrigger>
-            <TabsTrigger value="overall">{t('overallStockTab')}</TabsTrigger>
-          </TabsList>
+        {/* Loading */}
+        {loading && (
+          <div className="text-center py-4 text-sm text-muted-foreground">{t('loading')}</div>
+        )}
 
-          {/* Scanned Inventory tab */}
-          <TabsContent value="scanned" className="space-y-4 mt-4">
-            {loading ? (
-              <div className="text-center py-4 text-sm text-muted-foreground">{t('loading')}</div>
-            ) : (
-              <>
-                {renderScannedKPIs()}
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="w-full sm:flex-1 sm:max-w-sm">
-                    <Label htmlFor="search-scanned" className="sr-only">
-                      {t('searchPlaceholder')}
-                    </Label>
-                    <Input
-                      id="search-scanned"
-                      placeholder={t('searchPlaceholder')}
-                      value={searchQuery}
-                      onChange={(e) => handleSearch(e.target.value)}
-                    />
-                  </div>
-                  <div className="flex gap-2">
-                    <Button className="w-full sm:w-auto" onClick={handleExportScanned}>
-                      {t('exportToCSV')}
-                    </Button>
-                  </div>
-                </div>
-                {renderScannedTable()}
-              </>
-            )}
-          </TabsContent>
+        {/* KPI Cards */}
+        {!loading && (activeTab === 'scanned' ? renderScannedKPIs() : renderOverallKPIs())}
 
-          {/* Overall Stock tab */}
-          <TabsContent value="overall" className="space-y-4 mt-4">
-            {loading ? (
-              <div className="text-center py-4 text-sm text-muted-foreground">{t('loading')}</div>
-            ) : (
-              <>
-                {renderOverallKPIs()}
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="w-full sm:flex-1 sm:max-w-sm">
-                    <Label htmlFor="search-overall" className="sr-only">
-                      {t('searchPlaceholder')}
-                    </Label>
-                    <Input
-                      id="search-overall"
-                      placeholder={t('searchPlaceholder')}
-                      value={searchQuery}
-                      onChange={(e) => handleSearch(e.target.value)}
-                    />
-                  </div>
-                  <div className="flex gap-2">
-                    <Button className="w-full sm:w-auto" onClick={handleExportOverall}>
-                      {t('exportToCSV')}
-                    </Button>
-                  </div>
-                </div>
-                {renderOverallTable()}
-              </>
-            )}
-          </TabsContent>
-        </Tabs>
+        {/* Search + Export */}
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="w-full sm:flex-1 sm:max-w-sm">
+            <Label htmlFor="search" className="sr-only">
+              {t('searchPlaceholder')}
+            </Label>
+            <Input
+              id="search"
+              placeholder={t('searchPlaceholder')}
+              value={searchQuery}
+              onChange={(e) => handleSearch(e.target.value)}
+            />
+          </div>
+          <div className="flex gap-2">
+            <Button className="w-full sm:w-auto" onClick={handleExport}>
+              {t('exportToCSV')}
+            </Button>
+          </div>
+        </div>
+
+        {/* Table */}
+        {!loading && (activeTab === 'scanned' ? renderScannedTable() : renderOverallTable())}
 
       </div>
     </main>
