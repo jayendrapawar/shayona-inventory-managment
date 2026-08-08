@@ -8,22 +8,12 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { recordScan, getRecentScans, deleteScan, updateScanQuantity } from '@/app/actions/scan'
+import { recordScan } from '@/app/actions/scan'
 import { addManualEntry } from '@/app/actions/dashboard'
 import { DUPLICATE_QR_ERROR, DUPLICATE_ENTRY_ERROR } from '@/lib/errors'
 import { signOut } from '@/lib/auth-client'
 import { useLanguage } from '@/lib/language-context'
 import { LanguageToggle } from '@/components/language-toggle'
-
-interface Scan {
-  id: number
-  artNumber?: string
-  colorNumber?: string
-  sizeNumber?: string
-  quantity: number
-  scannedAt: Date
-}
 
 export function ScannerPage() {
   const router = useRouter()
@@ -40,7 +30,6 @@ export function ScannerPage() {
     notes: '',
   })
   const [manualLoading, setManualLoading] = useState(false)
-  const [scans, setScans] = useState<Scan[]>([])
   const [error, setError] = useState<string | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const flashlightStreamRef = useRef<MediaStream | null>(null)
@@ -91,9 +80,8 @@ export function ScannerPage() {
     router.push('/sign-in')
   }
 
-  // Load recent scans on mount; stop scan loop and clear timers on unmount
+  // Stop scan loop and clear timers on unmount
   useEffect(() => {
-    loadScans()
     return () => {
       scanningRef.current = false
       if (successTimerRef.current) clearTimeout(successTimerRef.current)
@@ -103,15 +91,6 @@ export function ScannerPage() {
       }
     }
   }, [])
-
-  async function loadScans() {
-    try {
-      const result = await getRecentScans(50)
-      setScans(result as Scan[])
-    } catch (err) {
-      console.error('Failed to load scans:', err)
-    }
-  }
 
   async function startCamera() {
     try {
@@ -217,7 +196,6 @@ export function ScannerPage() {
         showError(t('scanRecordError'))
         return 'error'
       }
-      setScans((prev) => [res.data as Scan, ...prev])
       return 'saved'
     } catch (err) {
       showError(t('scanRecordError'))
@@ -355,19 +333,6 @@ export function ScannerPage() {
         }
         return
       }
-      // Prepend a synthetic scan row to local state — no refetch needed
-      const { data } = res
-      setScans((prev) => [
-        {
-          id: data.id,
-          artNumber: data.artNumber,
-          colorNumber: data.colorNumber,
-          sizeNumber: data.sizeNumber,
-          quantity: data.quantity,
-          scannedAt: data.createdAt,
-        } as Scan,
-        ...prev,
-      ])
       setManualForm({ artNumber: '', colorNumber: '', sizeNumber: '', quantity: 1, notes: '' })
       showSuccess(t('manualEntrySuccess'))
     } catch (err) {
@@ -378,50 +343,15 @@ export function ScannerPage() {
     }
   }
 
-  async function handleDeleteScan(scanId: number) {
-    try {
-      await deleteScan(scanId)
-      setScans((prev) => prev.filter((s) => s.id !== scanId))
-    } catch (err) {
-      showError(err instanceof Error ? err.message : t('scanRecordError'))
-    }
-  }
-
-  async function handleUpdateQuantity(scanId: number, newQuantity: number) {
-    if (newQuantity < 1) return
-
-    try {
-      await updateScanQuantity(scanId, newQuantity)
-      setScans((prev) =>
-        prev.map((s) => (s.id === scanId ? { ...s, quantity: newQuantity } : s))
-      )
-    } catch (err) {
-      showError(err instanceof Error ? err.message : t('scanRecordError'))
-    }
-  }
-
-  // Group scans by art/color/size
-  const groupedScans = scans.reduce(
-    (acc, scan) => {
-      const key = `${scan.artNumber}-${scan.colorNumber}-${scan.sizeNumber}`
-      if (!acc[key]) {
-        acc[key] = { ...scan, quantity: 0 }
-      }
-      acc[key].quantity += scan.quantity
-      return acc
-    },
-    {} as Record<string, Scan>
-  )
-
   return (
     <main className="min-h-screen bg-background p-3 sm:p-4 md:p-6">
       <div className="mx-auto max-w-6xl space-y-4 sm:space-y-6">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
+        <div className="flex flex-col items-end gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="w-full">
             <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">{t('warehouseScanner')}</h1>
             <p className="text-sm text-muted-foreground">{t('scannerSubtitle')}</p>
           </div>
-          <div className="flex gap-2 items-center flex-wrap">
+          <div className="flex gap-2 items-center shrink-0 justify-end">
             <LanguageToggle />
             <Button variant="outline" size="sm" onClick={() => router.push('/dashboard')}>
               {t('dashboardLink')}
@@ -433,10 +363,9 @@ export function ScannerPage() {
         </div>
 
         <Tabs defaultValue="camera" className="w-full">
-          <TabsList className="grid w-full grid-cols-3">
+          <TabsList className="grid w-full grid-cols-2">
             <TabsTrigger value="camera">{t('cameraTab')}</TabsTrigger>
             <TabsTrigger value="manual">{t('manualTab')}</TabsTrigger>
-            <TabsTrigger value="inventory">{t('inventoryTab')}</TabsTrigger>
           </TabsList>
 
           {/* Camera Tab */}
@@ -673,90 +602,6 @@ export function ScannerPage() {
                     </Button>
                   </div>
                 </form>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* Inventory Tab */}
-          <TabsContent value="inventory" className="space-y-4">
-            <Card>
-              <CardHeader>
-                <CardTitle>{t('scannedInventory')}</CardTitle>
-                <CardDescription>
-                  {scans.length} {t('totalScannedItems')}, {Object.keys(groupedScans).length} {t('uniqueItemsScanned')}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="px-0 sm:px-6">
-                {scans.length === 0 ? (
-                  <div className="text-center py-8 text-sm text-muted-foreground px-3">
-                    {t('noScansYet')}
-                  </div>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead className="text-xs sm:text-sm px-3 sm:px-4">{t('artNumberCol')}</TableHead>
-                          <TableHead className="text-xs sm:text-sm px-3 sm:px-4">{t('colorCol')}</TableHead>
-                          <TableHead className="text-xs sm:text-sm px-3 sm:px-4">{t('sizeCol')}</TableHead>
-                          <TableHead className="text-xs sm:text-sm px-3 sm:px-4 text-right">{t('qtyCol')}</TableHead>
-                          <TableHead className="text-xs sm:text-sm px-3 sm:px-4 text-right">{t('actionsCol')}</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {scans.map((scan) => (
-                          <TableRow key={scan.id}>
-                            <TableCell className="font-mono text-xs sm:text-sm px-3 sm:px-4">
-                              {scan.artNumber || '-'}
-                            </TableCell>
-                            <TableCell className="font-mono text-xs sm:text-sm px-3 sm:px-4">
-                              {scan.colorNumber || '-'}
-                            </TableCell>
-                            <TableCell className="font-mono text-xs sm:text-sm px-3 sm:px-4">
-                              {scan.sizeNumber || '-'}
-                            </TableCell>
-                            <TableCell className="text-right px-3 sm:px-4">
-                              <div className="flex items-center justify-end gap-0.5 sm:gap-1">
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="h-7 w-7 p-0 sm:h-8 sm:w-8"
-                                  onClick={() =>
-                                    handleUpdateQuantity(scan.id, scan.quantity - 1)
-                                  }
-                                  disabled={scan.quantity <= 1}
-                                >
-                                  −
-                                </Button>
-                                <span className="w-6 sm:w-8 text-center text-xs sm:text-sm">{scan.quantity}</span>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="h-7 w-7 p-0 sm:h-8 sm:w-8"
-                                  onClick={() =>
-                                    handleUpdateQuantity(scan.id, scan.quantity + 1)
-                                  }
-                                >
-                                  +
-                                </Button>
-                              </div>
-                            </TableCell>
-                            <TableCell className="text-right px-3 sm:px-4">
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-7 px-2 text-xs sm:h-8 sm:px-3 sm:text-sm"
-                                onClick={() => handleDeleteScan(scan.id)}
-                              >
-                                {t('delete')}
-                              </Button>
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
-                )}
               </CardContent>
             </Card>
           </TabsContent>

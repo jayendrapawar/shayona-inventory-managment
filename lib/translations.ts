@@ -25,6 +25,36 @@ export const translations = {
     differentSKUs: 'different SKUs',
     avgPerItem: 'Avg Per Item',
     unitsPerSKU: 'units per SKU',
+    // Dashboard tabs
+    scannedInventoryTab: 'Scanned Inventory',
+    overallStockTab: 'Overall Stock',
+
+    // Scanned Inventory KPIs
+    totalItemsScanned: 'Total Items Scanned',
+    unitsScanned: 'units scanned',
+    uniqueItemsScannedKPI: 'Unique Items Scanned',
+    avgPerItemScanned: 'Avg Per Item Scanned',
+
+    // Overall Stock KPIs
+    totalStockItems: 'Total Stock Items',
+    totalUnits: 'total units',
+    uniqueSKUs: 'Unique SKUs',
+    totalLocations: 'Total Locations',
+    storageLocations: 'storage locations',
+    lowStockItems: 'Low Stock Items',
+    itemsBelowThreshold: 'items below threshold',
+
+    // Overall Stock table labels
+    overallStockTitle: 'Overall Stock',
+    overallStockDesc: 'Overview of total stock across all users and locations.',
+    filteredByAllUsers: 'Filtered by: All Users',
+    filteredByCurrentUser: 'Filtered by: Current User',
+    scannedInventoryTitle: 'Scanned Inventory',
+    scannedInventoryDesc: 'Overview of inventory scanned in this session.',
+    totalQuantityCol: 'Total Quantity',
+    totalScansCol: 'Total Scans',
+    lastUpdatedCol: 'Last Updated',
+
     searchPlaceholder: 'Search by art, color, or size number...',
     addManualEntry: 'Add Manual Entry',
     exportToCSV: 'Export to CSV',
@@ -116,6 +146,37 @@ export const translations = {
     differentSKUs: 'अलग SKU',
     avgPerItem: 'प्रति आइटम औसत',
     unitsPerSKU: 'प्रति SKU इकाइयाँ',
+
+    // Dashboard tabs
+    scannedInventoryTab: 'स्कैन की गई इन्वेंटरी',
+    overallStockTab: 'कुल स्टॉक',
+
+    // Scanned Inventory KPIs
+    totalItemsScanned: 'कुल स्कैन किए गए आइटम',
+    unitsScanned: 'इकाइयाँ स्कैन हुईं',
+    uniqueItemsScannedKPI: 'अद्वितीय आइटम स्कैन',
+    avgPerItemScanned: 'प्रति आइटम औसत स्कैन',
+
+    // Overall Stock KPIs
+    totalStockItems: 'कुल स्टॉक आइटम',
+    totalUnits: 'कुल इकाइयाँ',
+    uniqueSKUs: 'अद्वितीय SKU',
+    totalLocations: 'कुल स्थान',
+    storageLocations: 'भंडारण स्थान',
+    lowStockItems: 'कम स्टॉक आइटम',
+    itemsBelowThreshold: 'सीमा से नीचे',
+
+    // Overall Stock table labels
+    overallStockTitle: 'कुल स्टॉक',
+    overallStockDesc: 'सभी उपयोगकर्ताओं और स्थानों में कुल स्टॉक का अवलोकन।',
+    filteredByAllUsers: 'सभी उपयोगकर्ताओं द्वारा फ़िल्टर',
+    filteredByCurrentUser: 'वर्तमान उपयोगकर्ता द्वारा फ़िल्टर',
+    scannedInventoryTitle: 'स्कैन की गई इन्वेंटरी',
+    scannedInventoryDesc: 'इस सत्र में स्कैन की गई इन्वेंटरी का अवलोकन।',
+    totalQuantityCol: 'कुल मात्रा',
+    totalScansCol: 'कुल स्कैन',
+    lastUpdatedCol: 'अंतिम अपडेट',
+
     searchPlaceholder: 'आर्ट, रंग या साइज़ नंबर से खोजें...',
     addManualEntry: 'मैनुअल प्रविष्टि जोड़ें',
     exportToCSV: 'CSV में निर्यात करें',

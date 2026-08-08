@@ -3,7 +3,7 @@
 import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
 import { scans, manualEntries } from '@/lib/db/schema'
-import { and, eq, isNull, desc, ilike, sql } from 'drizzle-orm'
+import { and, eq, isNull, desc, sql } from 'drizzle-orm'
 import { headers } from 'next/headers'
 import { revalidatePath } from 'next/cache'
 import { DUPLICATE_ENTRY_ERROR } from '@/lib/errors'
@@ -56,9 +56,9 @@ export async function getInventorySummary() {
       const key = `${scan.artNumber}-${scan.colorNumber}-${scan.sizeNumber}`
       if (!acc[key]) {
         acc[key] = {
-          artNumber: scan.artNumber,
-          colorNumber: scan.colorNumber,
-          sizeNumber: scan.sizeNumber,
+          artNumber: scan.artNumber ?? undefined,
+          colorNumber: scan.colorNumber ?? undefined,
+          sizeNumber: scan.sizeNumber ?? undefined,
           quantity: 0,
           lastScanned: scan.scannedAt,
           count: 0,
@@ -222,4 +222,91 @@ export async function getStatistics() {
     uniqueItems,
     scansLast24h,
   }
+}
+
+// ---------------------------------------------------------------------------
+// Overall Stock — aggregated across ALL users
+// ---------------------------------------------------------------------------
+
+export interface OverallStockItem {
+  artNumber: string | undefined
+  colorNumber: string | undefined
+  sizeNumber: string | undefined
+  totalQuantity: number
+  totalScans: number
+  lastUpdated: Date
+}
+
+export interface OverallStockStats {
+  totalStockItems: number   // total units across all users
+  uniqueSKUs: number        // distinct (art, color, size) combinations
+  totalLocations: number    // distinct users who have scanned
+  lowStockItems: number     // SKUs whose total quantity ≤ 5
+}
+
+export async function getOverallStockSummary(): Promise<OverallStockItem[]> {
+  // Auth check — user must be logged in to view overall stock
+  await getUserId()
+
+  const allScans = await db.select().from(scans)
+
+  const map: Record<string, OverallStockItem> = {}
+  for (const scan of allScans) {
+    const key = `${scan.artNumber ?? ''}-${scan.colorNumber ?? ''}-${scan.sizeNumber ?? ''}`
+    if (!map[key]) {
+      map[key] = {
+        artNumber: scan.artNumber ?? undefined,
+        colorNumber: scan.colorNumber ?? undefined,
+        sizeNumber: scan.sizeNumber ?? undefined,
+        totalQuantity: 0,
+        totalScans: 0,
+        lastUpdated: scan.scannedAt,
+      }
+    }
+    map[key].totalQuantity += scan.quantity
+    map[key].totalScans += 1
+    if (scan.scannedAt > map[key].lastUpdated) {
+      map[key].lastUpdated = scan.scannedAt
+    }
+  }
+
+  return Object.values(map)
+}
+
+export async function getOverallStockStats(): Promise<OverallStockStats> {
+  await getUserId()
+
+  const allScans = await db.select().from(scans)
+
+  const skuMap: Record<string, { quantity: number }> = {}
+  const userSet = new Set<string>()
+
+  for (const scan of allScans) {
+    const key = `${scan.artNumber ?? ''}-${scan.colorNumber ?? ''}-${scan.sizeNumber ?? ''}`
+    if (!skuMap[key]) skuMap[key] = { quantity: 0 }
+    skuMap[key].quantity += scan.quantity
+    userSet.add(scan.userId)
+  }
+
+  const totalStockItems = Object.values(skuMap).reduce((s, v) => s + v.quantity, 0)
+  const uniqueSKUs = Object.keys(skuMap).length
+  const totalLocations = userSet.size
+  const lowStockItems = Object.values(skuMap).filter((v) => v.quantity <= 5).length
+
+  return { totalStockItems, uniqueSKUs, totalLocations, lowStockItems }
+}
+
+export async function exportOverallStockToCSV(): Promise<Record<string, string | number>[]> {
+  await getUserId()
+
+  const allScans = await db.select().from(scans).orderBy(desc(scans.createdAt))
+
+  return allScans.map((scan) => ({
+    'Art Number': scan.artNumber ?? '',
+    'Color Number': scan.colorNumber ?? '',
+    'Size Number': scan.sizeNumber ?? '',
+    Quantity: scan.quantity,
+    'User ID': scan.userId,
+    'Scanned At': scan.scannedAt.toISOString(),
+  }))
 }
