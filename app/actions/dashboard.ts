@@ -2,27 +2,21 @@
 
 import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
-import { scans, manualEntries } from '@/lib/db/schema'
+import { scans } from '@/lib/db/schema'
 import { and, eq, isNull, desc, sql } from 'drizzle-orm'
 import { headers } from 'next/headers'
 import { revalidatePath } from 'next/cache'
 import { DUPLICATE_ENTRY_ERROR } from '@/lib/errors'
 
-async function getUserId() {
+async function getUser() {
   const session = await auth.api.getSession({ headers: await headers() })
   if (!session?.user) throw new Error('Unauthorized')
-  return session.user.id
+  return { id: session.user.id, name: session.user.name ?? null }
 }
 
 export async function searchInventory(query: string) {
-  const userId = await getUserId()
-
   if (!query.trim()) {
-    return db
-      .select()
-      .from(scans)
-      .where(eq(scans.userId, userId))
-      .orderBy(desc(scans.createdAt))
+    return db.select().from(scans).orderBy(desc(scans.createdAt))
   }
 
   const q = `%${query.trim()}%`
@@ -30,27 +24,25 @@ export async function searchInventory(query: string) {
     .select()
     .from(scans)
     .where(
-      and(
-        eq(scans.userId, userId),
-        sql`(
-          ${scans.artNumber} ILIKE ${q} OR
-          ${scans.colorNumber} ILIKE ${q} OR
-          ${scans.sizeNumber} ILIKE ${q}
-        )`
-      )
+      sql`(
+        ${scans.artNumber} ILIKE ${q} OR
+        ${scans.colorNumber} ILIKE ${q} OR
+        ${scans.sizeNumber} ILIKE ${q}
+      )`
     )
     .orderBy(desc(scans.createdAt))
 }
 
 export async function getInventorySummary() {
-  const userId = await getUserId()
+  // Scanned tab shows only the current user's scans
+  const user = await getUser()
 
   const scanData = await db
     .select()
     .from(scans)
-    .where(eq(scans.userId, userId))
+    .where(eq(scans.scannedByName, user.name ?? ''))
 
-  // Group and aggregate
+  // Group and aggregate; new fields taken from the first scan for each SKU key
   const summary = scanData.reduce(
     (acc, scan) => {
       const key = `${scan.artNumber}-${scan.colorNumber}-${scan.sizeNumber}`
@@ -59,6 +51,12 @@ export async function getInventorySummary() {
           artNumber: scan.artNumber ?? undefined,
           colorNumber: scan.colorNumber ?? undefined,
           sizeNumber: scan.sizeNumber ?? undefined,
+          division: scan.division ?? undefined,
+          mrp: scan.mrp != null ? Number(scan.mrp) : undefined,
+          mfgMonth: scan.mfgMonth ?? undefined,
+          mfgYear: scan.mfgYear ?? undefined,
+          scannedByName: scan.scannedByName ?? undefined,
+          entryType: scan.entryType,
           quantity: 0,
           lastScanned: scan.scannedAt,
           count: 0,
@@ -77,6 +75,12 @@ export async function getInventorySummary() {
         artNumber?: string
         colorNumber?: string
         sizeNumber?: string
+        division?: string
+        mrp?: number
+        mfgMonth?: number
+        mfgYear?: number
+        scannedByName?: string
+        entryType: string
         quantity: number
         lastScanned: Date
         count: number
@@ -88,10 +92,10 @@ export async function getInventorySummary() {
 }
 
 export type AddManualEntryResult =
-  | { ok: true; data: typeof manualEntries.$inferSelect }
+  | { ok: true; data: typeof scans.$inferSelect }
   | { ok: false; error: typeof DUPLICATE_ENTRY_ERROR | 'ERROR' }
 
-// Nullable-safe equality helper (mirrors the one in scan.ts)
+// Nullable-safe equality helper
 function colEq(col: Parameters<typeof eq>[0], val: string | undefined) {
   return val ? eq(col, val) : isNull(col)
 }
@@ -103,54 +107,40 @@ export async function addManualEntry(
   quantity: number,
   notes?: string
 ): Promise<AddManualEntryResult> {
-  const userId = await getUserId()
+  const user = await getUser()
 
-  // Normalize inputs the same way QR codes are — trim + uppercase
+  // Normalize inputs
   const art = artNumber.trim().toUpperCase() || undefined
   const color = colorNumber.trim().toUpperCase() || undefined
   const size = sizeNumber.trim().toUpperCase() || undefined
 
-  // Check for duplicate across both scans and manual_entries tables
-  const [existingInScans, existingInManual] = await Promise.all([
-    db
-      .select({ id: scans.id })
-      .from(scans)
-      .where(
-        and(
-          eq(scans.userId, userId),
-          colEq(scans.artNumber, art),
-          colEq(scans.colorNumber, color),
-          colEq(scans.sizeNumber, size)
-        )
+  // Duplicate check — same Art + Color + Size anywhere in scans
+  const existing = await db
+    .select({ id: scans.id })
+    .from(scans)
+    .where(
+      and(
+        colEq(scans.artNumber, art),
+        colEq(scans.colorNumber, color),
+        colEq(scans.sizeNumber, size)
       )
-      .limit(1),
-    db
-      .select({ id: manualEntries.id })
-      .from(manualEntries)
-      .where(
-        and(
-          eq(manualEntries.userId, userId),
-          colEq(manualEntries.artNumber, art),
-          colEq(manualEntries.colorNumber, color),
-          colEq(manualEntries.sizeNumber, size)
-        )
-      )
-      .limit(1),
-  ])
+    )
+    .limit(1)
 
-  if (existingInScans.length > 0 || existingInManual.length > 0) {
+  if (existing.length > 0) {
     return { ok: false, error: DUPLICATE_ENTRY_ERROR }
   }
 
   const rows = await db
-    .insert(manualEntries)
+    .insert(scans)
     .values({
-      userId,
+      entryType: 'manual',
       artNumber: art ?? artNumber,
       colorNumber: color ?? colorNumber,
       sizeNumber: size ?? sizeNumber,
-      quantity,
+      scannedByName: user.name ?? undefined,
       notes,
+      quantity,
     })
     .returning()
 
@@ -158,53 +148,8 @@ export async function addManualEntry(
   return { ok: true, data: rows[0] }
 }
 
-export async function getManualEntries() {
-  const userId = await getUserId()
-  return db
-    .select()
-    .from(manualEntries)
-    .where(eq(manualEntries.userId, userId))
-    .orderBy(desc(manualEntries.createdAt))
-}
-
-export async function deleteManualEntry(entryId: number) {
-  const userId = await getUserId()
-  await db
-    .delete(manualEntries)
-    .where(and(eq(manualEntries.id, entryId), eq(manualEntries.userId, userId)))
-
-  revalidatePath('/dashboard')
-}
-
-export async function exportToExcel() {
-  const userId = await getUserId()
-
-  const scanData = await db
-    .select()
-    .from(scans)
-    .where(eq(scans.userId, userId))
-    .orderBy(desc(scans.createdAt))
-
-  // Prepare data for export
-  const rows = scanData.map((scan) => ({
-    'Art Number': scan.artNumber || '',
-    'Color Number': scan.colorNumber || '',
-    'Size Number': scan.sizeNumber || '',
-    Quantity: scan.quantity,
-    'Scanned At': scan.scannedAt.toISOString(),
-    'Raw QR': scan.rawQrCode,
-  }))
-
-  return rows
-}
-
 export async function getStatistics() {
-  const userId = await getUserId()
-
-  const scanData = await db
-    .select()
-    .from(scans)
-    .where(eq(scans.userId, userId))
+  const scanData = await db.select().from(scans)
 
   const totalScans = scanData.length
   const totalItems = scanData.reduce((sum, scan) => sum + scan.quantity, 0)
@@ -212,42 +157,37 @@ export async function getStatistics() {
     scanData.map((s) => `${s.artNumber}-${s.colorNumber}-${s.sizeNumber}`)
   ).size
 
-  // Get scans from last 24 hours
   const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000)
   const scansLast24h = scanData.filter((s) => new Date(s.scannedAt) > oneDayAgo).length
 
-  return {
-    totalScans,
-    totalItems,
-    uniqueItems,
-    scansLast24h,
-  }
+  return { totalScans, totalItems, uniqueItems, scansLast24h }
 }
 
 // ---------------------------------------------------------------------------
-// Overall Stock — aggregated across ALL users
+// Overall Stock — aggregated across ALL entries (scan + manual)
 // ---------------------------------------------------------------------------
 
 export interface OverallStockItem {
   artNumber: string | undefined
   colorNumber: string | undefined
   sizeNumber: string | undefined
+  division: string | undefined
+  mrp: number | undefined
+  mfgMonth: number | undefined
+  mfgYear: number | undefined
   totalQuantity: number
   totalScans: number
   lastUpdated: Date
 }
 
 export interface OverallStockStats {
-  totalStockItems: number   // total units across all users
+  totalStockItems: number   // total units across all entries
   uniqueSKUs: number        // distinct (art, color, size) combinations
-  totalLocations: number    // distinct users who have scanned
+  totalLocations: number    // distinct scannedByName values
   lowStockItems: number     // SKUs whose total quantity ≤ 5
 }
 
 export async function getOverallStockSummary(): Promise<OverallStockItem[]> {
-  // Auth check — user must be logged in to view overall stock
-  await getUserId()
-
   const allScans = await db.select().from(scans)
 
   const map: Record<string, OverallStockItem> = {}
@@ -258,6 +198,10 @@ export async function getOverallStockSummary(): Promise<OverallStockItem[]> {
         artNumber: scan.artNumber ?? undefined,
         colorNumber: scan.colorNumber ?? undefined,
         sizeNumber: scan.sizeNumber ?? undefined,
+        division: scan.division ?? undefined,
+        mrp: scan.mrp != null ? Number(scan.mrp) : undefined,
+        mfgMonth: scan.mfgMonth ?? undefined,
+        mfgYear: scan.mfgYear ?? undefined,
         totalQuantity: 0,
         totalScans: 0,
         lastUpdated: scan.scannedAt,
@@ -274,39 +218,59 @@ export async function getOverallStockSummary(): Promise<OverallStockItem[]> {
 }
 
 export async function getOverallStockStats(): Promise<OverallStockStats> {
-  await getUserId()
-
   const allScans = await db.select().from(scans)
 
   const skuMap: Record<string, { quantity: number }> = {}
-  const userSet = new Set<string>()
+  const nameSet = new Set<string>()
 
   for (const scan of allScans) {
     const key = `${scan.artNumber ?? ''}-${scan.colorNumber ?? ''}-${scan.sizeNumber ?? ''}`
     if (!skuMap[key]) skuMap[key] = { quantity: 0 }
     skuMap[key].quantity += scan.quantity
-    userSet.add(scan.userId)
+    if (scan.scannedByName) nameSet.add(scan.scannedByName)
   }
 
   const totalStockItems = Object.values(skuMap).reduce((s, v) => s + v.quantity, 0)
   const uniqueSKUs = Object.keys(skuMap).length
-  const totalLocations = userSet.size
+  const totalLocations = nameSet.size
   const lowStockItems = Object.values(skuMap).filter((v) => v.quantity <= 5).length
 
   return { totalStockItems, uniqueSKUs, totalLocations, lowStockItems }
 }
 
-export async function exportOverallStockToCSV(): Promise<Record<string, string | number>[]> {
-  await getUserId()
+export async function exportToExcel(): Promise<Record<string, string | number>[]> {
+  const scanData = await db.select().from(scans).orderBy(desc(scans.createdAt))
 
-  const allScans = await db.select().from(scans).orderBy(desc(scans.createdAt))
-
-  return allScans.map((scan) => ({
+  return scanData.map((scan) => ({
+    'Entry Type': scan.entryType,
     'Art Number': scan.artNumber ?? '',
     'Color Number': scan.colorNumber ?? '',
     'Size Number': scan.sizeNumber ?? '',
+    Division: scan.division ?? '',
+    MRP: scan.mrp != null ? Number(scan.mrp) : '',
+    'Mfg Month': scan.mfgMonth ?? '',
+    'Mfg Year': scan.mfgYear ?? '',
+    'Scanned By': scan.scannedByName ?? '',
     Quantity: scan.quantity,
-    'User ID': scan.userId,
+    'Scanned At': scan.scannedAt.toISOString(),
+    'Raw QR': scan.rawQrCode ?? '',
+  }))
+}
+
+export async function exportOverallStockToCSV(): Promise<Record<string, string | number>[]> {
+  const allScans = await db.select().from(scans).orderBy(desc(scans.createdAt))
+
+  return allScans.map((scan) => ({
+    'Entry Type': scan.entryType,
+    'Art Number': scan.artNumber ?? '',
+    'Color Number': scan.colorNumber ?? '',
+    'Size Number': scan.sizeNumber ?? '',
+    Division: scan.division ?? '',
+    MRP: scan.mrp != null ? Number(scan.mrp) : '',
+    'Mfg Month': scan.mfgMonth ?? '',
+    'Mfg Year': scan.mfgYear ?? '',
+    'Scanned By': scan.scannedByName ?? '',
+    Quantity: scan.quantity,
     'Scanned At': scan.scannedAt.toISOString(),
   }))
 }
