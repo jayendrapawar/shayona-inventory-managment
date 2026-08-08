@@ -89,6 +89,7 @@ export const translations = {
     manualScanSuccess: 'Scan recorded successfully!',
     cameraScanSuccess: 'QR code scanned successfully!',
     cameraScanning: 'Scanning for QR code...',
+    flashlightNotSupported: 'Flashlight not supported on this device.',
   },
 
   hi: {
@@ -179,6 +180,7 @@ export const translations = {
     manualScanSuccess: 'स्कैन सफलतापूर्वक दर्ज हो गया!',
     cameraScanSuccess: 'QR कोड सफलतापूर्वक स्कैन हो गया!',
     cameraScanning: 'QR कोड खोजा जा रहा है...',
+    flashlightNotSupported: 'इस डिवाइस पर फ्लैशलाइट समर्थित नहीं है।',
   },
 } as const
 

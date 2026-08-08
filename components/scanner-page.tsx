@@ -31,6 +31,7 @@ export function ScannerPage() {
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [isCameraActive, setIsCameraActive] = useState(false)
+  const [isFlashlightOn, setIsFlashlightOn] = useState(false)
   const [manualForm, setManualForm] = useState({
     artNumber: '',
     colorNumber: '',
@@ -42,10 +43,12 @@ export function ScannerPage() {
   const [scans, setScans] = useState<Scan[]>([])
   const [error, setError] = useState<string | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
+  const flashlightStreamRef = useRef<MediaStream | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [uploadProcessing, setUploadProcessing] = useState(false)
   const [successMsg, setSuccessMsg] = useState<string | null>(null)
   const [warnMsg, setWarnMsg] = useState<string | null>(null)
+  const [infoMsg, setInfoMsg] = useState<string | null>(null)
   const successTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // Controls the rAF scan loop — set to false to break it without relying on stale state
   const scanningRef = useRef(false)
@@ -66,10 +69,20 @@ export function ScannerPage() {
     successTimerRef.current = setTimeout(() => setWarnMsg(null), 4000)
   }
 
+  function showInfo(msg: string) {
+    if (successTimerRef.current) clearTimeout(successTimerRef.current)
+    setError(null)
+    setSuccessMsg(null)
+    setWarnMsg(null)
+    setInfoMsg(msg)
+    successTimerRef.current = setTimeout(() => setInfoMsg(null), 4000)
+  }
+
   function showError(msg: string) {
     if (successTimerRef.current) clearTimeout(successTimerRef.current)
     setSuccessMsg(null)
     setWarnMsg(null)
+    setInfoMsg(null)
     setError(msg)
   }
 
@@ -84,6 +97,10 @@ export function ScannerPage() {
     return () => {
       scanningRef.current = false
       if (successTimerRef.current) clearTimeout(successTimerRef.current)
+      if (flashlightStreamRef.current) {
+        flashlightStreamRef.current.getTracks().forEach((t) => t.stop())
+        flashlightStreamRef.current = null
+      }
     }
   }, [])
 
@@ -209,9 +226,67 @@ export function ScannerPage() {
     }
   }
 
+  async function toggleFlashlight() {
+    if (!isFlashlightOn) {
+      // Turn ON — reuse the active camera stream if available, otherwise open a dedicated one
+      try {
+        let track: MediaStreamTrack | undefined
+        if (streamRef.current) {
+          track = streamRef.current.getVideoTracks()[0]
+        } else {
+          const stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: 'environment' },
+            audio: false,
+          })
+          flashlightStreamRef.current = stream
+          track = stream.getVideoTracks()[0]
+        }
+        if (!track) return
+        await track.applyConstraints({ advanced: [{ torch: true } as MediaTrackConstraintSet] })
+        setIsFlashlightOn(true)
+      } catch (err) {
+        console.error('Torch not supported:', err)
+        // Clean up dedicated stream if we opened one
+        if (flashlightStreamRef.current) {
+          flashlightStreamRef.current.getTracks().forEach((t) => t.stop())
+          flashlightStreamRef.current = null
+        }
+        showInfo(t('flashlightNotSupported'))
+      }
+    } else {
+      // Turn OFF
+      const track =
+        (streamRef.current ?? flashlightStreamRef.current)?.getVideoTracks()[0]
+      if (track) {
+        track.applyConstraints({ advanced: [{ torch: false } as MediaTrackConstraintSet] }).catch(() => {})
+      }
+      // Release the dedicated stream if we opened one (camera stream is managed separately)
+      if (flashlightStreamRef.current) {
+        flashlightStreamRef.current.getTracks().forEach((t) => t.stop())
+        flashlightStreamRef.current = null
+      }
+      setIsFlashlightOn(false)
+    }
+  }
+
   function stopCamera() {
     scanningRef.current = false
     if (streamRef.current) {
+      // If flashlight is on via the camera stream, keep torch state via dedicated stream before stopping
+      const cameraTrack = streamRef.current.getVideoTracks()[0]
+      if (cameraTrack && isFlashlightOn && !flashlightStreamRef.current) {
+        // Hand off torch to a fresh dedicated stream so light stays on
+        navigator.mediaDevices
+          .getUserMedia({ video: { facingMode: 'environment' }, audio: false })
+          .then((stream) => {
+            flashlightStreamRef.current = stream
+            const t = stream.getVideoTracks()[0]
+            if (t) t.applyConstraints({ advanced: [{ torch: true } as MediaTrackConstraintSet] }).catch(() => {})
+          })
+          .catch(() => {
+            setIsFlashlightOn(false)
+          })
+      }
       streamRef.current.getTracks().forEach((track) => track.stop())
       streamRef.current = null
     }
@@ -368,8 +443,49 @@ export function ScannerPage() {
           <TabsContent value="camera" className="space-y-4">
             <Card>
               <CardHeader>
-                <CardTitle>{t('qrCodeScanner')}</CardTitle>
-                <CardDescription>{t('qrScannerDesc')}</CardDescription>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle>{t('qrCodeScanner')}</CardTitle>
+                    <CardDescription>{t('qrScannerDesc')}</CardDescription>
+                  </div>
+                  <div className="flex items-center gap-2 rounded-full border px-3 py-1.5 bg-background shadow-sm">
+                      <span className="text-xs font-medium text-muted-foreground">OFF</span>
+                      <button
+                        type="button"
+                        aria-label="Toggle flashlight"
+                        onClick={toggleFlashlight}
+                        className={`relative inline-flex h-7 w-14 items-center rounded-full transition-colors focus-visible:outline-none ${
+                          isFlashlightOn ? 'bg-green-500' : 'bg-muted'
+                        }`}
+                      >
+                        <span
+                          className={`inline-flex h-6 w-6 items-center justify-center rounded-full bg-white shadow transition-transform ${
+                            isFlashlightOn ? 'translate-x-7' : 'translate-x-0.5'
+                          }`}
+                        >
+                          {/* Flashlight / torch icon */}
+                          <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke={isFlashlightOn ? '#16a34a' : '#9ca3af'}
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            className="h-3.5 w-3.5"
+                          >
+                            <path d="M18 6l-6 6" />
+                            <path d="M7 17l1.5-1.5" />
+                            <path d="M10.5 20.5l1-1" />
+                            <path d="M3.5 14.5l1-1" />
+                            <path d="M6 11l-2.5 2.5a4.95 4.95 0 0 0 7 7L13 18" />
+                            <path d="M22 2l-7 7" />
+                          </svg>
+                        </span>
+                      </button>
+                      <span className={`text-xs font-medium ${isFlashlightOn ? 'text-green-600' : 'text-muted-foreground'}`}>ON</span>
+                  </div>
+                </div>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="relative bg-black rounded-lg overflow-hidden aspect-video">
@@ -433,6 +549,12 @@ export function ScannerPage() {
                 {warnMsg && (
                   <div className="rounded-md bg-yellow-100 px-3 py-2 text-sm text-yellow-800 border border-yellow-300">
                     {warnMsg}
+                  </div>
+                )}
+
+                {infoMsg && (
+                  <div className="rounded-md bg-blue-100 px-3 py-2 text-sm text-blue-800 border border-blue-300">
+                    {infoMsg}
                   </div>
                 )}
 
