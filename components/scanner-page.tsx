@@ -49,6 +49,8 @@ export function ScannerPage() {
   const [userName, setUserName] = useState<string | null>(null)
   const [recentScans, setRecentScans] = useState<RecentScan[]>([])
   const [recentLoading, setRecentLoading] = useState(false)
+  const [lastCameraScan, setLastCameraScan] = useState<RecentScan | null>(null)
+  const [lastManualEntry, setLastManualEntry] = useState<RecentScan | null>(null)
 
   // Load user name + initial recent scans on mount
   useEffect(() => {
@@ -191,8 +193,16 @@ export function ScannerPage() {
         return
       }
 
-      const status = await recordScanSafe(code.data)
-      if (status === 'saved') {
+       const res = await recordScan(code.data)
+      if (!res.ok) {
+        if (res.error === DUPLICATE_QR_ERROR) {
+          const who = res.scannedByName
+          showWarning(who ? `${t('duplicateByUser')} ${who}` : t('duplicateQR'))
+        } else {
+          showError(t('scanRecordError'))
+        }
+      } else {
+        setLastCameraScan(res.data)
         showSuccess(t('scanSuccess'))
         loadRecentScans()
       }
@@ -202,29 +212,6 @@ export function ScannerPage() {
     } finally {
       setUploadProcessing(false)
       if (fileInputRef.current) fileInputRef.current.value = ''
-    }
-  }
-
-  async function recordScanSafe(qrCode: string): Promise<'saved' | 'duplicate' | 'error'> {
-    try {
-      const res = await recordScan(qrCode)
-      if (!res.ok) {
-        if (res.error === DUPLICATE_QR_ERROR) {
-          const who = res.scannedByName
-          const msg = who
-            ? `${t('duplicateByUser')} ${who}`
-            : t('duplicateQR')
-          showWarning(msg)
-          return 'duplicate'
-        }
-        showError(t('scanRecordError'))
-        return 'error'
-      }
-      return 'saved'
-    } catch (err) {
-      showError(t('scanRecordError'))
-      console.error('recordScan error:', err)
-      return 'error'
     }
   }
 
@@ -321,11 +308,19 @@ export function ScannerPage() {
   }
 
   async function handleCameraScan(qrCode: string) {
-    const status = await recordScanSafe(qrCode)
-    if (status === 'saved') {
-      showSuccess(t('cameraScanSuccess'))
-      loadRecentScans()
+    const res = await recordScan(qrCode)
+    if (!res.ok) {
+      if (res.error === DUPLICATE_QR_ERROR) {
+        const who = res.scannedByName
+        showWarning(who ? `${t('duplicateByUser')} ${who}` : t('duplicateQR'))
+      } else {
+        showError(t('scanRecordError'))
+      }
+      return
     }
+    setLastCameraScan(res.data)
+    showSuccess(t('cameraScanSuccess'))
+    loadRecentScans()
   }
 
   async function handleManualForm(e: React.FormEvent) {
@@ -355,6 +350,7 @@ export function ScannerPage() {
         }
         return
       }
+      setLastManualEntry(res.data)
       setManualForm({ artNumber: '', colorNumber: '', sizeNumber: '', quantity: 1, notes: '' })
       showSuccess(t('manualEntrySuccess'))
       loadRecentScans()
@@ -364,6 +360,44 @@ export function ScannerPage() {
     } finally {
       setManualLoading(false)
     }
+  }
+
+  // ─── Last scan summary card ──────────────────────────────────────────────
+
+  function LastScannedCard({ scan, label }: { scan: RecentScan; label: string }) {
+    return (
+      <div className="rounded-xl border bg-zinc-900 text-white p-4 space-y-3">
+        <p className="text-[10px] font-semibold tracking-widest uppercase text-zinc-400">{label}</p>
+        <div className="grid grid-cols-2 gap-x-6 gap-y-3">
+          <div>
+            <p className="text-[11px] text-zinc-400 mb-0.5">Article</p>
+            <p className="text-base font-bold leading-tight">{scan.artNumber || '—'}</p>
+          </div>
+          <div>
+            <p className="text-[11px] text-zinc-400 mb-0.5">Color</p>
+            <p className="text-base font-bold leading-tight">{scan.colorNumber || '—'}</p>
+          </div>
+          <div>
+            <p className="text-[11px] text-zinc-400 mb-0.5">Size</p>
+            <p className="text-base font-bold leading-tight">{scan.sizeNumber || '—'}</p>
+          </div>
+          <div>
+            <p className="text-[11px] text-zinc-400 mb-0.5">MRP</p>
+            <p className="text-base font-bold leading-tight">
+              {scan.mrp != null ? `₹${Number(scan.mrp).toFixed(2)}` : '—'}
+            </p>
+          </div>
+          <div>
+            <p className="text-[11px] text-zinc-400 mb-0.5">Division</p>
+            <p className="text-base font-bold leading-tight">{scan.division || '—'}</p>
+          </div>
+          <div>
+            <p className="text-[11px] text-zinc-400 mb-0.5">By</p>
+            <p className="text-base font-bold leading-tight">{scan.scannedByName || '—'}</p>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   // ─── Shared feedback banners ─────────────────────────────────────────────
@@ -501,6 +535,9 @@ export function ScannerPage() {
                   {uploadProcessing ? t('uploadQRProcessing') : t('uploadQRImage')}
                 </Button>
                 <Banners />
+                {lastCameraScan && (
+                  <LastScannedCard scan={lastCameraScan} label="Last Scanned" />
+                )}
               </CardContent>
             </Card>
           </TabsContent>
@@ -573,6 +610,9 @@ export function ScannerPage() {
                     </div>
                   </div>
                   <Banners />
+                  {lastManualEntry && (
+                    <LastScannedCard scan={lastManualEntry} label="Last Added" />
+                  )}
                   <div className="flex gap-2">
                     <Button type="submit" className="w-full" disabled={manualLoading}>
                       {manualLoading ? t('recording') : t('addEntry')}
