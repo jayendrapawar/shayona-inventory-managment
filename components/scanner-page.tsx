@@ -610,9 +610,6 @@ export function ScannerPage() {
                     </div>
                   </div>
                   <Banners />
-                  {lastManualEntry && (
-                    <LastScannedCard scan={lastManualEntry} label="Last Added" />
-                  )}
                   <div className="flex gap-2">
                     <Button type="submit" className="w-full" disabled={manualLoading}>
                       {manualLoading ? t('recording') : t('addEntry')}
@@ -626,6 +623,9 @@ export function ScannerPage() {
                       {t('cancel')}
                     </Button>
                   </div>
+                  {lastManualEntry && (
+                    <LastScannedCard scan={lastManualEntry} label="Last Added" />
+                  )}
                 </form>
               </CardContent>
             </Card>
