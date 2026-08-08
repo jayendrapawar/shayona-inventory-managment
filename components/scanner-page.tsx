@@ -8,12 +8,16 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { recordScan } from '@/app/actions/scan'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Badge } from '@/components/ui/badge'
+import { recordScan, getCurrentUserName, getRecentScans } from '@/app/actions/scan'
 import { addManualEntry } from '@/app/actions/dashboard'
 import { DUPLICATE_QR_ERROR, DUPLICATE_ENTRY_ERROR } from '@/lib/errors'
 import { signOut } from '@/lib/auth-client'
 import { useLanguage } from '@/lib/language-context'
 import { LanguageToggle } from '@/components/language-toggle'
+
+type RecentScan = Awaited<ReturnType<typeof getRecentScans>>[number]
 
 export function ScannerPage() {
   const router = useRouter()
@@ -39,8 +43,30 @@ export function ScannerPage() {
   const [warnMsg, setWarnMsg] = useState<string | null>(null)
   const [infoMsg, setInfoMsg] = useState<string | null>(null)
   const successTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  // Controls the rAF scan loop — set to false to break it without relying on stale state
   const scanningRef = useRef(false)
+
+  // New state
+  const [userName, setUserName] = useState<string | null>(null)
+  const [recentScans, setRecentScans] = useState<RecentScan[]>([])
+  const [recentLoading, setRecentLoading] = useState(false)
+
+  // Load user name + initial recent scans on mount
+  useEffect(() => {
+    getCurrentUserName().then(setUserName).catch(() => {})
+    loadRecentScans()
+  }, [])
+
+  async function loadRecentScans() {
+    setRecentLoading(true)
+    try {
+      const data = await getRecentScans(50)
+      setRecentScans(data)
+    } catch {
+      // silently ignore
+    } finally {
+      setRecentLoading(false)
+    }
+  }
 
   function showSuccess(msg: string) {
     if (successTimerRef.current) clearTimeout(successTimerRef.current)
@@ -55,7 +81,7 @@ export function ScannerPage() {
     setError(null)
     setSuccessMsg(null)
     setWarnMsg(msg)
-    successTimerRef.current = setTimeout(() => setWarnMsg(null), 4000)
+    successTimerRef.current = setTimeout(() => setWarnMsg(null), 5000)
   }
 
   function showInfo(msg: string) {
@@ -111,7 +137,6 @@ export function ScannerPage() {
       setIsCameraActive(true)
       scanningRef.current = true
 
-      // Wait for the video to be ready before starting the scan loop
       const video = videoRef.current
       const startLoop = () => scanLoop(video)
       if (video.readyState >= 2) {
@@ -129,7 +154,6 @@ export function ScannerPage() {
     const file = e.target.files?.[0]
     if (!file) return
 
-    // Validate file type
     const allowed = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/bmp']
     if (!allowed.includes(file.type)) {
       showError(t('invalidImageFile'))
@@ -142,13 +166,11 @@ export function ScannerPage() {
     setError(null)
 
     try {
-      // Draw image onto canvas to extract pixel data
       let bitmap: ImageBitmap
       try {
         bitmap = await createImageBitmap(file)
       } catch {
         showError(t('invalidImageFile'))
-        // don't return early — let finally reset uploadProcessing
         bitmap = null as unknown as ImageBitmap
       }
 
@@ -169,12 +191,11 @@ export function ScannerPage() {
         return
       }
 
-      // QR decoded — now save to DB
       const status = await recordScanSafe(code.data)
       if (status === 'saved') {
         showSuccess(t('scanSuccess'))
+        loadRecentScans()
       }
-      // if not saved, recordScanSafe already called showError
     } catch (err) {
       showError(t('uploadQRError'))
       console.error('Image upload scan error:', err)
@@ -184,13 +205,16 @@ export function ScannerPage() {
     }
   }
 
-  // Saves a QR code to DB; returns 'saved' | 'duplicate' | 'error'
   async function recordScanSafe(qrCode: string): Promise<'saved' | 'duplicate' | 'error'> {
     try {
       const res = await recordScan(qrCode)
       if (!res.ok) {
         if (res.error === DUPLICATE_QR_ERROR) {
-          showWarning(t('duplicateQR'))
+          const who = res.scannedByName
+          const msg = who
+            ? `${t('duplicateByUser')} ${who}`
+            : t('duplicateQR')
+          showWarning(msg)
           return 'duplicate'
         }
         showError(t('scanRecordError'))
@@ -206,7 +230,6 @@ export function ScannerPage() {
 
   async function toggleFlashlight() {
     if (!isFlashlightOn) {
-      // Turn ON — reuse the active camera stream if available, otherwise open a dedicated one
       try {
         let track: MediaStreamTrack | undefined
         if (streamRef.current) {
@@ -224,7 +247,6 @@ export function ScannerPage() {
         setIsFlashlightOn(true)
       } catch (err) {
         console.error('Torch not supported:', err)
-        // Clean up dedicated stream if we opened one
         if (flashlightStreamRef.current) {
           flashlightStreamRef.current.getTracks().forEach((t) => t.stop())
           flashlightStreamRef.current = null
@@ -232,13 +254,11 @@ export function ScannerPage() {
         showInfo(t('flashlightNotSupported'))
       }
     } else {
-      // Turn OFF
       const track =
         (streamRef.current ?? flashlightStreamRef.current)?.getVideoTracks()[0]
       if (track) {
         track.applyConstraints({ advanced: [{ torch: false } as MediaTrackConstraintSet] }).catch(() => {})
       }
-      // Release the dedicated stream if we opened one (camera stream is managed separately)
       if (flashlightStreamRef.current) {
         flashlightStreamRef.current.getTracks().forEach((t) => t.stop())
         flashlightStreamRef.current = null
@@ -250,10 +270,8 @@ export function ScannerPage() {
   function stopCamera() {
     scanningRef.current = false
     if (streamRef.current) {
-      // If flashlight is on via the camera stream, keep torch state via dedicated stream before stopping
       const cameraTrack = streamRef.current.getVideoTracks()[0]
       if (cameraTrack && isFlashlightOn && !flashlightStreamRef.current) {
-        // Hand off torch to a fresh dedicated stream so light stays on
         navigator.mediaDevices
           .getUserMedia({ video: { facingMode: 'environment' }, audio: false })
           .then((stream) => {
@@ -261,9 +279,7 @@ export function ScannerPage() {
             const t = stream.getVideoTracks()[0]
             if (t) t.applyConstraints({ advanced: [{ torch: true } as MediaTrackConstraintSet] }).catch(() => {})
           })
-          .catch(() => {
-            setIsFlashlightOn(false)
-          })
+          .catch(() => { setIsFlashlightOn(false) })
       }
       streamRef.current.getTracks().forEach((track) => track.stop())
       streamRef.current = null
@@ -274,7 +290,6 @@ export function ScannerPage() {
   function scanLoop(video: HTMLVideoElement) {
     if (!scanningRef.current) return
 
-    // Skip frames where the video has no size yet
     if (video.videoWidth === 0 || video.videoHeight === 0) {
       requestAnimationFrame(() => scanLoop(video))
       return
@@ -307,7 +322,10 @@ export function ScannerPage() {
 
   async function handleCameraScan(qrCode: string) {
     const status = await recordScanSafe(qrCode)
-    if (status === 'saved') showSuccess(t('cameraScanSuccess'))
+    if (status === 'saved') {
+      showSuccess(t('cameraScanSuccess'))
+      loadRecentScans()
+    }
   }
 
   async function handleManualForm(e: React.FormEvent) {
@@ -327,7 +345,11 @@ export function ScannerPage() {
       )
       if (!res.ok) {
         if (res.error === DUPLICATE_ENTRY_ERROR) {
-          showWarning(t('duplicateQR'))
+          const who = res.scannedByName
+          const msg = who
+            ? `${t('duplicateByUser')} ${who}`
+            : t('duplicateQR')
+          showWarning(msg)
         } else {
           showError(t('scanRecordError'))
         }
@@ -335,6 +357,7 @@ export function ScannerPage() {
       }
       setManualForm({ artNumber: '', colorNumber: '', sizeNumber: '', quantity: 1, notes: '' })
       showSuccess(t('manualEntrySuccess'))
+      loadRecentScans()
     } catch (err) {
       showError(t('scanRecordError'))
       console.error('addManualEntry error:', err)
@@ -343,13 +366,48 @@ export function ScannerPage() {
     }
   }
 
+  // ─── Shared feedback banners ─────────────────────────────────────────────
+
+  function Banners() {
+    return (
+      <>
+        {successMsg && (
+          <div className="rounded-md bg-green-100 px-3 py-2 text-sm text-green-800 border border-green-300">
+            {successMsg}
+          </div>
+        )}
+        {warnMsg && (
+          <div className="rounded-md bg-yellow-100 px-3 py-2 text-sm text-yellow-800 border border-yellow-300">
+            {warnMsg}
+          </div>
+        )}
+        {infoMsg && (
+          <div className="rounded-md bg-blue-100 px-3 py-2 text-sm text-blue-800 border border-blue-300">
+            {infoMsg}
+          </div>
+        )}
+        {error && (
+          <div className="rounded-md bg-destructive/15 px-3 py-2 text-sm text-destructive">
+            {error}
+          </div>
+        )}
+      </>
+    )
+  }
+
   return (
     <main className="min-h-screen bg-background p-3 sm:p-4 md:p-6">
       <div className="mx-auto max-w-6xl space-y-4 sm:space-y-6">
+
+        {/* Header */}
         <div className="flex flex-col items-end gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="w-full">
             <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">{t('warehouseScanner')}</h1>
-            <p className="text-sm text-muted-foreground">{t('scannerSubtitle')}</p>
+            <p className="text-sm text-muted-foreground">
+              {userName
+                ? `${t('welcomeGreeting')} ${userName}! ${t('goodDay')}`
+                : t('scannerSubtitle')}
+            </p>
           </div>
           <div className="flex gap-2 items-center shrink-0 justify-end">
             <LanguageToggle />
@@ -363,12 +421,13 @@ export function ScannerPage() {
         </div>
 
         <Tabs defaultValue="camera" className="w-full">
-          <TabsList className="grid w-full grid-cols-2">
+          <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="camera">{t('cameraTab')}</TabsTrigger>
             <TabsTrigger value="manual">{t('manualTab')}</TabsTrigger>
+            <TabsTrigger value="recent">{t('recentScansTab')}</TabsTrigger>
           </TabsList>
 
-          {/* Camera Tab */}
+          {/* ── Camera Tab ──────────────────────────────────────────────── */}
           <TabsContent value="camera" className="space-y-4">
             <Card>
               <CardHeader>
@@ -378,66 +437,48 @@ export function ScannerPage() {
                     <CardDescription className="text-xs sm:text-sm">{t('qrScannerDesc')}</CardDescription>
                   </div>
                   <div className="flex items-center gap-1.5 sm:gap-2 rounded-full border px-2 sm:px-3 py-1.5 bg-background shadow-sm shrink-0">
-                      <span className="text-xs font-medium text-muted-foreground">OFF</span>
-                      <button
-                        type="button"
-                        aria-label="Toggle flashlight"
-                        onClick={toggleFlashlight}
-                        className={`relative inline-flex h-7 w-14 items-center rounded-full transition-colors focus-visible:outline-none ${
-                          isFlashlightOn ? 'bg-green-500' : 'bg-muted'
+                    <span className="text-xs font-medium text-muted-foreground">OFF</span>
+                    <button
+                      type="button"
+                      aria-label="Toggle flashlight"
+                      onClick={toggleFlashlight}
+                      className={`relative inline-flex h-7 w-14 items-center rounded-full transition-colors focus-visible:outline-none ${
+                        isFlashlightOn ? 'bg-green-500' : 'bg-muted'
+                      }`}
+                    >
+                      <span
+                        className={`inline-flex h-6 w-6 items-center justify-center rounded-full bg-white shadow transition-transform ${
+                          isFlashlightOn ? 'translate-x-7' : 'translate-x-0.5'
                         }`}
                       >
-                        <span
-                          className={`inline-flex h-6 w-6 items-center justify-center rounded-full bg-white shadow transition-transform ${
-                            isFlashlightOn ? 'translate-x-7' : 'translate-x-0.5'
-                          }`}
-                        >
-                          {/* Flashlight / torch icon */}
-                          <svg
-                            xmlns="http://www.w3.org/2000/svg"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke={isFlashlightOn ? '#16a34a' : '#9ca3af'}
-                            strokeWidth="2"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            className="h-3.5 w-3.5"
-                          >
-                            <path d="M18 6l-6 6" />
-                            <path d="M7 17l1.5-1.5" />
-                            <path d="M10.5 20.5l1-1" />
-                            <path d="M3.5 14.5l1-1" />
-                            <path d="M6 11l-2.5 2.5a4.95 4.95 0 0 0 7 7L13 18" />
-                            <path d="M22 2l-7 7" />
-                          </svg>
-                        </span>
-                      </button>
-                      <span className={`text-xs font-medium ${isFlashlightOn ? 'text-green-600' : 'text-muted-foreground'}`}>ON</span>
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+                          stroke={isFlashlightOn ? '#16a34a' : '#9ca3af'} strokeWidth="2"
+                          strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5">
+                          <path d="M18 6l-6 6" />
+                          <path d="M7 17l1.5-1.5" />
+                          <path d="M10.5 20.5l1-1" />
+                          <path d="M3.5 14.5l1-1" />
+                          <path d="M6 11l-2.5 2.5a4.95 4.95 0 0 0 7 7L13 18" />
+                          <path d="M22 2l-7 7" />
+                        </svg>
+                      </span>
+                    </button>
+                    <span className={`text-xs font-medium ${isFlashlightOn ? 'text-green-600' : 'text-muted-foreground'}`}>ON</span>
                   </div>
                 </div>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="relative bg-black rounded-lg overflow-hidden aspect-video">
-                  <video
-                    ref={videoRef}
-                    autoPlay
-                    playsInline
-                    className="w-full h-full object-cover"
-                  />
+                  <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover" />
                   <canvas ref={canvasRef} className="hidden" />
-
                   {!isCameraActive && (
                     <div className="absolute inset-0 flex items-center justify-center bg-black/50">
                       <div className="text-center">
                         <p className="text-white mb-4">{t('cameraNotActive')}</p>
-                        <Button onClick={startCamera} size="lg">
-                          {t('startCamera')}
-                        </Button>
+                        <Button onClick={startCamera} size="lg">{t('startCamera')}</Button>
                       </div>
                     </div>
                   )}
-
-                  {/* Scanning indicator — pulsing border + label */}
                   {isCameraActive && (
                     <div className="absolute inset-0 pointer-events-none">
                       <div className="absolute inset-0 border-4 border-green-400 rounded-lg animate-pulse" />
@@ -447,20 +488,10 @@ export function ScannerPage() {
                     </div>
                   )}
                 </div>
-
                 {isCameraActive && (
-                  <Button onClick={stopCamera} variant="outline" className="w-full">
-                    {t('stopCamera')}
-                  </Button>
+                  <Button onClick={stopCamera} variant="outline" className="w-full">{t('stopCamera')}</Button>
                 )}
-
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  onChange={handleImageUpload}
-                />
+                <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
                 <Button
                   variant="outline"
                   className="w-full"
@@ -469,34 +500,12 @@ export function ScannerPage() {
                 >
                   {uploadProcessing ? t('uploadQRProcessing') : t('uploadQRImage')}
                 </Button>
-                {successMsg && (
-                  <div className="rounded-md bg-green-100 px-3 py-2 text-sm text-green-800 border border-green-300">
-                    {successMsg}
-                  </div>
-                )}
-
-                {warnMsg && (
-                  <div className="rounded-md bg-yellow-100 px-3 py-2 text-sm text-yellow-800 border border-yellow-300">
-                    {warnMsg}
-                  </div>
-                )}
-
-                {infoMsg && (
-                  <div className="rounded-md bg-blue-100 px-3 py-2 text-sm text-blue-800 border border-blue-300">
-                    {infoMsg}
-                  </div>
-                )}
-
-                {error && (
-                  <div className="rounded-md bg-destructive/15 px-3 py-2 text-sm text-destructive">
-                    {error}
-                  </div>
-                )}
+                <Banners />
               </CardContent>
             </Card>
           </TabsContent>
 
-          {/* Manual Entry Tab */}
+          {/* ── Manual Entry Tab ─────────────────────────────────────────── */}
           <TabsContent value="manual" className="space-y-4">
             <Card>
               <CardHeader>
@@ -517,7 +526,6 @@ export function ScannerPage() {
                         required
                       />
                     </div>
-
                     <div className="space-y-2">
                       <Label htmlFor="m-colorNumber">{t('colorNumber')}</Label>
                       <Input
@@ -529,7 +537,6 @@ export function ScannerPage() {
                         required
                       />
                     </div>
-
                     <div className="space-y-2">
                       <Label htmlFor="m-sizeNumber">{t('sizeNumber')}</Label>
                       <Input
@@ -541,7 +548,6 @@ export function ScannerPage() {
                         required
                       />
                     </div>
-
                     <div className="space-y-2">
                       <Label htmlFor="m-quantity">{t('quantity')}</Label>
                       <Input
@@ -555,7 +561,6 @@ export function ScannerPage() {
                         disabled={manualLoading}
                       />
                     </div>
-
                     <div className="space-y-2 sm:col-span-2">
                       <Label htmlFor="m-notes">{t('notes')}</Label>
                       <Input
@@ -567,25 +572,7 @@ export function ScannerPage() {
                       />
                     </div>
                   </div>
-
-                  {successMsg && (
-                    <div className="rounded-md bg-green-100 px-3 py-2 text-sm text-green-800 border border-green-300">
-                      {successMsg}
-                    </div>
-                  )}
-
-                  {warnMsg && (
-                    <div className="rounded-md bg-yellow-100 px-3 py-2 text-sm text-yellow-800 border border-yellow-300">
-                      {warnMsg}
-                    </div>
-                  )}
-
-                  {error && (
-                    <div className="rounded-md bg-destructive/15 px-3 py-2 text-sm text-destructive">
-                      {error}
-                    </div>
-                  )}
-
+                  <Banners />
                   <div className="flex gap-2">
                     <Button type="submit" className="w-full" disabled={manualLoading}>
                       {manualLoading ? t('recording') : t('addEntry')}
@@ -594,14 +581,92 @@ export function ScannerPage() {
                       type="button"
                       variant="outline"
                       disabled={manualLoading}
-                      onClick={() =>
-                        setManualForm({ artNumber: '', colorNumber: '', sizeNumber: '', quantity: 1, notes: '' })
-                      }
+                      onClick={() => setManualForm({ artNumber: '', colorNumber: '', sizeNumber: '', quantity: 1, notes: '' })}
                     >
                       {t('cancel')}
                     </Button>
                   </div>
                 </form>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* ── Recent Scans Tab ─────────────────────────────────────────── */}
+          <TabsContent value="recent" className="space-y-4">
+            <Card>
+              <CardHeader className="px-3 sm:px-6">
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <CardTitle className="text-base sm:text-lg">{t('recentScansTitle')}</CardTitle>
+                    <CardDescription className="text-xs sm:text-sm">{t('recentScansDesc')}</CardDescription>
+                  </div>
+                  <Button variant="outline" size="sm" onClick={loadRecentScans} disabled={recentLoading}>
+                    ↻
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent className="px-0 sm:px-6">
+                {recentLoading ? (
+                  <p className="text-center py-8 text-sm text-muted-foreground">{t('loading')}</p>
+                ) : recentScans.length === 0 ? (
+                  <p className="text-center py-8 text-sm text-muted-foreground">{t('noRecentScans')}</p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="text-xs sm:text-sm px-3 sm:px-4">{t('entryTypeCol')}</TableHead>
+                          <TableHead className="text-xs sm:text-sm px-3 sm:px-4">{t('artNumberCol')}</TableHead>
+                          <TableHead className="text-xs sm:text-sm px-3 sm:px-4">{t('colorCol')}</TableHead>
+                          <TableHead className="text-xs sm:text-sm px-3 sm:px-4">{t('sizeCol')}</TableHead>
+                          <TableHead className="text-xs sm:text-sm px-3 sm:px-4 hidden sm:table-cell">{t('divisionCol')}</TableHead>
+                          <TableHead className="text-xs sm:text-sm px-3 sm:px-4 hidden sm:table-cell text-right">{t('mrpCol')}</TableHead>
+                          <TableHead className="text-xs sm:text-sm px-3 sm:px-4 text-right">{t('quantityCol')}</TableHead>
+                          <TableHead className="text-xs sm:text-sm px-3 sm:px-4">{t('scannedByCol')}</TableHead>
+                          <TableHead className="text-xs sm:text-sm px-3 sm:px-4 hidden md:table-cell">{t('lastScannedCol')}</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {recentScans.map((scan) => (
+                          <TableRow key={scan.id}>
+                            <TableCell className="px-3 sm:px-4">
+                              <Badge variant={scan.entryType === 'scan' ? 'default' : 'secondary'} className="text-xs">
+                                {scan.entryType}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="font-mono text-xs sm:text-sm font-semibold px-3 sm:px-4">
+                              {scan.artNumber || '-'}
+                            </TableCell>
+                            <TableCell className="font-mono text-xs sm:text-sm px-3 sm:px-4">
+                              {scan.colorNumber || '-'}
+                            </TableCell>
+                            <TableCell className="font-mono text-xs sm:text-sm px-3 sm:px-4">
+                              {scan.sizeNumber || '-'}
+                            </TableCell>
+                            <TableCell className="text-xs sm:text-sm px-3 sm:px-4 hidden sm:table-cell">
+                              {scan.division || '-'}
+                            </TableCell>
+                            <TableCell className="text-xs sm:text-sm px-3 sm:px-4 hidden sm:table-cell text-right">
+                              {scan.mrp != null ? `₹${Number(scan.mrp).toFixed(2)}` : '-'}
+                            </TableCell>
+                            <TableCell className="text-right px-3 sm:px-4">
+                              <Badge variant="outline">{scan.quantity}</Badge>
+                            </TableCell>
+                            <TableCell className="text-xs sm:text-sm px-3 sm:px-4">
+                              {scan.scannedByName || '-'}
+                            </TableCell>
+                            <TableCell className="text-xs sm:text-sm text-muted-foreground px-3 sm:px-4 hidden md:table-cell">
+                              {new Date(scan.scannedAt).toLocaleDateString(undefined, {
+                                year: 'numeric', month: '2-digit', day: '2-digit',
+                                hour: '2-digit', minute: '2-digit',
+                              })}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>

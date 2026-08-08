@@ -15,9 +15,15 @@ async function getUser() {
   return { id: session.user.id, name: session.user.name ?? null }
 }
 
+// Returns the current logged-in user's display name — used by the scanner header
+export async function getCurrentUserName(): Promise<string | null> {
+  const user = await getUser()
+  return user.name
+}
+
 export type RecordScanResult =
   | { ok: true; data: typeof scans.$inferSelect }
-  | { ok: false; error: typeof DUPLICATE_QR_ERROR | 'ERROR' }
+  | { ok: false; error: typeof DUPLICATE_QR_ERROR | 'ERROR'; scannedByName?: string | null }
 
 // Nullable-safe equality: uses IS NULL when value is absent, eq() otherwise
 function colEq(col: Parameters<typeof eq>[0], val: string | undefined) {
@@ -30,7 +36,7 @@ export async function recordScan(rawQrCode: string): Promise<RecordScanResult> {
 
   // Duplicate check — same Art + Color + Size already in scans
   const existing = await db
-    .select({ id: scans.id })
+    .select({ id: scans.id, scannedByName: scans.scannedByName })
     .from(scans)
     .where(
       and(
@@ -42,7 +48,7 @@ export async function recordScan(rawQrCode: string): Promise<RecordScanResult> {
     .limit(1)
 
   if (existing.length > 0) {
-    return { ok: false, error: DUPLICATE_QR_ERROR }
+    return { ok: false, error: DUPLICATE_QR_ERROR, scannedByName: existing[0].scannedByName }
   }
 
   const rows = await db
@@ -66,11 +72,11 @@ export async function recordScan(rawQrCode: string): Promise<RecordScanResult> {
   return { ok: true, data: rows[0] }
 }
 
-export async function getRecentScans(limit = 20) {
+// Last 50 entries across both scan + manual, time-ordered
+export async function getRecentScans(limit = 50) {
   return db
     .select()
     .from(scans)
-    .where(eq(scans.entryType, 'scan'))
     .orderBy(desc(scans.scannedAt))
     .limit(limit)
 }

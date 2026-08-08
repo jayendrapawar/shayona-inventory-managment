@@ -93,7 +93,7 @@ export async function getInventorySummary() {
 
 export type AddManualEntryResult =
   | { ok: true; data: typeof scans.$inferSelect }
-  | { ok: false; error: typeof DUPLICATE_ENTRY_ERROR | 'ERROR' }
+  | { ok: false; error: typeof DUPLICATE_ENTRY_ERROR | 'ERROR'; scannedByName?: string | null }
 
 // Nullable-safe equality helper
 function colEq(col: Parameters<typeof eq>[0], val: string | undefined) {
@@ -116,7 +116,7 @@ export async function addManualEntry(
 
   // Duplicate check — same Art + Color + Size anywhere in scans
   const existing = await db
-    .select({ id: scans.id })
+    .select({ id: scans.id, scannedByName: scans.scannedByName })
     .from(scans)
     .where(
       and(
@@ -128,7 +128,7 @@ export async function addManualEntry(
     .limit(1)
 
   if (existing.length > 0) {
-    return { ok: false, error: DUPLICATE_ENTRY_ERROR }
+    return { ok: false, error: DUPLICATE_ENTRY_ERROR, scannedByName: existing[0].scannedByName }
   }
 
   const rows = await db
