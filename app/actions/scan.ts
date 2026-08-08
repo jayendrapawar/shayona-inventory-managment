@@ -2,10 +2,11 @@
 
 import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
-import { scans, divisionConfig } from '@/lib/db/schema'
-import { and, eq, desc } from 'drizzle-orm'
+import { scans, divisionConfig, manualEntries } from '@/lib/db/schema'
+import { and, eq, isNull, desc, sql } from 'drizzle-orm'
 import { headers } from 'next/headers'
 import { revalidatePath } from 'next/cache'
+import { DUPLICATE_QR_ERROR } from '@/lib/errors'
 
 async function getUserId() {
   const session = await auth.api.getSession({ headers: await headers() })
@@ -64,12 +65,55 @@ export async function parseQrCode(
   return { artNumber: qrCode }
 }
 
-export async function recordScan(rawQrCode: string) {
+export type RecordScanResult =
+  | { ok: true; data: typeof scans.$inferSelect }
+  | { ok: false; error: typeof DUPLICATE_QR_ERROR | 'ERROR' }
+
+// Nullable-safe equality: uses IS NULL when value is absent, eq() otherwise
+function colEq(col: Parameters<typeof eq>[0], val: string | undefined) {
+  return val ? eq(col, val) : isNull(col)
+}
+
+export async function recordScan(rawQrCode: string): Promise<RecordScanResult> {
   const userId = await getUserId()
   const normalizedQr = normalizeQrCode(rawQrCode)
+
+  // Parse first so we can check duplicate by Art + Color + Size
   const parsed = await parseQrCode(normalizedQr, userId)
 
-  const result = await db
+  // Duplicate check — same Art + Color + Size already in scans OR manual_entries
+  const [existingInScans, existingInManual] = await Promise.all([
+    db
+      .select({ id: scans.id })
+      .from(scans)
+      .where(
+        and(
+          eq(scans.userId, userId),
+          colEq(scans.artNumber, parsed.artNumber),
+          colEq(scans.colorNumber, parsed.colorNumber),
+          colEq(scans.sizeNumber, parsed.sizeNumber)
+        )
+      )
+      .limit(1),
+    db
+      .select({ id: manualEntries.id })
+      .from(manualEntries)
+      .where(
+        and(
+          eq(manualEntries.userId, userId),
+          colEq(manualEntries.artNumber, parsed.artNumber),
+          colEq(manualEntries.colorNumber, parsed.colorNumber),
+          colEq(manualEntries.sizeNumber, parsed.sizeNumber)
+        )
+      )
+      .limit(1),
+  ])
+
+  if (existingInScans.length > 0 || existingInManual.length > 0) {
+    return { ok: false, error: DUPLICATE_QR_ERROR }
+  }
+
+  const rows = await db
     .insert(scans)
     .values({
       userId,
@@ -83,7 +127,7 @@ export async function recordScan(rawQrCode: string) {
     .returning()
 
   revalidatePath('/scanner')
-  return result[0]
+  return { ok: true, data: rows[0] }
 }
 
 export async function getRecentScans(limit = 20) {

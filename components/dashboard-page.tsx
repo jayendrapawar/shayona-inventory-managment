@@ -11,7 +11,6 @@ import {
   searchInventory,
   getInventorySummary,
   getStatistics,
-  addManualEntry,
   exportToExcel,
 } from '@/app/actions/dashboard'
 import { signOut } from '@/lib/auth-client'
@@ -44,16 +43,6 @@ export function DashboardPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-
-  // Manual entry form state
-  const [showManualForm, setShowManualForm] = useState(false)
-  const [manualForm, setManualForm] = useState({
-    artNumber: '',
-    colorNumber: '',
-    sizeNumber: '',
-    quantity: 1,
-    notes: '',
-  })
 
   useEffect(() => {
     loadDashboard()
@@ -96,35 +85,6 @@ export function DashboardPage() {
     )
 
     setFilteredInventory(filtered)
-  }
-
-  async function handleAddManualEntry(e: React.FormEvent) {
-    e.preventDefault()
-    setError(null)
-
-    try {
-      await addManualEntry(
-        manualForm.artNumber,
-        manualForm.colorNumber,
-        manualForm.sizeNumber,
-        manualForm.quantity,
-        manualForm.notes
-      )
-
-      setManualForm({
-        artNumber: '',
-        colorNumber: '',
-        sizeNumber: '',
-        quantity: 1,
-        notes: '',
-      })
-      setShowManualForm(false)
-
-      // Reload inventory
-      await loadDashboard()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to add entry')
-    }
   }
 
   async function handleExport() {
@@ -253,102 +213,9 @@ export function DashboardPage() {
           </div>
 
           <div className="flex gap-2">
-            <Button variant="outline" onClick={() => setShowManualForm(!showManualForm)}>
-              {showManualForm ? t('cancel') : t('addManualEntry')}
-            </Button>
             <Button onClick={handleExport}>{t('exportToCSV')}</Button>
           </div>
         </div>
-
-        {/* Manual Entry Form */}
-        {showManualForm && (
-          <Card>
-            <CardHeader>
-              <CardTitle>{t('addManualEntryTitle')}</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <form onSubmit={handleAddManualEntry} className="space-y-4">
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label htmlFor="artNumber">{t('artNumber')}</Label>
-                    <Input
-                      id="artNumber"
-                      placeholder={t('artNumberPlaceholder')}
-                      value={manualForm.artNumber}
-                      onChange={(e) =>
-                        setManualForm({ ...manualForm, artNumber: e.target.value })
-                      }
-                      required
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="colorNumber">{t('colorNumber')}</Label>
-                    <Input
-                      id="colorNumber"
-                      placeholder={t('colorNumberPlaceholder')}
-                      value={manualForm.colorNumber}
-                      onChange={(e) =>
-                        setManualForm({ ...manualForm, colorNumber: e.target.value })
-                      }
-                      required
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="sizeNumber">{t('sizeNumber')}</Label>
-                    <Input
-                      id="sizeNumber"
-                      placeholder={t('sizeNumberPlaceholder')}
-                      value={manualForm.sizeNumber}
-                      onChange={(e) =>
-                        setManualForm({ ...manualForm, sizeNumber: e.target.value })
-                      }
-                      required
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="quantity">{t('quantity')}</Label>
-                    <Input
-                      id="quantity"
-                      type="number"
-                      min="1"
-                      value={manualForm.quantity}
-                      onChange={(e) =>
-                        setManualForm({
-                          ...manualForm,
-                          quantity: parseInt(e.target.value) || 1,
-                        })
-                      }
-                    />
-                  </div>
-
-                  <div className="space-y-2 sm:col-span-2">
-                    <Label htmlFor="notes">{t('notes')}</Label>
-                    <Input
-                      id="notes"
-                      placeholder={t('notesPlaceholder')}
-                      value={manualForm.notes}
-                      onChange={(e) => setManualForm({ ...manualForm, notes: e.target.value })}
-                    />
-                  </div>
-                </div>
-
-                <div className="flex gap-2">
-                  <Button type="submit">{t('addEntry')}</Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => setShowManualForm(false)}
-                  >
-                    {t('cancel')}
-                  </Button>
-                </div>
-              </form>
-            </CardContent>
-          </Card>
-        )}
 
         {/* Inventory Table */}
         <Card>

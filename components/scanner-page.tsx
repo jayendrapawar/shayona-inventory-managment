@@ -10,6 +10,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { recordScan, getRecentScans, deleteScan, updateScanQuantity } from '@/app/actions/scan'
+import { addManualEntry } from '@/app/actions/dashboard'
+import { DUPLICATE_QR_ERROR, DUPLICATE_ENTRY_ERROR } from '@/lib/errors'
 import { signOut } from '@/lib/auth-client'
 import { useLanguage } from '@/lib/language-context'
 import { LanguageToggle } from '@/components/language-toggle'
@@ -29,14 +31,21 @@ export function ScannerPage() {
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [isCameraActive, setIsCameraActive] = useState(false)
-  const [manualInput, setManualInput] = useState('')
+  const [manualForm, setManualForm] = useState({
+    artNumber: '',
+    colorNumber: '',
+    sizeNumber: '',
+    quantity: 1,
+    notes: '',
+  })
+  const [manualLoading, setManualLoading] = useState(false)
   const [scans, setScans] = useState<Scan[]>([])
-  const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [uploadProcessing, setUploadProcessing] = useState(false)
   const [successMsg, setSuccessMsg] = useState<string | null>(null)
+  const [warnMsg, setWarnMsg] = useState<string | null>(null)
   const successTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // Controls the rAF scan loop — set to false to break it without relying on stale state
   const scanningRef = useRef(false)
@@ -44,13 +53,23 @@ export function ScannerPage() {
   function showSuccess(msg: string) {
     if (successTimerRef.current) clearTimeout(successTimerRef.current)
     setError(null)
+    setWarnMsg(null)
     setSuccessMsg(msg)
     successTimerRef.current = setTimeout(() => setSuccessMsg(null), 3000)
+  }
+
+  function showWarning(msg: string) {
+    if (successTimerRef.current) clearTimeout(successTimerRef.current)
+    setError(null)
+    setSuccessMsg(null)
+    setWarnMsg(msg)
+    successTimerRef.current = setTimeout(() => setWarnMsg(null), 4000)
   }
 
   function showError(msg: string) {
     if (successTimerRef.current) clearTimeout(successTimerRef.current)
     setSuccessMsg(null)
+    setWarnMsg(null)
     setError(msg)
   }
 
@@ -59,11 +78,12 @@ export function ScannerPage() {
     router.push('/sign-in')
   }
 
-  // Load recent scans on component mount; stop scan loop on unmount
+  // Load recent scans on mount; stop scan loop and clear timers on unmount
   useEffect(() => {
     loadScans()
     return () => {
       scanningRef.current = false
+      if (successTimerRef.current) clearTimeout(successTimerRef.current)
     }
   }, [])
 
@@ -85,21 +105,23 @@ export function ScannerPage() {
         audio: false,
       })
 
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream
-        streamRef.current = stream
-        setIsCameraActive(true)
-        scanningRef.current = true
+      if (!videoRef.current) {
+        stream.getTracks().forEach((t) => t.stop())
+        return
+      }
 
-        // Wait for the video to be ready before starting the scan loop
-        const video = videoRef.current
-        const startLoop = () => scanLoop(video)
-        if (video.readyState >= 2) {
-          // Already has data
-          startLoop()
-        } else {
-          video.addEventListener('loadeddata', startLoop, { once: true })
-        }
+      videoRef.current.srcObject = stream
+      streamRef.current = stream
+      setIsCameraActive(true)
+      scanningRef.current = true
+
+      // Wait for the video to be ready before starting the scan loop
+      const video = videoRef.current
+      const startLoop = () => scanLoop(video)
+      if (video.readyState >= 2) {
+        startLoop()
+      } else {
+        video.addEventListener('loadeddata', startLoop, { once: true })
       }
     } catch (err) {
       showError(t('cameraPermissionError'))
@@ -130,8 +152,11 @@ export function ScannerPage() {
         bitmap = await createImageBitmap(file)
       } catch {
         showError(t('invalidImageFile'))
-        return
+        // don't return early — let finally reset uploadProcessing
+        bitmap = null as unknown as ImageBitmap
       }
+
+      if (!bitmap) return
 
       const canvas = document.createElement('canvas')
       canvas.width = bitmap.width
@@ -149,8 +174,8 @@ export function ScannerPage() {
       }
 
       // QR decoded — now save to DB
-      const saved = await recordScanSafe(code.data)
-      if (saved) {
+      const status = await recordScanSafe(code.data)
+      if (status === 'saved') {
         showSuccess(t('scanSuccess'))
       }
       // if not saved, recordScanSafe already called showError
@@ -163,16 +188,24 @@ export function ScannerPage() {
     }
   }
 
-  // Saves a QR code to DB; returns true on success, false on failure (sets error itself)
-  async function recordScanSafe(qrCode: string): Promise<boolean> {
+  // Saves a QR code to DB; returns 'saved' | 'duplicate' | 'error'
+  async function recordScanSafe(qrCode: string): Promise<'saved' | 'duplicate' | 'error'> {
     try {
-      const result = await recordScan(qrCode)
-      setScans((prev) => [result as Scan, ...prev])
-      return true
+      const res = await recordScan(qrCode)
+      if (!res.ok) {
+        if (res.error === DUPLICATE_QR_ERROR) {
+          showWarning(t('duplicateQR'))
+          return 'duplicate'
+        }
+        showError(t('scanRecordError'))
+        return 'error'
+      }
+      setScans((prev) => [res.data as Scan, ...prev])
+      return 'saved'
     } catch (err) {
       showError(t('scanRecordError'))
       console.error('recordScan error:', err)
-      return false
+      return 'error'
     }
   }
 
@@ -220,34 +253,54 @@ export function ScannerPage() {
   }
 
   async function handleCameraScan(qrCode: string) {
-    const saved = await recordScanSafe(qrCode)
-    if (saved) {
-      showSuccess(t('cameraScanSuccess'))
-    }
+    const status = await recordScanSafe(qrCode)
+    if (status === 'saved') showSuccess(t('cameraScanSuccess'))
   }
 
-  async function handleScan(qrCode: string) {
-    setLoading(true)
+  async function handleManualForm(e: React.FormEvent) {
+    e.preventDefault()
+    setManualLoading(true)
     setSuccessMsg(null)
+    setWarnMsg(null)
     setError(null)
 
     try {
-      const result = await recordScan(qrCode)
-      setScans((prev) => [result as Scan, ...prev])
-      setManualInput('')
-      showSuccess(t('manualScanSuccess'))
+      const res = await addManualEntry(
+        manualForm.artNumber,
+        manualForm.colorNumber,
+        manualForm.sizeNumber,
+        manualForm.quantity,
+        manualForm.notes || undefined
+      )
+      if (!res.ok) {
+        if (res.error === DUPLICATE_ENTRY_ERROR) {
+          showWarning(t('duplicateQR'))
+        } else {
+          showError(t('scanRecordError'))
+        }
+        return
+      }
+      // Prepend a synthetic scan row to local state — no refetch needed
+      const { data } = res
+      setScans((prev) => [
+        {
+          id: data.id,
+          artNumber: data.artNumber,
+          colorNumber: data.colorNumber,
+          sizeNumber: data.sizeNumber,
+          quantity: data.quantity,
+          scannedAt: data.createdAt,
+        } as Scan,
+        ...prev,
+      ])
+      setManualForm({ artNumber: '', colorNumber: '', sizeNumber: '', quantity: 1, notes: '' })
+      showSuccess(t('manualEntrySuccess'))
     } catch (err) {
-      showError(err instanceof Error ? err.message : t('scanRecordError'))
+      showError(t('scanRecordError'))
+      console.error('addManualEntry error:', err)
     } finally {
-      setLoading(false)
+      setManualLoading(false)
     }
-  }
-
-  async function handleManualInput(e: React.FormEvent) {
-    e.preventDefault()
-    if (!manualInput.trim()) return
-
-    await handleScan(manualInput)
   }
 
   async function handleDeleteScan(scanId: number) {
@@ -255,7 +308,7 @@ export function ScannerPage() {
       await deleteScan(scanId)
       setScans((prev) => prev.filter((s) => s.id !== scanId))
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete scan')
+      showError(err instanceof Error ? err.message : t('scanRecordError'))
     }
   }
 
@@ -263,12 +316,12 @@ export function ScannerPage() {
     if (newQuantity < 1) return
 
     try {
-      const result = await updateScanQuantity(scanId, newQuantity)
+      await updateScanQuantity(scanId, newQuantity)
       setScans((prev) =>
         prev.map((s) => (s.id === scanId ? { ...s, quantity: newQuantity } : s))
       )
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to update quantity')
+      showError(err instanceof Error ? err.message : t('scanRecordError'))
     }
   }
 
@@ -377,6 +430,12 @@ export function ScannerPage() {
                   </div>
                 )}
 
+                {warnMsg && (
+                  <div className="rounded-md bg-yellow-100 px-3 py-2 text-sm text-yellow-800 border border-yellow-300">
+                    {warnMsg}
+                  </div>
+                )}
+
                 {error && (
                   <div className="rounded-md bg-destructive/15 px-3 py-2 text-sm text-destructive">
                     {error}
@@ -394,22 +453,79 @@ export function ScannerPage() {
                 <CardDescription>{t('manualEntryDesc')}</CardDescription>
               </CardHeader>
               <CardContent>
-                <form onSubmit={handleManualInput} className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="qr-code">{t('qrCodeLabel')}</Label>
-                    <Input
-                      id="qr-code"
-                      placeholder={t('qrCodePlaceholder')}
-                      value={manualInput}
-                      onChange={(e) => setManualInput(e.target.value)}
-                      disabled={loading}
-                      autoFocus
-                    />
+                <form onSubmit={handleManualForm} className="space-y-4">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label htmlFor="m-artNumber">{t('artNumber')}</Label>
+                      <Input
+                        id="m-artNumber"
+                        placeholder={t('artNumberPlaceholder')}
+                        value={manualForm.artNumber}
+                        onChange={(e) => setManualForm((prev) => ({ ...prev, artNumber: e.target.value }))}
+                        disabled={manualLoading}
+                        required
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="m-colorNumber">{t('colorNumber')}</Label>
+                      <Input
+                        id="m-colorNumber"
+                        placeholder={t('colorNumberPlaceholder')}
+                        value={manualForm.colorNumber}
+                        onChange={(e) => setManualForm((prev) => ({ ...prev, colorNumber: e.target.value }))}
+                        disabled={manualLoading}
+                        required
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="m-sizeNumber">{t('sizeNumber')}</Label>
+                      <Input
+                        id="m-sizeNumber"
+                        placeholder={t('sizeNumberPlaceholder')}
+                        value={manualForm.sizeNumber}
+                        onChange={(e) => setManualForm((prev) => ({ ...prev, sizeNumber: e.target.value }))}
+                        disabled={manualLoading}
+                        required
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="m-quantity">{t('quantity')}</Label>
+                      <Input
+                        id="m-quantity"
+                        type="number"
+                        min="1"
+                        value={manualForm.quantity}
+                        onChange={(e) =>
+                          setManualForm((prev) => ({ ...prev, quantity: parseInt(e.target.value) || 1 }))
+                        }
+                        disabled={manualLoading}
+                      />
+                    </div>
+
+                    <div className="space-y-2 sm:col-span-2">
+                      <Label htmlFor="m-notes">{t('notes')}</Label>
+                      <Input
+                        id="m-notes"
+                        placeholder={t('notesPlaceholder')}
+                        value={manualForm.notes}
+                        onChange={(e) => setManualForm((prev) => ({ ...prev, notes: e.target.value }))}
+                        disabled={manualLoading}
+                      />
+                    </div>
                   </div>
 
                   {successMsg && (
                     <div className="rounded-md bg-green-100 px-3 py-2 text-sm text-green-800 border border-green-300">
                       {successMsg}
+                    </div>
+                  )}
+
+                  {warnMsg && (
+                    <div className="rounded-md bg-yellow-100 px-3 py-2 text-sm text-yellow-800 border border-yellow-300">
+                      {warnMsg}
                     </div>
                   )}
 
@@ -419,9 +535,21 @@ export function ScannerPage() {
                     </div>
                   )}
 
-                  <Button type="submit" className="w-full" disabled={loading}>
-                    {loading ? t('recording') : t('recordScan')}
-                  </Button>
+                  <div className="flex gap-2">
+                    <Button type="submit" className="w-full" disabled={manualLoading}>
+                      {manualLoading ? t('recording') : t('addEntry')}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={manualLoading}
+                      onClick={() =>
+                        setManualForm({ artNumber: '', colorNumber: '', sizeNumber: '', quantity: 1, notes: '' })
+                      }
+                    >
+                      {t('cancel')}
+                    </Button>
+                  </div>
                 </form>
               </CardContent>
             </Card>
