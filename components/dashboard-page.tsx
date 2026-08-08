@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
@@ -511,28 +512,12 @@ export function DashboardPage() {
         </div>
 
         {/* Tabs */}
-        <div className="flex border-b border-border">
-          <button
-            onClick={() => handleTabChange('scanned')}
-            className={`px-4 sm:px-6 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px ${
-              activeTab === 'scanned'
-                ? 'border-blue-600 text-blue-600'
-                : 'border-transparent text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            {t('scannedInventoryTab')}
-          </button>
-          <button
-            onClick={() => handleTabChange('overall')}
-            className={`px-4 sm:px-6 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px ${
-              activeTab === 'overall'
-                ? 'border-blue-600 text-blue-600'
-                : 'border-transparent text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            {t('overallStockTab')}
-          </button>
-        </div>
+        <Tabs value={activeTab} onValueChange={(v) => handleTabChange(v as Tab)}>
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="scanned">{t('scannedInventoryTab')}</TabsTrigger>
+            <TabsTrigger value="overall">{t('overallStockTab')}</TabsTrigger>
+          </TabsList>
+        </Tabs>
 
         {/* Error */}
         {error && (
