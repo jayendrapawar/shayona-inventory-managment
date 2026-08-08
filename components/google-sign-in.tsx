@@ -46,13 +46,13 @@ export function GoogleSignIn() {
           maxWidth: 360,
           border: '1px solid #e5e7eb',
           borderRadius: 12,
-          padding: 32,
+          padding: 'clamp(20px, 5vw, 32px)',
           background: 'var(--card, #fff)',
           textAlign: 'center',
         }}
       >
         <div style={{ marginBottom: 24 }}>
-          <h1 style={{ margin: '0 0 8px', fontSize: 20, fontWeight: 600 }}>
+          <h1 style={{ margin: '0 0 8px', fontSize: 'clamp(17px, 5vw, 20px)', fontWeight: 600 }}>
             {t('appName')}
           </h1>
           <p style={{ margin: 0, fontSize: 14, color: '#6b7280' }}>

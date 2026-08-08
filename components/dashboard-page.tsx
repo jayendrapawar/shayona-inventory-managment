@@ -113,36 +113,36 @@ export function DashboardPage() {
   }
 
   return (
-    <main className="min-h-screen bg-background p-4">
-      <div className="mx-auto max-w-7xl space-y-6">
+    <main className="min-h-screen bg-background p-3 sm:p-4 md:p-6">
+      <div className="mx-auto max-w-7xl space-y-4 sm:space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">{t('dashboard')}</h1>
-            <p className="text-muted-foreground">{t('dashboardSubtitle')}</p>
+            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">{t('dashboard')}</h1>
+            <p className="text-sm text-muted-foreground">{t('dashboardSubtitle')}</p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <LanguageToggle />
-            <Button variant="outline" onClick={() => router.push('/scanner')}>
+            <Button variant="outline" size="sm" onClick={() => router.push('/scanner')}>
               {t('scanner')}
             </Button>
-            <Button variant="outline" onClick={handleLogout}>
+            <Button variant="outline" size="sm" onClick={handleLogout}>
               {t('signOut')}
             </Button>
           </div>
         </div>
 
-        {/* Statistics Cards */}
+        {/* Statistics Cards — 2×2 on mobile, 4 across on lg */}
         {stats && (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
             <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-medium text-muted-foreground">
+              <CardHeader className="pb-2 pt-3 px-3 sm:px-6 sm:pt-6 sm:pb-3">
+                <CardTitle className="text-xs sm:text-sm font-medium text-muted-foreground">
                   {t('totalScans')}
                 </CardTitle>
               </CardHeader>
-              <CardContent>
-                <div className="text-3xl font-bold">{stats.totalScans}</div>
+              <CardContent className="px-3 pb-3 sm:px-6 sm:pb-6">
+                <div className="text-2xl sm:text-3xl font-bold">{stats.totalScans}</div>
                 <p className="text-xs text-muted-foreground mt-1">
                   {stats.scansLast24h} {t('inLast24h')}
                 </p>
@@ -150,37 +150,37 @@ export function DashboardPage() {
             </Card>
 
             <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-medium text-muted-foreground">
+              <CardHeader className="pb-2 pt-3 px-3 sm:px-6 sm:pt-6 sm:pb-3">
+                <CardTitle className="text-xs sm:text-sm font-medium text-muted-foreground">
                   {t('totalItems')}
                 </CardTitle>
               </CardHeader>
-              <CardContent>
-                <div className="text-3xl font-bold">{stats.totalItems}</div>
+              <CardContent className="px-3 pb-3 sm:px-6 sm:pb-6">
+                <div className="text-2xl sm:text-3xl font-bold">{stats.totalItems}</div>
                 <p className="text-xs text-muted-foreground mt-1">{t('unitsCounted')}</p>
               </CardContent>
             </Card>
 
             <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-medium text-muted-foreground">
+              <CardHeader className="pb-2 pt-3 px-3 sm:px-6 sm:pt-6 sm:pb-3">
+                <CardTitle className="text-xs sm:text-sm font-medium text-muted-foreground">
                   {t('uniqueItems')}
                 </CardTitle>
               </CardHeader>
-              <CardContent>
-                <div className="text-3xl font-bold">{stats.uniqueItems}</div>
+              <CardContent className="px-3 pb-3 sm:px-6 sm:pb-6">
+                <div className="text-2xl sm:text-3xl font-bold">{stats.uniqueItems}</div>
                 <p className="text-xs text-muted-foreground mt-1">{t('differentSKUs')}</p>
               </CardContent>
             </Card>
 
             <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-medium text-muted-foreground">
+              <CardHeader className="pb-2 pt-3 px-3 sm:px-6 sm:pt-6 sm:pb-3">
+                <CardTitle className="text-xs sm:text-sm font-medium text-muted-foreground">
                   {t('avgPerItem')}
                 </CardTitle>
               </CardHeader>
-              <CardContent>
-                <div className="text-3xl font-bold">
+              <CardContent className="px-3 pb-3 sm:px-6 sm:pb-6">
+                <div className="text-2xl sm:text-3xl font-bold">
                   {stats.uniqueItems > 0
                     ? (stats.totalItems / stats.uniqueItems).toFixed(1)
                     : '0'}
@@ -199,8 +199,8 @@ export function DashboardPage() {
         )}
 
         {/* Actions */}
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex-1 max-w-sm">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="w-full sm:flex-1 sm:max-w-sm">
             <Label htmlFor="search" className="sr-only">
               {t('searchPlaceholder')}
             </Label>
@@ -213,21 +213,21 @@ export function DashboardPage() {
           </div>
 
           <div className="flex gap-2">
-            <Button onClick={handleExport}>{t('exportToCSV')}</Button>
+            <Button className="w-full sm:w-auto" onClick={handleExport}>{t('exportToCSV')}</Button>
           </div>
         </div>
 
         {/* Inventory Table */}
         <Card>
-          <CardHeader>
-            <CardTitle>{t('inventoryItems')}</CardTitle>
-            <CardDescription>
+          <CardHeader className="px-3 sm:px-6">
+            <CardTitle className="text-base sm:text-lg">{t('inventoryItems')}</CardTitle>
+            <CardDescription className="text-xs sm:text-sm">
               {t('showing')} {filteredInventory.length} {t('of')} {inventory.length} {t('items')}
             </CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="px-0 sm:px-6">
             {filteredInventory.length === 0 ? (
-              <div className="text-center py-8 text-muted-foreground">
+              <div className="text-center py-8 text-sm text-muted-foreground px-3">
                 {inventory.length === 0 ? t('noInventoryYet') : t('noSearchResults')}
               </div>
             ) : (
@@ -235,33 +235,33 @@ export function DashboardPage() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>{t('artNumberCol')}</TableHead>
-                      <TableHead>{t('colorCol')}</TableHead>
-                      <TableHead>{t('sizeCol')}</TableHead>
-                      <TableHead className="text-right">{t('quantityCol')}</TableHead>
-                      <TableHead className="text-right">{t('scansCol')}</TableHead>
-                      <TableHead>{t('lastScannedCol')}</TableHead>
+                      <TableHead className="text-xs sm:text-sm px-3 sm:px-4">{t('artNumberCol')}</TableHead>
+                      <TableHead className="text-xs sm:text-sm px-3 sm:px-4">{t('colorCol')}</TableHead>
+                      <TableHead className="text-xs sm:text-sm px-3 sm:px-4">{t('sizeCol')}</TableHead>
+                      <TableHead className="text-xs sm:text-sm px-3 sm:px-4 text-right">{t('quantityCol')}</TableHead>
+                      <TableHead className="text-xs sm:text-sm px-3 sm:px-4 text-right hidden sm:table-cell">{t('scansCol')}</TableHead>
+                      <TableHead className="text-xs sm:text-sm px-3 sm:px-4 hidden md:table-cell">{t('lastScannedCol')}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {filteredInventory.map((item, idx) => (
                       <TableRow key={idx}>
-                        <TableCell className="font-mono text-sm font-semibold">
+                        <TableCell className="font-mono text-xs sm:text-sm font-semibold px-3 sm:px-4">
                           {item.artNumber || '-'}
                         </TableCell>
-                        <TableCell className="font-mono text-sm">
+                        <TableCell className="font-mono text-xs sm:text-sm px-3 sm:px-4">
                           {item.colorNumber || '-'}
                         </TableCell>
-                        <TableCell className="font-mono text-sm">
+                        <TableCell className="font-mono text-xs sm:text-sm px-3 sm:px-4">
                           {item.sizeNumber || '-'}
                         </TableCell>
-                        <TableCell className="text-right">
+                        <TableCell className="text-right px-3 sm:px-4">
                           <Badge variant="secondary">{item.quantity}</Badge>
                         </TableCell>
-                        <TableCell className="text-right text-sm text-muted-foreground">
+                        <TableCell className="text-right text-xs sm:text-sm text-muted-foreground px-3 sm:px-4 hidden sm:table-cell">
                           {item.count}
                         </TableCell>
-                        <TableCell className="text-sm text-muted-foreground">
+                        <TableCell className="text-xs sm:text-sm text-muted-foreground px-3 sm:px-4 hidden md:table-cell">
                           {new Date(item.lastScanned).toLocaleDateString()}
                         </TableCell>
                       </TableRow>

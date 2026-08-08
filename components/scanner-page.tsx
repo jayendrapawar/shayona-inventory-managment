@@ -414,19 +414,19 @@ export function ScannerPage() {
   )
 
   return (
-    <main className="min-h-screen bg-background p-4">
-      <div className="mx-auto max-w-6xl space-y-6">
-        <div className="flex items-center justify-between">
+    <main className="min-h-screen bg-background p-3 sm:p-4 md:p-6">
+      <div className="mx-auto max-w-6xl space-y-4 sm:space-y-6">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">{t('warehouseScanner')}</h1>
-            <p className="text-muted-foreground">{t('scannerSubtitle')}</p>
+            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">{t('warehouseScanner')}</h1>
+            <p className="text-sm text-muted-foreground">{t('scannerSubtitle')}</p>
           </div>
-          <div className="flex gap-2 items-center">
+          <div className="flex gap-2 items-center flex-wrap">
             <LanguageToggle />
-            <Button variant="outline" onClick={() => router.push('/dashboard')}>
+            <Button variant="outline" size="sm" onClick={() => router.push('/dashboard')}>
               {t('dashboardLink')}
             </Button>
-            <Button variant="outline" onClick={handleLogout}>
+            <Button variant="outline" size="sm" onClick={handleLogout}>
               {t('signOut')}
             </Button>
           </div>
@@ -443,12 +443,12 @@ export function ScannerPage() {
           <TabsContent value="camera" className="space-y-4">
             <Card>
               <CardHeader>
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-2">
                   <div>
-                    <CardTitle>{t('qrCodeScanner')}</CardTitle>
-                    <CardDescription>{t('qrScannerDesc')}</CardDescription>
+                    <CardTitle className="text-base sm:text-lg">{t('qrCodeScanner')}</CardTitle>
+                    <CardDescription className="text-xs sm:text-sm">{t('qrScannerDesc')}</CardDescription>
                   </div>
-                  <div className="flex items-center gap-2 rounded-full border px-3 py-1.5 bg-background shadow-sm">
+                  <div className="flex items-center gap-1.5 sm:gap-2 rounded-full border px-2 sm:px-3 py-1.5 bg-background shadow-sm shrink-0">
                       <span className="text-xs font-medium text-muted-foreground">OFF</span>
                       <button
                         type="button"
@@ -576,7 +576,7 @@ export function ScannerPage() {
               </CardHeader>
               <CardContent>
                 <form onSubmit={handleManualForm} className="space-y-4">
-                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div className="grid grid-cols-1 gap-3 sm:gap-4 sm:grid-cols-2">
                     <div className="space-y-2">
                       <Label htmlFor="m-artNumber">{t('artNumber')}</Label>
                       <Input
@@ -686,9 +686,9 @@ export function ScannerPage() {
                   {scans.length} {t('totalScannedItems')}, {Object.keys(groupedScans).length} {t('uniqueItemsScanned')}
                 </CardDescription>
               </CardHeader>
-              <CardContent>
+              <CardContent className="px-0 sm:px-6">
                 {scans.length === 0 ? (
-                  <div className="text-center py-8 text-muted-foreground">
+                  <div className="text-center py-8 text-sm text-muted-foreground px-3">
                     {t('noScansYet')}
                   </div>
                 ) : (
@@ -696,30 +696,31 @@ export function ScannerPage() {
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead>{t('artNumberCol')}</TableHead>
-                          <TableHead>{t('colorCol')}</TableHead>
-                          <TableHead>{t('sizeCol')}</TableHead>
-                          <TableHead className="text-right">{t('qtyCol')}</TableHead>
-                          <TableHead className="text-right">{t('actionsCol')}</TableHead>
+                          <TableHead className="text-xs sm:text-sm px-3 sm:px-4">{t('artNumberCol')}</TableHead>
+                          <TableHead className="text-xs sm:text-sm px-3 sm:px-4">{t('colorCol')}</TableHead>
+                          <TableHead className="text-xs sm:text-sm px-3 sm:px-4">{t('sizeCol')}</TableHead>
+                          <TableHead className="text-xs sm:text-sm px-3 sm:px-4 text-right">{t('qtyCol')}</TableHead>
+                          <TableHead className="text-xs sm:text-sm px-3 sm:px-4 text-right">{t('actionsCol')}</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {scans.map((scan) => (
                           <TableRow key={scan.id}>
-                            <TableCell className="font-mono text-sm">
+                            <TableCell className="font-mono text-xs sm:text-sm px-3 sm:px-4">
                               {scan.artNumber || '-'}
                             </TableCell>
-                            <TableCell className="font-mono text-sm">
+                            <TableCell className="font-mono text-xs sm:text-sm px-3 sm:px-4">
                               {scan.colorNumber || '-'}
                             </TableCell>
-                            <TableCell className="font-mono text-sm">
+                            <TableCell className="font-mono text-xs sm:text-sm px-3 sm:px-4">
                               {scan.sizeNumber || '-'}
                             </TableCell>
-                            <TableCell className="text-right">
-                              <div className="flex items-center justify-end gap-1">
+                            <TableCell className="text-right px-3 sm:px-4">
+                              <div className="flex items-center justify-end gap-0.5 sm:gap-1">
                                 <Button
                                   variant="ghost"
                                   size="sm"
+                                  className="h-7 w-7 p-0 sm:h-8 sm:w-8"
                                   onClick={() =>
                                     handleUpdateQuantity(scan.id, scan.quantity - 1)
                                   }
@@ -727,10 +728,11 @@ export function ScannerPage() {
                                 >
                                   −
                                 </Button>
-                                <span className="w-8 text-center">{scan.quantity}</span>
+                                <span className="w-6 sm:w-8 text-center text-xs sm:text-sm">{scan.quantity}</span>
                                 <Button
                                   variant="ghost"
                                   size="sm"
+                                  className="h-7 w-7 p-0 sm:h-8 sm:w-8"
                                   onClick={() =>
                                     handleUpdateQuantity(scan.id, scan.quantity + 1)
                                   }
@@ -739,10 +741,11 @@ export function ScannerPage() {
                                 </Button>
                               </div>
                             </TableCell>
-                            <TableCell className="text-right">
+                            <TableCell className="text-right px-3 sm:px-4">
                               <Button
                                 variant="ghost"
                                 size="sm"
+                                className="h-7 px-2 text-xs sm:h-8 sm:px-3 sm:text-sm"
                                 onClick={() => handleDeleteScan(scan.id)}
                               >
                                 {t('delete')}
