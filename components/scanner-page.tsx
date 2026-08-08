@@ -1,5 +1,6 @@
 'use client'
 
+import jsQR from 'jsqr'
 import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
@@ -33,15 +34,37 @@ export function ScannerPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [uploadProcessing, setUploadProcessing] = useState(false)
+  const [successMsg, setSuccessMsg] = useState<string | null>(null)
+  const successTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Controls the rAF scan loop — set to false to break it without relying on stale state
+  const scanningRef = useRef(false)
+
+  function showSuccess(msg: string) {
+    if (successTimerRef.current) clearTimeout(successTimerRef.current)
+    setError(null)
+    setSuccessMsg(msg)
+    successTimerRef.current = setTimeout(() => setSuccessMsg(null), 3000)
+  }
+
+  function showError(msg: string) {
+    if (successTimerRef.current) clearTimeout(successTimerRef.current)
+    setSuccessMsg(null)
+    setError(msg)
+  }
 
   async function handleLogout() {
     await signOut()
     router.push('/sign-in')
   }
 
-  // Load recent scans on component mount
+  // Load recent scans on component mount; stop scan loop on unmount
   useEffect(() => {
     loadScans()
+    return () => {
+      scanningRef.current = false
+    }
   }, [])
 
   async function loadScans() {
@@ -56,6 +79,7 @@ export function ScannerPage() {
   async function startCamera() {
     try {
       setError(null)
+      setSuccessMsg(null)
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: 'environment' },
         audio: false,
@@ -65,15 +89,95 @@ export function ScannerPage() {
         videoRef.current.srcObject = stream
         streamRef.current = stream
         setIsCameraActive(true)
-        scanQRCode()
+        scanningRef.current = true
+
+        // Wait for the video to be ready before starting the scan loop
+        const video = videoRef.current
+        const startLoop = () => scanLoop(video)
+        if (video.readyState >= 2) {
+          // Already has data
+          startLoop()
+        } else {
+          video.addEventListener('loadeddata', startLoop, { once: true })
+        }
       }
     } catch (err) {
-      setError(t('cameraPermissionError'))
+      showError(t('cameraPermissionError'))
       console.error('Camera error:', err)
     }
   }
 
-  async function stopCamera() {
+  async function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    // Validate file type
+    const allowed = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/bmp']
+    if (!allowed.includes(file.type)) {
+      showError(t('invalidImageFile'))
+      if (fileInputRef.current) fileInputRef.current.value = ''
+      return
+    }
+
+    setUploadProcessing(true)
+    setSuccessMsg(null)
+    setError(null)
+
+    try {
+      // Draw image onto canvas to extract pixel data
+      let bitmap: ImageBitmap
+      try {
+        bitmap = await createImageBitmap(file)
+      } catch {
+        showError(t('invalidImageFile'))
+        return
+      }
+
+      const canvas = document.createElement('canvas')
+      canvas.width = bitmap.width
+      canvas.height = bitmap.height
+      const ctx = canvas.getContext('2d')!
+      ctx.drawImage(bitmap, 0, 0)
+      bitmap.close()
+
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
+      const code = jsQR(imageData.data, imageData.width, imageData.height)
+
+      if (!code) {
+        showError(t('uploadQRError'))
+        return
+      }
+
+      // QR decoded — now save to DB
+      const saved = await recordScanSafe(code.data)
+      if (saved) {
+        showSuccess(t('scanSuccess'))
+      }
+      // if not saved, recordScanSafe already called showError
+    } catch (err) {
+      showError(t('uploadQRError'))
+      console.error('Image upload scan error:', err)
+    } finally {
+      setUploadProcessing(false)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    }
+  }
+
+  // Saves a QR code to DB; returns true on success, false on failure (sets error itself)
+  async function recordScanSafe(qrCode: string): Promise<boolean> {
+    try {
+      const result = await recordScan(qrCode)
+      setScans((prev) => [result as Scan, ...prev])
+      return true
+    } catch (err) {
+      showError(t('scanRecordError'))
+      console.error('recordScan error:', err)
+      return false
+    }
+  }
+
+  function stopCamera() {
+    scanningRef.current = false
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => track.stop())
       streamRef.current = null
@@ -81,56 +185,59 @@ export function ScannerPage() {
     setIsCameraActive(false)
   }
 
-  function scanQRCode() {
-    if (!isCameraActive || !videoRef.current || !canvasRef.current) return
+  function scanLoop(video: HTMLVideoElement) {
+    if (!scanningRef.current) return
+
+    // Skip frames where the video has no size yet
+    if (video.videoWidth === 0 || video.videoHeight === 0) {
+      requestAnimationFrame(() => scanLoop(video))
+      return
+    }
 
     const canvas = canvasRef.current
-    const context = canvas.getContext('2d')
-    if (!context) return
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
 
-    canvas.width = videoRef.current.videoWidth
-    canvas.height = videoRef.current.videoHeight
-
-    context.drawImage(videoRef.current, 0, 0)
+    canvas.width = video.videoWidth
+    canvas.height = video.videoHeight
+    ctx.drawImage(video, 0, 0)
 
     try {
-      // Try to detect QR code using canvas data
-      const imageData = context.getImageData(0, 0, canvas.width, canvas.height)
-      const code = scanImageData(imageData)
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
+      const code = jsQR(imageData.data, imageData.width, imageData.height)
 
       if (code) {
-        handleScan(code)
         stopCamera()
+        handleCameraScan(code.data)
         return
       }
     } catch (err) {
-      console.error('QR scan error:', err)
+      console.error('Camera QR scan error:', err)
     }
 
-    // Continue scanning
-    requestAnimationFrame(scanQRCode)
+    requestAnimationFrame(() => scanLoop(video))
   }
 
-  function scanImageData(imageData: ImageData): string | null {
-    // Simplified QR code detection - in production use jsQR library
-    // This is a placeholder that looks for patterns in the image
-    // For now, we'll rely on manual input or text recognition
-    return null
+  async function handleCameraScan(qrCode: string) {
+    const saved = await recordScanSafe(qrCode)
+    if (saved) {
+      showSuccess(t('cameraScanSuccess'))
+    }
   }
 
   async function handleScan(qrCode: string) {
     setLoading(true)
+    setSuccessMsg(null)
     setError(null)
 
     try {
       const result = await recordScan(qrCode)
       setScans((prev) => [result as Scan, ...prev])
       setManualInput('')
-
-      // Show confirmation
-      setTimeout(() => setManualInput(''), 2000)
+      showSuccess(t('manualScanSuccess'))
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to record scan')
+      showError(err instanceof Error ? err.message : t('scanRecordError'))
     } finally {
       setLoading(false)
     }
@@ -231,12 +338,43 @@ export function ScannerPage() {
                       </div>
                     </div>
                   )}
+
+                  {/* Scanning indicator — pulsing border + label */}
+                  {isCameraActive && (
+                    <div className="absolute inset-0 pointer-events-none">
+                      <div className="absolute inset-0 border-4 border-green-400 rounded-lg animate-pulse" />
+                      <div className="absolute bottom-3 left-1/2 -translate-x-1/2 bg-black/60 text-green-300 text-xs font-medium px-3 py-1 rounded-full">
+                        {t('cameraScanning')}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {isCameraActive && (
                   <Button onClick={stopCamera} variant="outline" className="w-full">
                     {t('stopCamera')}
                   </Button>
+                )}
+
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={handleImageUpload}
+                />
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  disabled={uploadProcessing || isCameraActive}
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  {uploadProcessing ? t('uploadQRProcessing') : t('uploadQRImage')}
+                </Button>
+                {successMsg && (
+                  <div className="rounded-md bg-green-100 px-3 py-2 text-sm text-green-800 border border-green-300">
+                    {successMsg}
+                  </div>
                 )}
 
                 {error && (
@@ -268,6 +406,12 @@ export function ScannerPage() {
                       autoFocus
                     />
                   </div>
+
+                  {successMsg && (
+                    <div className="rounded-md bg-green-100 px-3 py-2 text-sm text-green-800 border border-green-300">
+                      {successMsg}
+                    </div>
+                  )}
 
                   {error && (
                     <div className="rounded-md bg-destructive/15 px-3 py-2 text-sm text-destructive">

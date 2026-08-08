@@ -78,6 +78,15 @@ export const translations = {
     actionsCol: 'Actions',
     delete: 'Delete',
     cameraPermissionError: 'Unable to access camera. Please grant permission.',
+    uploadQRImage: 'Upload QR Image to Scan',
+    uploadQRError: 'No QR code found in the image. Please upload a clear, well-lit photo of the QR code.',
+    uploadQRProcessing: 'Processing image...',
+    scanSuccess: 'Image scanned successfully!',
+    scanRecordError: 'QR code read but failed to save. Please try again.',
+    invalidImageFile: 'Invalid file. Please upload a JPG, PNG, or WebP image.',
+    manualScanSuccess: 'Scan recorded successfully!',
+    cameraScanSuccess: 'QR code scanned successfully!',
+    cameraScanning: 'Scanning for QR code...',
   },
 
   hi: {
@@ -157,6 +166,15 @@ export const translations = {
     actionsCol: 'क्रियाएं',
     delete: 'हटाएं',
     cameraPermissionError: 'कैमरा एक्सेस करने में असमर्थ। कृपया अनुमति दें।',
+    uploadQRImage: 'QR इमेज अपलोड करें',
+    uploadQRError: 'इमेज में कोई QR कोड नहीं मिला। कृपया साफ और अच्छी रोशनी वाली QR कोड की फोटो अपलोड करें।',
+    uploadQRProcessing: 'इमेज प्रोसेस हो रही है...',
+    scanSuccess: 'इमेज सफलतापूर्वक स्कैन हो गई!',
+    scanRecordError: 'QR कोड पढ़ा गया लेकिन सेव नहीं हो सका। कृपया पुनः प्रयास करें।',
+    invalidImageFile: 'अमान्य फ़ाइल। कृपया JPG, PNG या WebP इमेज अपलोड करें।',
+    manualScanSuccess: 'स्कैन सफलतापूर्वक दर्ज हो गया!',
+    cameraScanSuccess: 'QR कोड सफलतापूर्वक स्कैन हो गया!',
+    cameraScanning: 'QR कोड खोजा जा रहा है...',
   },
 } as const
 
