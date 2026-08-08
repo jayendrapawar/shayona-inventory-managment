@@ -15,6 +15,7 @@ import {
   getOverallStockSummary,
   getOverallStockStats,
   exportOverallStockToCSV,
+  getLoggedInUserName,
 } from '@/app/actions/dashboard'
 import type { OverallStockItem, OverallStockStats } from '@/app/actions/dashboard'
 import { signOut } from '@/lib/auth-client'
@@ -96,6 +97,7 @@ export function DashboardPage() {
   const { t } = useLanguage()
 
   const [activeTab, setActiveTab] = useState<Tab>('scanned')
+  const [loggedInUser, setLoggedInUser] = useState<string | null>(null)
 
   // Scanned Inventory state
   const [inventory, setInventory] = useState<InventoryItem[]>([])
@@ -113,8 +115,9 @@ export function DashboardPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Load Scanned Inventory on mount
+  // Load user name + Scanned Inventory on mount
   useEffect(() => {
+    getLoggedInUserName().then(setLoggedInUser).catch(() => {})
     loadScannedInventory()
   }, [])
 
@@ -426,12 +429,14 @@ export function DashboardPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead className="text-xs sm:text-sm px-3 sm:px-4">{t('entryTypeCol')}</TableHead>
                     <TableHead className="text-xs sm:text-sm px-3 sm:px-4">{t('artNumberCol')}</TableHead>
                     <TableHead className="text-xs sm:text-sm px-3 sm:px-4">{t('colorCol')}</TableHead>
                     <TableHead className="text-xs sm:text-sm px-3 sm:px-4">{t('sizeCol')}</TableHead>
                     <TableHead className="text-xs sm:text-sm px-3 sm:px-4 hidden sm:table-cell">{t('divisionCol')}</TableHead>
                     <TableHead className="text-xs sm:text-sm px-3 sm:px-4 hidden sm:table-cell text-right">{t('mrpCol')}</TableHead>
                     <TableHead className="text-xs sm:text-sm px-3 sm:px-4 hidden md:table-cell">{t('mfgCol')}</TableHead>
+                    <TableHead className="text-xs sm:text-sm px-3 sm:px-4 hidden md:table-cell">{t('scannedByCol')}</TableHead>
                     <TableHead className="text-xs sm:text-sm px-3 sm:px-4 text-right">{t('totalQuantityCol')}</TableHead>
                     <TableHead className="text-xs sm:text-sm px-3 sm:px-4 text-right hidden sm:table-cell">{t('totalScansCol')}</TableHead>
                     <TableHead className="text-xs sm:text-sm px-3 sm:px-4 hidden md:table-cell">{t('lastUpdatedCol')}</TableHead>
@@ -440,6 +445,11 @@ export function DashboardPage() {
                 <TableBody>
                   {filteredStock.map((item, idx) => (
                     <TableRow key={idx}>
+                      <TableCell className="px-3 sm:px-4">
+                        <Badge variant={item.entryType === 'scan' ? 'default' : 'secondary'} className="text-xs">
+                          {item.entryType}
+                        </Badge>
+                      </TableCell>
                       <TableCell className="font-mono text-xs sm:text-sm font-semibold px-3 sm:px-4">
                         {item.artNumber || '-'}
                       </TableCell>
@@ -459,6 +469,9 @@ export function DashboardPage() {
                         {item.mfgMonth && item.mfgYear
                           ? `${String(item.mfgMonth).padStart(2, '0')}/${item.mfgYear}`
                           : '-'}
+                      </TableCell>
+                      <TableCell className="text-xs sm:text-sm px-3 sm:px-4 hidden md:table-cell">
+                        {item.scannedByName || '-'}
                       </TableCell>
                       <TableCell className="text-right px-3 sm:px-4">
                         <Badge className="bg-green-100 text-green-800 hover:bg-green-100">
@@ -498,7 +511,11 @@ export function DashboardPage() {
         <div className="flex flex-col items-end gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="w-full">
             <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">{t('dashboard')}</h1>
-            <p className="text-sm text-muted-foreground">{t('dashboardSubtitle')}</p>
+            <p className="text-sm text-muted-foreground">
+              {activeTab === 'scanned' && loggedInUser
+                ? `${t('scannedInventoryTab')} — ${loggedInUser}`
+                : t('dashboardSubtitle')}
+            </p>
           </div>
           <div className="flex items-center gap-2 shrink-0 justify-end">
             <LanguageToggle />

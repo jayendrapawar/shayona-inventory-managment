@@ -14,6 +14,12 @@ async function getUser() {
   return { id: session.user.id, name: session.user.name ?? null }
 }
 
+// Returns the current logged-in user's display name — used by the dashboard header
+export async function getLoggedInUserName(): Promise<string | null> {
+  const user = await getUser()
+  return user.name
+}
+
 export async function searchInventory(query: string) {
   if (!query.trim()) {
     return db.select().from(scans).orderBy(desc(scans.createdAt))
@@ -149,7 +155,12 @@ export async function addManualEntry(
 }
 
 export async function getStatistics() {
-  const scanData = await db.select().from(scans)
+  // Stats scoped to the logged-in user only (Scanned Inventory tab)
+  const user = await getUser()
+  const scanData = await db
+    .select()
+    .from(scans)
+    .where(eq(scans.scannedByName, user.name ?? ''))
 
   const totalScans = scanData.length
   const totalItems = scanData.reduce((sum, scan) => sum + scan.quantity, 0)
@@ -175,6 +186,8 @@ export interface OverallStockItem {
   mrp: number | undefined
   mfgMonth: number | undefined
   mfgYear: number | undefined
+  scannedByName: string | undefined
+  entryType: string
   totalQuantity: number
   totalScans: number
   lastUpdated: Date
@@ -202,6 +215,8 @@ export async function getOverallStockSummary(): Promise<OverallStockItem[]> {
         mrp: scan.mrp != null ? Number(scan.mrp) : undefined,
         mfgMonth: scan.mfgMonth ?? undefined,
         mfgYear: scan.mfgYear ?? undefined,
+        scannedByName: scan.scannedByName ?? undefined,
+        entryType: scan.entryType,
         totalQuantity: 0,
         totalScans: 0,
         lastUpdated: scan.scannedAt,
@@ -239,7 +254,13 @@ export async function getOverallStockStats(): Promise<OverallStockStats> {
 }
 
 export async function exportToExcel(): Promise<Record<string, string | number>[]> {
-  const scanData = await db.select().from(scans).orderBy(desc(scans.createdAt))
+  // Scoped to the logged-in user only (matches the Scanned Inventory tab)
+  const user = await getUser()
+  const scanData = await db
+    .select()
+    .from(scans)
+    .where(eq(scans.scannedByName, user.name ?? ''))
+    .orderBy(desc(scans.createdAt))
 
   return scanData.map((scan) => ({
     'Entry Type': scan.entryType,

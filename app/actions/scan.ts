@@ -72,11 +72,13 @@ export async function recordScan(rawQrCode: string): Promise<RecordScanResult> {
   return { ok: true, data: rows[0] }
 }
 
-// Last 50 entries across both scan + manual, time-ordered
+// Last 50 entries for the logged-in user only, time-ordered
 export async function getRecentScans(limit = 50) {
+  const user = await getUser()
   return db
     .select()
     .from(scans)
+    .where(eq(scans.scannedByName, user.name ?? ''))
     .orderBy(desc(scans.scannedAt))
     .limit(limit)
 }
