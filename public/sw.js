@@ -9,14 +9,16 @@
  *   - Everything else                  → NetworkFirst
  */
 
-const CACHE_NAME    = 'shayona-v1'
-const STATIC_CACHE  = 'shayona-static-v1'
-const PAGES_CACHE   = 'shayona-pages-v1'
+const CACHE_NAME    = 'shayona-v2'
+const STATIC_CACHE  = 'shayona-static-v2'
+const PAGES_CACHE   = 'shayona-pages-v2'
 
-// App shell pages to pre-cache on install
+// App shell pages to pre-cache on install.
+// Only cache pages that render without auth (/sign-in) or that gracefully
+// handle an offline DB (/scanner). /dashboard always needs auth+DB so
+// it is NOT pre-cached — it falls back to the /scanner cache if offline.
 const PRECACHE_URLS = [
   '/scanner',
-  '/dashboard',
   '/sign-in',
   '/manifest.json',
   '/icons/icon-192x192.png',

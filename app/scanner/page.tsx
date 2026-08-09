@@ -2,6 +2,7 @@ import { headers } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { auth } from '@/lib/auth'
 import { ScannerPage } from '@/components/scanner-page'
+import { isRedirectError } from 'next/dist/client/components/redirect-error'
 
 export const metadata = {
   title: 'Scanner - Shayona Inventory',
@@ -9,10 +10,12 @@ export const metadata = {
 }
 
 export default async function Scanner() {
-  const session = await auth.api.getSession({ headers: await headers() })
-
-  if (!session?.user) {
-    redirect('/sign-in')
+  try {
+    const session = await auth.api.getSession({ headers: await headers() })
+    if (!session?.user) redirect('/sign-in')
+  } catch (err) {
+    if (isRedirectError(err)) throw err
+    // DB/network unreachable — still render scanner; offline queue handles scans
   }
 
   return <ScannerPage />
