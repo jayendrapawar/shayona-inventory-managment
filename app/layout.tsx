@@ -2,6 +2,7 @@ import { Analytics } from '@vercel/analytics/next'
 import type { Metadata, Viewport } from 'next'
 import './globals.css'
 import { LanguageProvider } from '@/lib/language-context'
+import { GlobalNetworkStatus } from '@/components/global-network-status'
 
 export const metadata: Metadata = {
   title: 'Shayona Inventory Management',
@@ -45,6 +46,7 @@ export default function RootLayout({
     <html lang="en" className="bg-background">
       <body className="antialiased bg-background">
         <LanguageProvider>
+          <GlobalNetworkStatus />
           {children}
         </LanguageProvider>
         {process.env.NODE_ENV === 'production' && <Analytics />}
