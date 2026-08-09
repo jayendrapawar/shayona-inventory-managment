@@ -79,6 +79,8 @@ export function ScannerPage() {
   const [recentLoading, setRecentLoading] = useState(false)
   const [lastCameraScan, setLastCameraScan] = useState<RecentScan | null>(null)
   const [lastManualEntry, setLastManualEntry] = useState<RecentScan | null>(null)
+  const [lastOfflineScan, setLastOfflineScan] = useState<OfflineEntry | null>(null)
+  const [lastOfflineManual, setLastOfflineManual] = useState<OfflineEntry | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<RecentScan | null>(null)
   const [deleteLoading, setDeleteLoading] = useState(false)
   const [deleteConfirmText, setDeleteConfirmText] = useState('')
@@ -402,8 +404,19 @@ export function ScannerPage() {
 
   async function handleCameraScan(qrCode: string) {
     if (!isOnline) {
-      // Parse the QR locally so we store structured fields in the queue
       const parsed = parseQr(qrCode)
+      // Duplicate check against existing offline queue
+      const queue = await getQueue()
+      const dup = queue.find(
+        (e) => e.rawQrCode === qrCode ||
+          (e.artNumber === parsed.articleCode &&
+           e.colorNumber === parsed.colorCode &&
+           e.sizeNumber === parsed.size)
+      )
+      if (dup) {
+        showWarning(dup.scannedByName ? `${t('duplicateByUser')} ${dup.scannedByName}` : t('duplicateQR'))
+        return
+      }
       const entry: OfflineEntry = {
         tempId:        crypto.randomUUID(),
         entryType:     'scan',
@@ -422,6 +435,7 @@ export function ScannerPage() {
       }
       await enqueue(entry)
       await refreshOfflineQueue()
+      setLastOfflineScan(entry)
       showSuccess(t('offlineSaved'))
       return
     }
@@ -453,6 +467,15 @@ export function ScannerPage() {
         const art   = manualForm.artNumber.trim().toUpperCase()
         const color = manualForm.colorNumber.trim().toUpperCase()
         const size  = manualForm.sizeNumber.trim().toUpperCase()
+        // Duplicate check against existing offline queue
+        const queue = await getQueue()
+        const dup = queue.find(
+          (e) => e.artNumber === art && e.colorNumber === color && e.sizeNumber === size
+        )
+        if (dup) {
+          showWarning(dup.scannedByName ? `${t('duplicateByUser')} ${dup.scannedByName}` : t('duplicateQR'))
+          return
+        }
         const entry: OfflineEntry = {
           tempId:        crypto.randomUUID(),
           entryType:     'manual',
@@ -468,6 +491,7 @@ export function ScannerPage() {
         }
         await enqueue(entry)
         await refreshOfflineQueue()
+        setLastOfflineManual(entry)
         setManualForm({ artNumber: '', colorNumber: '', sizeNumber: '', quantity: '', mrp: '', notes: '' })
         showSuccess(t('offlineSaved'))
         return
@@ -528,36 +552,44 @@ export function ScannerPage() {
 
   // ─── Last scan summary card ────────────────────────────────────────────────
 
-  function LastScannedCard({ scan, label }: { scan: RecentScan; label: string }) {
+  function ScanSummaryCard({ label, artNumber, colorNumber, sizeNumber, mrp, division, scannedByName }: {
+    label: string
+    artNumber?: string | null
+    colorNumber?: string | null
+    sizeNumber?: string | null
+    mrp?: string | number | null
+    division?: string | null
+    scannedByName?: string | null
+  }) {
     return (
       <div className="rounded-xl border bg-zinc-900 text-white p-4 space-y-3">
         <p className="text-[10px] font-semibold tracking-widest uppercase text-zinc-400">{label}</p>
         <div className="grid grid-cols-2 gap-x-6 gap-y-3">
           <div>
             <p className="text-[11px] text-zinc-400 mb-0.5">Article</p>
-            <p className="text-base font-bold leading-tight">{scan.artNumber || '—'}</p>
+            <p className="text-base font-bold leading-tight">{artNumber || '—'}</p>
           </div>
           <div>
             <p className="text-[11px] text-zinc-400 mb-0.5">Color</p>
-            <p className="text-base font-bold leading-tight">{scan.colorNumber || '—'}</p>
+            <p className="text-base font-bold leading-tight">{colorNumber || '—'}</p>
           </div>
           <div>
             <p className="text-[11px] text-zinc-400 mb-0.5">Size</p>
-            <p className="text-base font-bold leading-tight">{scan.sizeNumber || '—'}</p>
+            <p className="text-base font-bold leading-tight">{sizeNumber || '—'}</p>
           </div>
           <div>
             <p className="text-[11px] text-zinc-400 mb-0.5">MRP</p>
             <p className="text-base font-bold leading-tight">
-              {scan.mrp != null ? `₹${Number(scan.mrp).toFixed(2)}` : '—'}
+              {mrp != null ? `₹${Number(mrp).toFixed(2)}` : '—'}
             </p>
           </div>
           <div>
             <p className="text-[11px] text-zinc-400 mb-0.5">Division</p>
-            <p className="text-base font-bold leading-tight">{scan.division || '—'}</p>
+            <p className="text-base font-bold leading-tight">{division || '—'}</p>
           </div>
           <div>
             <p className="text-[11px] text-zinc-400 mb-0.5">By</p>
-            <p className="text-base font-bold leading-tight">{scan.scannedByName || '—'}</p>
+            <p className="text-base font-bold leading-tight">{scannedByName || '—'}</p>
           </div>
         </div>
       </div>
@@ -712,14 +744,28 @@ export function ScannerPage() {
           }}
         >
           <TabsList className={`grid w-full ${totalOffline > 0 ? 'grid-cols-4' : 'grid-cols-3'}`}>
-            <TabsTrigger value="camera">{t('cameraTab')}</TabsTrigger>
-            <TabsTrigger value="manual">{t('manualTab')}</TabsTrigger>
-            <TabsTrigger value="recent">{t('recentScansTab')}</TabsTrigger>
+            <TabsTrigger value="camera" className="text-xs sm:text-sm">{t('cameraTab')}</TabsTrigger>
+            <TabsTrigger value="manual" className="text-xs sm:text-sm">{t('manualTab')}</TabsTrigger>
+            <TabsTrigger value="recent" className="text-xs sm:text-sm">{t('recentScansTab')}</TabsTrigger>
             {totalOffline > 0 && (
-              <TabsTrigger value="offline" className="relative">
-                {t('offlineQueueTitle')}
-                <span className="ml-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-yellow-500 px-1 text-[10px] font-bold text-white">
-                  {totalOffline}
+              <TabsTrigger value="offline" className="text-xs sm:text-sm px-1 sm:px-3">
+                {/* Mobile: wifi-off icon + badge only; Desktop: full label */}
+                <span className="flex items-center gap-1">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                    className="h-3.5 w-3.5 shrink-0">
+                    <line x1="1" y1="1" x2="23" y2="23" />
+                    <path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55" />
+                    <path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39" />
+                    <path d="M10.71 5.05A16 16 0 0 1 22.56 9" />
+                    <path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88" />
+                    <path d="M8.53 16.11a6 6 0 0 1 6.95 0" />
+                    <line x1="12" y1="20" x2="12.01" y2="20" />
+                  </svg>
+                  <span className="hidden sm:inline">{t('offlineQueueTitle')}</span>
+                  <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-yellow-500 px-1 text-[10px] font-bold text-white">
+                    {totalOffline}
+                  </span>
                 </span>
               </TabsTrigger>
             )}
@@ -814,7 +860,10 @@ export function ScannerPage() {
                 </Button>
                 <Banners />
                 {lastCameraScan && (
-                  <LastScannedCard scan={lastCameraScan} label="Last Scanned" />
+                  <ScanSummaryCard label="Last Scanned" {...lastCameraScan} mrp={lastCameraScan.mrp} />
+                )}
+                {lastOfflineScan && !lastCameraScan && (
+                  <ScanSummaryCard label="Last Scanned (Offline)" {...lastOfflineScan} />
                 )}
               </CardContent>
             </Card>
@@ -920,7 +969,10 @@ export function ScannerPage() {
                     </Button>
                   </div>
                   {lastManualEntry && (
-                    <LastScannedCard scan={lastManualEntry} label="Last Added" />
+                    <ScanSummaryCard label="Last Added" {...lastManualEntry} mrp={lastManualEntry.mrp} />
+                  )}
+                  {lastOfflineManual && !lastManualEntry && (
+                    <ScanSummaryCard label="Last Added (Offline)" {...lastOfflineManual} />
                   )}
                 </form>
               </CardContent>
