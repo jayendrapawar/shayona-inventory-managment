@@ -12,6 +12,42 @@ export interface ParsedQr {
 }
 
 /**
+ * Returns true only if the QR string matches our expected warehouse format:
+ *   FIELD0-FIELD1-FIELD2-FIELD3
+ * where:
+ *   - FIELD0 contains a known article-type prefix (FL, P, S, …)
+ *   - FIELD1 has at least 4 chars (colorCode) and a numeric size suffix
+ *   - At least 4 dash-separated fields are present
+ *
+ * Anything that fails this check is NOT our QR and should be rejected
+ * before touching the DB or offline queue.
+ */
+export function isValidWarehouseQr(raw: string): boolean {
+  const normalized = normalizeQr(raw)
+  const fields = normalized.split('-')
+
+  // Must have at least 4 dash-separated fields
+  if (fields.length < 4) return false
+
+  // Field 0 must contain a known article prefix
+  const field0 = fields[0] ?? ''
+  const hasPrefix = ARTICLE_TYPE_PREFIXES.some((p) => field0.includes(p))
+  if (!hasPrefix) return false
+
+  // Field 1 must have a non-empty colorCode (≥4 chars) and a numeric size
+  const field1 = fields[1] ?? ''
+  if (field1.length < 4) return false
+  const digitRun = field1.slice(4).replace(/\D/g, '')
+  if (!digitRun) return false
+
+  // Field 3 must be a positive MRP number
+  const mrp = parseFloat(fields[3] ?? '0')
+  if (!mrp || mrp <= 0) return false
+
+  return true
+}
+
+/**
  * Normalize a raw QR string:
  *   - strip leading https?://
  *   - strip trailing /

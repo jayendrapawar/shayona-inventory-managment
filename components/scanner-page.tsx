@@ -12,11 +12,11 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@/components/ui/badge'
 import { recordScan, getCurrentUserName, getRecentScans, deleteScan } from '@/app/actions/scan'
 import { addManualEntry } from '@/app/actions/dashboard'
-import { DUPLICATE_QR_ERROR, DUPLICATE_ENTRY_ERROR } from '@/lib/errors'
+import { DUPLICATE_QR_ERROR, DUPLICATE_ENTRY_ERROR, INVALID_QR_ERROR } from '@/lib/errors'
+import { isValidWarehouseQr, parseQr } from '@/lib/qr-parser'
 import { signOut } from '@/lib/auth-client'
 import { useLanguage } from '@/lib/language-context'
 import { LanguageToggle } from '@/components/language-toggle'
-import { parseQr } from '@/lib/qr-parser'
 import { enqueue, getQueue, removeFromQueue, type OfflineEntry } from '@/lib/offline-queue'
 import { useOnline } from '@/lib/use-online'
 import { syncQueue, type SyncResult } from '@/lib/sync-engine'
@@ -403,6 +403,12 @@ export function ScannerPage() {
   // ── Core scan handler — online calls server, offline queues locally ─────────
 
   async function handleCameraScan(qrCode: string) {
+    // Reject QR codes that don't match the warehouse format — never store empty/garbage data
+    if (!isValidWarehouseQr(qrCode)) {
+      showWarning('QR code format not recognised.')
+      return
+    }
+
     if (!isOnline) {
       const parsed = parseQr(qrCode)
       // Duplicate check against existing offline queue
@@ -442,7 +448,9 @@ export function ScannerPage() {
 
     const res = await recordScan(qrCode)
     if (!res.ok) {
-      if (res.error === DUPLICATE_QR_ERROR) {
+      if (res.error === INVALID_QR_ERROR) {
+        showWarning('QR code format not recognised. Only warehouse QR codes can be scanned.')
+      } else if (res.error === DUPLICATE_QR_ERROR) {
         const who = res.scannedByName
         showWarning(who ? `${t('duplicateByUser')} ${who}` : t('duplicateQR'))
       } else {

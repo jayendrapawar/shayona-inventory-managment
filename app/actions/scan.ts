@@ -6,8 +6,8 @@ import { scans } from '@/lib/db/schema'
 import { and, eq, isNull, desc } from 'drizzle-orm'
 import { headers } from 'next/headers'
 import { revalidatePath } from 'next/cache'
-import { DUPLICATE_QR_ERROR } from '@/lib/errors'
-import { parseQr } from '@/lib/qr-parser'
+import { DUPLICATE_QR_ERROR, INVALID_QR_ERROR } from '@/lib/errors'
+import { parseQr, isValidWarehouseQr } from '@/lib/qr-parser'
 
 async function getUser() {
   const session = await auth.api.getSession({ headers: await headers() })
@@ -23,7 +23,7 @@ export async function getCurrentUserName(): Promise<string | null> {
 
 export type RecordScanResult =
   | { ok: true; data: typeof scans.$inferSelect }
-  | { ok: false; error: typeof DUPLICATE_QR_ERROR | 'ERROR'; scannedByName?: string | null }
+  | { ok: false; error: typeof DUPLICATE_QR_ERROR | typeof INVALID_QR_ERROR | 'ERROR'; scannedByName?: string | null }
 
 // Nullable-safe equality: uses IS NULL when value is absent, eq() otherwise
 function colEq(col: Parameters<typeof eq>[0], val: string | undefined) {
@@ -31,6 +31,11 @@ function colEq(col: Parameters<typeof eq>[0], val: string | undefined) {
 }
 
 export async function recordScan(rawQrCode: string): Promise<RecordScanResult> {
+  // Reject before any DB call if QR doesn't match warehouse format
+  if (!isValidWarehouseQr(rawQrCode)) {
+    return { ok: false, error: INVALID_QR_ERROR }
+  }
+
   const user = await getUser()
   const parsed = parseQr(rawQrCode)
 
