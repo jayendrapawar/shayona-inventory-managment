@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { useOnline } from '@/lib/use-online'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
@@ -114,6 +115,7 @@ export function DashboardPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const isOnline = useOnline()
 
   // Load user name + Scanned Inventory on mount
   useEffect(() => {
@@ -527,6 +529,13 @@ export function DashboardPage() {
             </Button>
           </div>
         </div>
+
+        {/* Offline notice */}
+        {!isOnline && (
+          <p className="text-center py-2 text-sm text-muted-foreground">
+            You are offline. Dashboard data requires an internet connection.
+          </p>
+        )}
 
         {/* Tabs */}
         <Tabs value={activeTab} onValueChange={(v) => handleTabChange(v as Tab)}>

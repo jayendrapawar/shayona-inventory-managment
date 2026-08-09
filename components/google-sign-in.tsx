@@ -4,11 +4,13 @@ import { useState } from 'react'
 import { authClient } from '@/lib/auth-client'
 import { useLanguage } from '@/lib/language-context'
 import { LanguageToggle } from '@/components/language-toggle'
+import { useOnline } from '@/lib/use-online'
 
 export function GoogleSignIn() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const { t } = useLanguage()
+  const isOnline = useOnline()
 
   async function handleGoogleSignIn() {
     setError(null)
@@ -58,6 +60,11 @@ export function GoogleSignIn() {
           <p style={{ margin: 0, fontSize: 14, color: '#6b7280' }}>
             {t('signInSubtitle')}
           </p>
+          {!isOnline && (
+            <p style={{ margin: '12px 0 0', fontSize: 13, color: '#9ca3af' }}>
+              You are offline. Sign-in requires an internet connection.
+            </p>
+          )}
         </div>
 
         {error && (
