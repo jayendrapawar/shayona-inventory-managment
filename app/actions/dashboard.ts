@@ -111,7 +111,8 @@ export async function addManualEntry(
   colorNumber: string,
   sizeNumber: string,
   quantity: number,
-  notes?: string
+  notes?: string,
+  mrp?: number,
 ): Promise<AddManualEntryResult> {
   const user = await getUser()
 
@@ -147,6 +148,7 @@ export async function addManualEntry(
       scannedByName: user.name ?? undefined,
       notes,
       quantity,
+      mrp: mrp != null ? String(mrp) : undefined,
     })
     .returning()
 

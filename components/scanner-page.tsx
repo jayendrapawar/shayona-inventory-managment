@@ -44,11 +44,19 @@ export function ScannerPage() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [isCameraActive, setIsCameraActive] = useState(false)
   const [isFlashlightOn, setIsFlashlightOn] = useState(false)
-  const [manualForm, setManualForm] = useState({
+  const [manualForm, setManualForm] = useState<{
+    artNumber: string
+    colorNumber: string
+    sizeNumber: string
+    quantity: number | ''
+    mrp: string
+    notes: string
+  }>({
     artNumber: '',
     colorNumber: '',
     sizeNumber: '',
-    quantity: 1,
+    quantity: '',
+    mrp: '',
     notes: '',
   })
   const [manualLoading, setManualLoading] = useState(false)
@@ -440,7 +448,8 @@ export function ScannerPage() {
           artNumber:     art,
           colorNumber:   color,
           sizeNumber:    size,
-          quantity:      manualForm.quantity,
+          quantity:      manualForm.quantity || 1,
+          mrp:           manualForm.mrp ? parseFloat(manualForm.mrp) : undefined,
           notes:         manualForm.notes || undefined,
           scannedByName: userName || getCachedUser(),
           savedAt:       Date.now(),
@@ -448,7 +457,7 @@ export function ScannerPage() {
         }
         await enqueue(entry)
         await refreshOfflineQueue()
-        setManualForm({ artNumber: '', colorNumber: '', sizeNumber: '', quantity: 1, notes: '' })
+        setManualForm({ artNumber: '', colorNumber: '', sizeNumber: '', quantity: '', mrp: '', notes: '' })
         showSuccess(t('offlineSaved'))
         return
       }
@@ -457,8 +466,9 @@ export function ScannerPage() {
         manualForm.artNumber,
         manualForm.colorNumber,
         manualForm.sizeNumber,
-        manualForm.quantity,
+        manualForm.quantity || 1,
         manualForm.notes || undefined,
+        manualForm.mrp ? parseFloat(manualForm.mrp) : undefined,
       )
       if (!res.ok) {
         if (res.error === DUPLICATE_ENTRY_ERROR) {
@@ -470,7 +480,7 @@ export function ScannerPage() {
         return
       }
       setLastManualEntry(res.data)
-      setManualForm({ artNumber: '', colorNumber: '', sizeNumber: '', quantity: 1, notes: '' })
+      setManualForm({ artNumber: '', colorNumber: '', sizeNumber: '', quantity: '', mrp: '', notes: '' })
       showSuccess(t('manualEntrySuccess'))
       loadRecentScans()
     } catch (err) {
@@ -763,7 +773,7 @@ export function ScannerPage() {
                       <p className="text-white/60 text-sm font-medium">{t('cameraNotActive')}</p>
                     </div>
                   )}
-                  {/* Pause / Resume button — small, top-right corner */}
+                  {/* Pause / Resume button — top-right corner */}
                   <button
                     type="button"
                     aria-label={isCameraActive ? t('stopCamera') : t('startCamera')}
@@ -848,12 +858,30 @@ export function ScannerPage() {
                         id="m-quantity"
                         type="number"
                         min="1"
+                        placeholder="1"
                         value={manualForm.quantity}
                         onChange={(e) =>
-                          setManualForm((prev) => ({ ...prev, quantity: parseInt(e.target.value) || 1 }))
+                          setManualForm((prev) => ({ ...prev, quantity: e.target.value === '' ? '' : parseInt(e.target.value) || 1 }))
                         }
                         disabled={manualLoading}
                       />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="m-mrp">{t('mrpCol')}</Label>
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">₹</span>
+                        <Input
+                          id="m-mrp"
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          placeholder="0.00"
+                          value={manualForm.mrp}
+                          onChange={(e) => setManualForm((prev) => ({ ...prev, mrp: e.target.value }))}
+                          disabled={manualLoading}
+                          className="pl-7"
+                        />
+                      </div>
                     </div>
                     <div className="space-y-2 sm:col-span-2">
                       <Label htmlFor="m-notes">{t('notes')}</Label>
@@ -875,7 +903,7 @@ export function ScannerPage() {
                       type="button"
                       variant="outline"
                       disabled={manualLoading}
-                      onClick={() => setManualForm({ artNumber: '', colorNumber: '', sizeNumber: '', quantity: 1, notes: '' })}
+                      onClick={() => setManualForm({ artNumber: '', colorNumber: '', sizeNumber: '', quantity: '', mrp: '', notes: '' })}
                     >
                       {t('cancel')}
                     </Button>
