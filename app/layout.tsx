@@ -3,27 +3,21 @@ import type { Metadata, Viewport } from 'next'
 import './globals.css'
 import { LanguageProvider } from '@/lib/language-context'
 import { GlobalNetworkStatus } from '@/components/global-network-status'
+import { ServiceWorkerRegistration } from '@/components/service-worker-registration'
 
 export const metadata: Metadata = {
   title: 'Shayona Inventory Management',
   description: 'Warehouse inventory scanning and management system for footwear logistics',
   generator: 'v0.app',
+  manifest: '/manifest.json',
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'default',
+    title: 'Shayona',
+  },
   icons: {
-    icon: [
-      {
-        url: '/icon-light-32x32.png',
-        media: '(prefers-color-scheme: light)',
-      },
-      {
-        url: '/icon-dark-32x32.png',
-        media: '(prefers-color-scheme: dark)',
-      },
-      {
-        url: '/icon.svg',
-        type: 'image/svg+xml',
-      },
-    ],
-    apple: '/apple-icon.png',
+    icon: '/icons/icon-192x192.png',
+    apple: '/icons/icon-192x192.png',
   },
 }
 
@@ -46,6 +40,7 @@ export default function RootLayout({
     <html lang="en" className="bg-background">
       <body className="antialiased bg-background">
         <LanguageProvider>
+          <ServiceWorkerRegistration />
           <GlobalNetworkStatus />
           {children}
         </LanguageProvider>
