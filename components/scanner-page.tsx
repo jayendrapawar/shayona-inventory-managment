@@ -116,7 +116,7 @@ export function ScannerPage() {
   // useOnline: tracks online/offline and calls handleSync on reconnect
   const isOnline = useOnline(handleSync)
 
-  // ── Mount: load user, recent scans, offline queue ─────────────────────────
+  // ── Mount: load user, recent scans, offline queue, auto-start camera ───────
   useEffect(() => {
     // Restore cached username immediately (available offline)
     const cached = getCachedUser()
@@ -143,6 +143,9 @@ export function ScannerPage() {
         }
       }).catch(() => {})
     }
+
+    // Auto-start camera immediately — no button tap needed
+    startCamera()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -676,7 +679,17 @@ export function ScannerPage() {
           </div>
         </div>
 
-        <Tabs defaultValue="camera" className="w-full">
+        <Tabs
+          defaultValue="camera"
+          className="w-full"
+          onValueChange={(tab) => {
+            if (tab === 'camera') {
+              startCamera()
+            } else {
+              stopCamera()
+            }
+          }}
+        >
           <TabsList className={`grid w-full ${totalOffline > 0 ? 'grid-cols-4' : 'grid-cols-3'}`}>
             <TabsTrigger value="camera">{t('cameraTab')}</TabsTrigger>
             <TabsTrigger value="manual">{t('manualTab')}</TabsTrigger>
@@ -735,14 +748,7 @@ export function ScannerPage() {
                 <div className="relative bg-black rounded-lg overflow-hidden aspect-video">
                   <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover" />
                   <canvas ref={canvasRef} className="hidden" />
-                  {!isCameraActive && (
-                    <div className="absolute inset-0 flex items-center justify-center bg-black/50">
-                      <div className="text-center">
-                        <p className="text-white mb-4">{t('cameraNotActive')}</p>
-                        <Button onClick={startCamera} size="lg">{t('startCamera')}</Button>
-                      </div>
-                    </div>
-                  )}
+                  {/* Scanning active overlay */}
                   {isCameraActive && (
                     <div className="absolute inset-0 pointer-events-none">
                       <div className="absolute inset-0 border-4 border-green-400 rounded-lg animate-pulse" />
@@ -751,10 +757,31 @@ export function ScannerPage() {
                       </div>
                     </div>
                   )}
+                  {/* Paused state — dim overlay with text */}
+                  {!isCameraActive && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/60 pointer-events-none">
+                      <p className="text-white/60 text-sm font-medium">{t('cameraNotActive')}</p>
+                    </div>
+                  )}
+                  {/* Pause / Resume button — small, top-right corner */}
+                  <button
+                    type="button"
+                    aria-label={isCameraActive ? t('stopCamera') : t('startCamera')}
+                    onClick={isCameraActive ? stopCamera : startCamera}
+                    className="absolute top-2 right-2 flex h-8 w-8 items-center justify-center rounded-full bg-black/50 text-white hover:bg-black/75 transition-colors"
+                  >
+                    {isCameraActive ? (
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4">
+                        <rect x="6" y="4" width="4" height="16" rx="1" />
+                        <rect x="14" y="4" width="4" height="16" rx="1" />
+                      </svg>
+                    ) : (
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4">
+                        <polygon points="5 3 19 12 5 21 5 3" />
+                      </svg>
+                    )}
+                  </button>
                 </div>
-                {isCameraActive && (
-                  <Button onClick={stopCamera} variant="outline" className="w-full">{t('stopCamera')}</Button>
-                )}
                 <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
                 <Button
                   variant="outline"
