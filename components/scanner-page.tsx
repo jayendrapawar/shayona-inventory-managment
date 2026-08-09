@@ -70,6 +70,9 @@ export function ScannerPage() {
   const [infoMsg, setInfoMsg] = useState<string | null>(null)
   const successTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const scanningRef = useRef(false)
+  // Cooldown ref — true for 2s after each successful scan so the same
+  // QR code isn't re-read while the worker is still holding the device.
+  const scanPausedRef = useRef(false)
 
   const [userName, setUserName] = useState<string>('')
   const [recentScans, setRecentScans] = useState<RecentScan[]>([])
@@ -373,13 +376,21 @@ export function ScannerPage() {
     canvas.width = video.videoWidth
     canvas.height = video.videoHeight
     ctx.drawImage(video, 0, 0)
+    // Skip frame during post-scan cooldown — camera stays live
+    if (scanPausedRef.current) {
+      requestAnimationFrame(() => scanLoop(video))
+      return
+    }
+
     try {
       const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
       const code = jsQR(imageData.data, imageData.width, imageData.height)
       if (code) {
-        stopCamera()
+        // Pause reading for 2s so the same QR isn't re-read immediately
+        scanPausedRef.current = true
+        setTimeout(() => { scanPausedRef.current = false }, 2000)
         handleCameraScan(code.data)
-        return
+        // Do NOT stopCamera() — keep the loop running for the next scan
       }
     } catch (err) {
       console.error('Camera QR scan error:', err)
