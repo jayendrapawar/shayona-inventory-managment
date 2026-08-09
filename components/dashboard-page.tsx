@@ -137,6 +137,8 @@ export function DashboardPage() {
   }, [activeTab, inventory, stockItems])
 
   async function loadScannedInventory() {
+    // Skip fetching and don't show an error when offline — the banner already tells the user
+    if (!navigator.onLine) { setLoading(false); return }
     try {
       setLoading(true)
       setError(null)
@@ -148,13 +150,17 @@ export function DashboardPage() {
       setFilteredInventory(summaryData as InventoryItem[])
       setStats(statsData as Statistics)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load scanned inventory')
+      // Suppress network errors when offline — banner already explains it
+      if (navigator.onLine) {
+        setError(err instanceof Error ? err.message : 'Failed to load scanned inventory')
+      }
     } finally {
       setLoading(false)
     }
   }
 
   async function loadOverallStock() {
+    if (!navigator.onLine) { setLoading(false); return }
     try {
       setLoading(true)
       setError(null)
@@ -167,7 +173,9 @@ export function DashboardPage() {
       setStockStats(overallStats)
       setStockLoaded(true)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load overall stock')
+      if (navigator.onLine) {
+        setError(err instanceof Error ? err.message : 'Failed to load overall stock')
+      }
     } finally {
       setLoading(false)
     }

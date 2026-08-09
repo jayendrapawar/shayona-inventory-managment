@@ -83,7 +83,8 @@ export function GoogleSignIn() {
           )}
         </div>
 
-        {error && (
+        {/* Only show auth errors when online — offline errors are shown via the banner */}
+        {error && isOnline && (
           <div
             style={{
               marginBottom: 16,
@@ -101,7 +102,7 @@ export function GoogleSignIn() {
 
         <button
           onClick={handleGoogleSignIn}
-          disabled={loading}
+          disabled={loading || !isOnline}
           style={{
             display: 'flex',
             alignItems: 'center',
@@ -111,12 +112,12 @@ export function GoogleSignIn() {
             height: 42,
             borderRadius: 8,
             border: '1px solid #d1d5db',
-            background: loading ? '#f9fafb' : '#fff',
-            color: '#374151',
+            background: (loading || !isOnline) ? '#f9fafb' : '#fff',
+            color: (loading || !isOnline) ? '#9ca3af' : '#374151',
             fontSize: 15,
             fontWeight: 500,
-            cursor: loading ? 'not-allowed' : 'pointer',
-            opacity: loading ? 0.7 : 1,
+            cursor: (loading || !isOnline) ? 'not-allowed' : 'pointer',
+            opacity: (loading || !isOnline) ? 0.6 : 1,
           }}
         >
           {!loading && (
