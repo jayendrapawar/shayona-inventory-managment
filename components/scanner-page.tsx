@@ -1,7 +1,7 @@
 'use client'
 
 import jsQR from 'jsqr'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -10,14 +10,32 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
-import { recordScan, getCurrentUserName, getRecentScans } from '@/app/actions/scan'
+import { recordScan, getCurrentUserName, getRecentScans, deleteScan } from '@/app/actions/scan'
 import { addManualEntry } from '@/app/actions/dashboard'
 import { DUPLICATE_QR_ERROR, DUPLICATE_ENTRY_ERROR } from '@/lib/errors'
 import { signOut } from '@/lib/auth-client'
 import { useLanguage } from '@/lib/language-context'
 import { LanguageToggle } from '@/components/language-toggle'
+import { parseQr } from '@/lib/qr-parser'
+import { enqueue, getQueue, removeFromQueue, type OfflineEntry } from '@/lib/offline-queue'
+import { useOnline } from '@/lib/use-online'
+import { syncQueue, type SyncResult } from '@/lib/sync-engine'
 
 type RecentScan = Awaited<ReturnType<typeof getRecentScans>>[number]
+
+// ─── Username persistence ────────────────────────────────────────────────────
+// We store the username in localStorage so offline scans can be labelled
+// even after a page refresh (server session isn't reachable offline).
+const USER_KEY = 'shayona-offline-user'
+
+function getCachedUser(): string {
+  if (typeof window === 'undefined') return ''
+  return localStorage.getItem(USER_KEY) ?? ''
+}
+function setCachedUser(name: string) {
+  if (typeof window === 'undefined') return
+  localStorage.setItem(USER_KEY, name)
+}
 
 export function ScannerPage() {
   const router = useRouter()
@@ -45,17 +63,100 @@ export function ScannerPage() {
   const successTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const scanningRef = useRef(false)
 
-  // New state
-  const [userName, setUserName] = useState<string | null>(null)
+  const [userName, setUserName] = useState<string>('')
   const [recentScans, setRecentScans] = useState<RecentScan[]>([])
   const [recentLoading, setRecentLoading] = useState(false)
   const [lastCameraScan, setLastCameraScan] = useState<RecentScan | null>(null)
   const [lastManualEntry, setLastManualEntry] = useState<RecentScan | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<RecentScan | null>(null)
+  const [deleteLoading, setDeleteLoading] = useState(false)
+  const [deleteConfirmText, setDeleteConfirmText] = useState('')
 
-  // Load user name + initial recent scans on mount
+  // ── Offline state ──────────────────────────────────────────────────────────
+  const [offlineQueue, setOfflineQueue] = useState<OfflineEntry[]>([])
+  const [isSyncing, setIsSyncing] = useState(false)
+  const [syncResult, setSyncResult] = useState<SyncResult | null>(null)
+  const syncResultTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Refresh local queue from IndexedDB
+  async function refreshOfflineQueue() {
+    try {
+      const q = await getQueue()
+      setOfflineQueue(q)
+    } catch {
+      // IndexedDB unavailable — silently ignore
+    }
+  }
+
+  // ── Sync handler (called on reconnect & on mount when online) ──────────────
+  const handleSync = useCallback(async () => {
+    const pending = offlineQueue.filter((e) => e.status === 'pending' || e.status === 'syncing')
+    if (pending.length === 0) {
+      // Re-check IndexedDB directly in case state is stale
+      const q = await getQueue()
+      const actualPending = q.filter((e) => e.status === 'pending' || e.status === 'syncing')
+      if (actualPending.length === 0) return
+    }
+
+    setIsSyncing(true)
+    try {
+      const result = await syncQueue()
+      setSyncResult(result)
+      if (syncResultTimerRef.current) clearTimeout(syncResultTimerRef.current)
+      syncResultTimerRef.current = setTimeout(() => setSyncResult(null), 6000)
+      await refreshOfflineQueue()
+      // Reload recent scans to show newly synced items
+      if (result.synced > 0) loadRecentScans()
+    } finally {
+      setIsSyncing(false)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // useOnline: tracks online/offline and calls handleSync on reconnect
+  const isOnline = useOnline(handleSync)
+
+  // ── Mount: load user, recent scans, offline queue ─────────────────────────
   useEffect(() => {
-    getCurrentUserName().then(setUserName).catch(() => {})
+    // Restore cached username immediately (available offline)
+    const cached = getCachedUser()
+    if (cached) setUserName(cached)
+
+    // Try fetching the authoritative name from the server
+    getCurrentUserName()
+      .then((name) => {
+        if (name) {
+          setUserName(name)
+          setCachedUser(name)
+        }
+      })
+      .catch(() => {})
+
     loadRecentScans()
+    refreshOfflineQueue()
+
+    // If we're already online at mount and there's a queue, sync it
+    if (navigator.onLine) {
+      getQueue().then((q) => {
+        if (q.some((e) => e.status === 'pending')) {
+          handleSync()
+        }
+      }).catch(() => {})
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // ── Cleanup on unmount ─────────────────────────────────────────────────────
+  useEffect(() => {
+    return () => {
+      scanningRef.current = false
+      if (successTimerRef.current) clearTimeout(successTimerRef.current)
+      if (syncResultTimerRef.current) clearTimeout(syncResultTimerRef.current)
+      if (flashlightStreamRef.current) {
+        flashlightStreamRef.current.getTracks().forEach((t) => t.stop())
+        flashlightStreamRef.current = null
+      }
+    }
   }, [])
 
   async function loadRecentScans() {
@@ -64,7 +165,7 @@ export function ScannerPage() {
       const data = await getRecentScans(50)
       setRecentScans(data)
     } catch {
-      // silently ignore
+      // offline — silently ignore
     } finally {
       setRecentLoading(false)
     }
@@ -108,17 +209,7 @@ export function ScannerPage() {
     router.push('/sign-in')
   }
 
-  // Stop scan loop and clear timers on unmount
-  useEffect(() => {
-    return () => {
-      scanningRef.current = false
-      if (successTimerRef.current) clearTimeout(successTimerRef.current)
-      if (flashlightStreamRef.current) {
-        flashlightStreamRef.current.getTracks().forEach((t) => t.stop())
-        flashlightStreamRef.current = null
-      }
-    }
-  }, [])
+  // ── Camera ─────────────────────────────────────────────────────────────────
 
   async function startCamera() {
     try {
@@ -128,17 +219,14 @@ export function ScannerPage() {
         video: { facingMode: 'environment' },
         audio: false,
       })
-
       if (!videoRef.current) {
         stream.getTracks().forEach((t) => t.stop())
         return
       }
-
       videoRef.current.srcObject = stream
       streamRef.current = stream
       setIsCameraActive(true)
       scanningRef.current = true
-
       const video = videoRef.current
       const startLoop = () => scanLoop(video)
       if (video.readyState >= 2) {
@@ -175,7 +263,6 @@ export function ScannerPage() {
         showError(t('invalidImageFile'))
         bitmap = null as unknown as ImageBitmap
       }
-
       if (!bitmap) return
 
       const canvas = document.createElement('canvas')
@@ -193,19 +280,7 @@ export function ScannerPage() {
         return
       }
 
-       const res = await recordScan(code.data)
-      if (!res.ok) {
-        if (res.error === DUPLICATE_QR_ERROR) {
-          const who = res.scannedByName
-          showWarning(who ? `${t('duplicateByUser')} ${who}` : t('duplicateQR'))
-        } else {
-          showError(t('scanRecordError'))
-        }
-      } else {
-        setLastCameraScan(res.data)
-        showSuccess(t('scanSuccess'))
-        loadRecentScans()
-      }
+      await handleCameraScan(code.data)
     } catch (err) {
       showError(t('uploadQRError'))
       console.error('Image upload scan error:', err)
@@ -263,8 +338,8 @@ export function ScannerPage() {
           .getUserMedia({ video: { facingMode: 'environment' }, audio: false })
           .then((stream) => {
             flashlightStreamRef.current = stream
-            const t = stream.getVideoTracks()[0]
-            if (t) t.applyConstraints({ advanced: [{ torch: true } as MediaTrackConstraintSet] }).catch(() => {})
+            const tr = stream.getVideoTracks()[0]
+            if (tr) tr.applyConstraints({ advanced: [{ torch: true } as MediaTrackConstraintSet] }).catch(() => {})
           })
           .catch(() => { setIsFlashlightOn(false) })
       }
@@ -276,25 +351,20 @@ export function ScannerPage() {
 
   function scanLoop(video: HTMLVideoElement) {
     if (!scanningRef.current) return
-
     if (video.videoWidth === 0 || video.videoHeight === 0) {
       requestAnimationFrame(() => scanLoop(video))
       return
     }
-
     const canvas = canvasRef.current
     if (!canvas) return
     const ctx = canvas.getContext('2d')
     if (!ctx) return
-
     canvas.width = video.videoWidth
     canvas.height = video.videoHeight
     ctx.drawImage(video, 0, 0)
-
     try {
       const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
       const code = jsQR(imageData.data, imageData.width, imageData.height)
-
       if (code) {
         stopCamera()
         handleCameraScan(code.data)
@@ -303,11 +373,37 @@ export function ScannerPage() {
     } catch (err) {
       console.error('Camera QR scan error:', err)
     }
-
     requestAnimationFrame(() => scanLoop(video))
   }
 
+  // ── Core scan handler — online calls server, offline queues locally ─────────
+
   async function handleCameraScan(qrCode: string) {
+    if (!isOnline) {
+      // Parse the QR locally so we store structured fields in the queue
+      const parsed = parseQr(qrCode)
+      const entry: OfflineEntry = {
+        tempId:        crypto.randomUUID(),
+        entryType:     'scan',
+        rawQrCode:     qrCode,
+        artNumber:     parsed.articleCode,
+        colorNumber:   parsed.colorCode,
+        sizeNumber:    parsed.size,
+        division:      parsed.division || undefined,
+        mrp:           parsed.mrp || undefined,
+        mfgMonth:      parsed.mfgMonth || undefined,
+        mfgYear:       parsed.mfgYear || undefined,
+        quantity:      1,
+        scannedByName: userName || getCachedUser(),
+        savedAt:       Date.now(),
+        status:        'pending',
+      }
+      await enqueue(entry)
+      await refreshOfflineQueue()
+      showSuccess(t('offlineSaved'))
+      return
+    }
+
     const res = await recordScan(qrCode)
     if (!res.ok) {
       if (res.error === DUPLICATE_QR_ERROR) {
@@ -331,20 +427,40 @@ export function ScannerPage() {
     setError(null)
 
     try {
+      if (!isOnline) {
+        const art   = manualForm.artNumber.trim().toUpperCase()
+        const color = manualForm.colorNumber.trim().toUpperCase()
+        const size  = manualForm.sizeNumber.trim().toUpperCase()
+        const entry: OfflineEntry = {
+          tempId:        crypto.randomUUID(),
+          entryType:     'manual',
+          artNumber:     art,
+          colorNumber:   color,
+          sizeNumber:    size,
+          quantity:      manualForm.quantity,
+          notes:         manualForm.notes || undefined,
+          scannedByName: userName || getCachedUser(),
+          savedAt:       Date.now(),
+          status:        'pending',
+        }
+        await enqueue(entry)
+        await refreshOfflineQueue()
+        setManualForm({ artNumber: '', colorNumber: '', sizeNumber: '', quantity: 1, notes: '' })
+        showSuccess(t('offlineSaved'))
+        return
+      }
+
       const res = await addManualEntry(
         manualForm.artNumber,
         manualForm.colorNumber,
         manualForm.sizeNumber,
         manualForm.quantity,
-        manualForm.notes || undefined
+        manualForm.notes || undefined,
       )
       if (!res.ok) {
         if (res.error === DUPLICATE_ENTRY_ERROR) {
           const who = res.scannedByName
-          const msg = who
-            ? `${t('duplicateByUser')} ${who}`
-            : t('duplicateQR')
-          showWarning(msg)
+          showWarning(who ? `${t('duplicateByUser')} ${who}` : t('duplicateQR'))
         } else {
           showError(t('scanRecordError'))
         }
@@ -362,7 +478,31 @@ export function ScannerPage() {
     }
   }
 
-  // ─── Last scan summary card ──────────────────────────────────────────────
+  // ── Delete (server rows) ───────────────────────────────────────────────────
+
+  async function handleDeleteConfirm() {
+    if (!deleteTarget) return
+    setDeleteLoading(true)
+    try {
+      await deleteScan(deleteTarget.id)
+      setRecentScans((prev) => prev.filter((s) => s.id !== deleteTarget.id))
+      setDeleteTarget(null)
+      setDeleteConfirmText('')
+    } catch {
+      // silently ignore — row stays visible
+    } finally {
+      setDeleteLoading(false)
+    }
+  }
+
+  // ── Dismiss an offline error entry ─────────────────────────────────────────
+
+  async function handleDismissOfflineError(tempId: string) {
+    await removeFromQueue(tempId)
+    await refreshOfflineQueue()
+  }
+
+  // ─── Last scan summary card ────────────────────────────────────────────────
 
   function LastScannedCard({ scan, label }: { scan: RecentScan; label: string }) {
     return (
@@ -400,7 +540,7 @@ export function ScannerPage() {
     )
   }
 
-  // ─── Shared feedback banners ─────────────────────────────────────────────
+  // ─── Feedback banners ──────────────────────────────────────────────────────
 
   function Banners() {
     return (
@@ -429,14 +569,96 @@ export function ScannerPage() {
     )
   }
 
+  // ─── Pending count across all states ──────────────────────────────────────
+  const pendingCount   = offlineQueue.filter((e) => e.status === 'pending' || e.status === 'syncing').length
+  const errorCount     = offlineQueue.filter((e) => e.status === 'error').length
+  const totalOffline   = offlineQueue.length
+
+  // ─── Render ────────────────────────────────────────────────────────────────
+
   return (
     <main className="min-h-screen bg-background p-3 sm:p-4 md:p-6">
       <div className="mx-auto max-w-6xl space-y-4 sm:space-y-6">
 
+        {/* ── Offline banner ─────────────────────────────────────────────── */}
+        {!isOnline && (
+          <div className="flex items-start gap-3 rounded-lg border border-yellow-300 bg-yellow-50 px-4 py-3 text-sm text-yellow-800">
+            {/* wifi-off icon */}
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+              className="h-4 w-4 shrink-0 mt-0.5">
+              <line x1="1" y1="1" x2="23" y2="23" />
+              <path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55" />
+              <path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39" />
+              <path d="M10.71 5.05A16 16 0 0 1 22.56 9" />
+              <path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88" />
+              <path d="M8.53 16.11a6 6 0 0 1 6.95 0" />
+              <line x1="12" y1="20" x2="12.01" y2="20" />
+            </svg>
+            <span>{t('offlineBanner')}</span>
+          </div>
+        )}
+
+        {/* ── Sync in-progress banner ────────────────────────────────────── */}
+        {isSyncing && (
+          <div className="flex items-center gap-3 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-700">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+              className="h-4 w-4 shrink-0 animate-spin">
+              <polyline points="23 4 23 10 17 10" />
+              <polyline points="1 20 1 14 7 14" />
+              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+            </svg>
+            {t('syncing')}
+          </div>
+        )}
+
+        {/* ── Sync result banner ─────────────────────────────────────────── */}
+        {syncResult && !isSyncing && (
+          <div className={`flex items-start gap-3 rounded-lg border px-4 py-3 text-sm ${
+            syncResult.duplicates > 0 || syncResult.errors > 0
+              ? 'border-yellow-300 bg-yellow-50 text-yellow-800'
+              : 'border-green-300 bg-green-50 text-green-800'
+          }`}>
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+              className="h-4 w-4 shrink-0 mt-0.5">
+              {syncResult.duplicates === 0 && syncResult.errors === 0
+                ? <><polyline points="20 6 9 17 4 12" /></>
+                : <><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" /></>
+              }
+            </svg>
+            <span>
+              {syncResult.synced > 0 && syncResult.duplicates === 0 && syncResult.errors === 0
+                ? t('syncSuccess')
+                : `${t('syncPartial')} ${syncResult.synced > 0 ? `${syncResult.synced} synced. ` : ''}${syncResult.duplicates > 0 ? `${syncResult.duplicates} ${t('syncDuplicates')} ` : ''}${syncResult.errors > 0 ? `${syncResult.errors} failed (will retry).` : ''}`
+              }
+            </span>
+          </div>
+        )}
+
+        {/* ── Pending offline items pill (shown when online + have pending) */}
+        {isOnline && pendingCount > 0 && !isSyncing && (
+          <div className="flex items-center justify-between gap-3 rounded-lg border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm text-blue-700">
+            <span>⚡ {pendingCount} {t('offlinePending')}</span>
+            <Button size="sm" variant="outline" className="h-7 text-xs border-blue-300 text-blue-700 hover:bg-blue-100"
+              onClick={handleSync} disabled={isSyncing}>
+              {t('retrySync')}
+            </Button>
+          </div>
+        )}
+
         {/* Header */}
         <div className="flex flex-col items-end gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="w-full">
-            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">{t('warehouseScanner')}</h1>
+            <div className="flex items-center gap-2">
+              <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">{t('warehouseScanner')}</h1>
+              {!isOnline && (
+                <span className="rounded-full bg-yellow-100 border border-yellow-300 px-2 py-0.5 text-[10px] font-semibold text-yellow-700 uppercase tracking-wide">
+                  {t('offlineBadge')}
+                </span>
+              )}
+            </div>
             <p className="text-sm text-muted-foreground">
               {userName
                 ? `${t('welcomeGreeting')} ${userName}! ${t('goodDay')}`
@@ -455,10 +677,18 @@ export function ScannerPage() {
         </div>
 
         <Tabs defaultValue="camera" className="w-full">
-          <TabsList className="grid w-full grid-cols-3">
+          <TabsList className={`grid w-full ${totalOffline > 0 ? 'grid-cols-4' : 'grid-cols-3'}`}>
             <TabsTrigger value="camera">{t('cameraTab')}</TabsTrigger>
             <TabsTrigger value="manual">{t('manualTab')}</TabsTrigger>
             <TabsTrigger value="recent">{t('recentScansTab')}</TabsTrigger>
+            {totalOffline > 0 && (
+              <TabsTrigger value="offline" className="relative">
+                {t('offlineQueueTitle')}
+                <span className="ml-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-yellow-500 px-1 text-[10px] font-bold text-white">
+                  {totalOffline}
+                </span>
+              </TabsTrigger>
+            )}
           </TabsList>
 
           {/* ── Camera Tab ──────────────────────────────────────────────── */}
@@ -640,13 +870,17 @@ export function ScannerPage() {
                     <CardTitle className="text-base sm:text-lg">{t('recentScansTitle')}</CardTitle>
                     <CardDescription className="text-xs sm:text-sm">{t('recentScansDesc')}</CardDescription>
                   </div>
-                  <Button variant="outline" size="sm" onClick={loadRecentScans} disabled={recentLoading}>
+                  <Button variant="outline" size="sm" onClick={loadRecentScans} disabled={recentLoading || !isOnline}>
                     ↻
                   </Button>
                 </div>
               </CardHeader>
               <CardContent className="px-0 sm:px-6">
-                {recentLoading ? (
+                {!isOnline && recentScans.length === 0 ? (
+                  <p className="text-center py-8 text-sm text-muted-foreground px-3">
+                    You are offline. Previously loaded scans appear here once internet is available.
+                  </p>
+                ) : recentLoading ? (
                   <p className="text-center py-8 text-sm text-muted-foreground">{t('loading')}</p>
                 ) : recentScans.length === 0 ? (
                   <p className="text-center py-8 text-sm text-muted-foreground">{t('noRecentScans')}</p>
@@ -664,6 +898,7 @@ export function ScannerPage() {
                           <TableHead className="text-xs sm:text-sm px-3 sm:px-4 text-right">{t('quantityCol')}</TableHead>
                           <TableHead className="text-xs sm:text-sm px-3 sm:px-4">{t('scannedByCol')}</TableHead>
                           <TableHead className="text-xs sm:text-sm px-3 sm:px-4 hidden md:table-cell">{t('lastScannedCol')}</TableHead>
+                          <TableHead className="px-3 sm:px-4" />
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -701,6 +936,24 @@ export function ScannerPage() {
                                 hour: '2-digit', minute: '2-digit',
                               })}
                             </TableCell>
+                            <TableCell className="px-3 sm:px-4">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 w-7 p-0 text-destructive hover:text-destructive hover:bg-destructive/10"
+                                onClick={() => setDeleteTarget(scan)}
+                              >
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+                                  stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                                  className="h-3.5 w-3.5">
+                                  <polyline points="3 6 5 6 21 6" />
+                                  <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                                  <path d="M10 11v6" />
+                                  <path d="M14 11v6" />
+                                  <path d="M9 6V4h6v2" />
+                                </svg>
+                              </Button>
+                            </TableCell>
                           </TableRow>
                         ))}
                       </TableBody>
@@ -710,7 +963,181 @@ export function ScannerPage() {
               </CardContent>
             </Card>
           </TabsContent>
+
+          {/* ── Offline Queue Tab (only shown when queue has items) ───────── */}
+          {totalOffline > 0 && (
+            <TabsContent value="offline" className="space-y-4">
+              <Card>
+                <CardHeader className="px-3 sm:px-6">
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <CardTitle className="text-base sm:text-lg flex items-center gap-2">
+                        {t('offlineQueueTitle')}
+                        {pendingCount > 0 && (
+                          <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-yellow-500 px-1.5 text-[11px] font-bold text-white">
+                            {pendingCount}
+                          </span>
+                        )}
+                      </CardTitle>
+                      <CardDescription className="text-xs sm:text-sm">{t('offlineQueueDesc')}</CardDescription>
+                    </div>
+                    {isOnline && pendingCount > 0 && (
+                      <Button size="sm" variant="outline" onClick={handleSync} disabled={isSyncing}>
+                        {isSyncing ? t('syncing') : t('retrySync')}
+                      </Button>
+                    )}
+                  </div>
+                </CardHeader>
+                <CardContent className="px-0 sm:px-6">
+                  {offlineQueue.length === 0 ? (
+                    <p className="text-center py-8 text-sm text-muted-foreground">{t('offlineQueueEmpty')}</p>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead className="text-xs px-3 sm:px-4">Status</TableHead>
+                            <TableHead className="text-xs px-3 sm:px-4">{t('entryTypeCol')}</TableHead>
+                            <TableHead className="text-xs px-3 sm:px-4">{t('artNumberCol')}</TableHead>
+                            <TableHead className="text-xs px-3 sm:px-4">{t('colorCol')}</TableHead>
+                            <TableHead className="text-xs px-3 sm:px-4">{t('sizeCol')}</TableHead>
+                            <TableHead className="text-xs px-3 sm:px-4 text-right">{t('quantityCol')}</TableHead>
+                            <TableHead className="text-xs px-3 sm:px-4 hidden sm:table-cell">Saved At</TableHead>
+                            <TableHead className="px-3 sm:px-4" />
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {offlineQueue.map((entry) => (
+                            <TableRow key={entry.tempId} className={entry.status === 'error' ? 'bg-destructive/5' : ''}>
+                              <TableCell className="px-3 sm:px-4">
+                                {entry.status === 'pending' && (
+                                  <span className="inline-flex items-center gap-1 rounded-full bg-yellow-100 border border-yellow-300 px-2 py-0.5 text-[10px] font-semibold text-yellow-700">
+                                    ⏳ {t('pendingSyncBadge')}
+                                  </span>
+                                )}
+                                {entry.status === 'syncing' && (
+                                  <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 border border-blue-300 px-2 py-0.5 text-[10px] font-semibold text-blue-700">
+                                    ↻ {t('syncing')}
+                                  </span>
+                                )}
+                                {entry.status === 'error' && (
+                                  <span className="inline-flex items-center gap-1 rounded-full bg-red-100 border border-red-300 px-2 py-0.5 text-[10px] font-semibold text-red-700" title={entry.errorMessage}>
+                                    ✕ Duplicate
+                                  </span>
+                                )}
+                              </TableCell>
+                              <TableCell className="px-3 sm:px-4">
+                                <Badge variant={entry.entryType === 'scan' ? 'default' : 'secondary'} className="text-xs">
+                                  {entry.entryType}
+                                </Badge>
+                              </TableCell>
+                              <TableCell className="font-mono text-xs font-semibold px-3 sm:px-4">
+                                {entry.artNumber || '-'}
+                              </TableCell>
+                              <TableCell className="font-mono text-xs px-3 sm:px-4">
+                                {entry.colorNumber || '-'}
+                              </TableCell>
+                              <TableCell className="font-mono text-xs px-3 sm:px-4">
+                                {entry.sizeNumber || '-'}
+                              </TableCell>
+                              <TableCell className="text-right px-3 sm:px-4">
+                                <Badge variant="outline">{entry.quantity}</Badge>
+                              </TableCell>
+                              <TableCell className="text-xs text-muted-foreground px-3 sm:px-4 hidden sm:table-cell">
+                                {new Date(entry.savedAt).toLocaleTimeString(undefined, {
+                                  hour: '2-digit', minute: '2-digit',
+                                })}
+                              </TableCell>
+                              <TableCell className="px-3 sm:px-4">
+                                {entry.status === 'error' && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-7 text-xs text-muted-foreground hover:text-destructive"
+                                    onClick={() => handleDismissOfflineError(entry.tempId)}
+                                  >
+                                    {t('dismissError')}
+                                  </Button>
+                                )}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  )}
+                  {errorCount > 0 && (
+                    <p className="px-3 sm:px-4 pt-3 pb-1 text-xs text-destructive">
+                      {errorCount} duplicate item(s) could not be synced because they already exist in the database. Dismiss them to clear.
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+            </TabsContent>
+          )}
         </Tabs>
+
+        {/* ── Delete confirm dialog ─────────────────────────────────────── */}
+        {deleteTarget && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+            <div className="w-full max-w-sm rounded-xl bg-background border shadow-lg p-6 space-y-4">
+              <div className="flex items-center gap-2">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-destructive/10">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                    className="h-4 w-4 text-destructive">
+                    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                    <line x1="12" y1="9" x2="12" y2="13" />
+                    <line x1="12" y1="17" x2="12.01" y2="17" />
+                  </svg>
+                </div>
+                <h2 className="text-base font-semibold">Delete entry?</h2>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                You are about to permanently delete{' '}
+                <span className="font-mono font-semibold text-foreground">
+                  {[deleteTarget.artNumber, deleteTarget.colorNumber, deleteTarget.sizeNumber]
+                    .filter(Boolean)
+                    .join(' · ') || `#${deleteTarget.id}`}
+                </span>
+                . This action <span className="font-semibold text-destructive">cannot be undone</span>.
+              </p>
+              <div className="space-y-1.5">
+                <Label htmlFor="delete-confirm-input" className="text-xs text-muted-foreground">
+                  Type <span className="font-mono font-semibold text-foreground">DELETE</span> to confirm
+                </Label>
+                <Input
+                  id="delete-confirm-input"
+                  placeholder="Type DELETE here"
+                  value={deleteConfirmText}
+                  onChange={(e) => setDeleteConfirmText(e.target.value)}
+                  disabled={deleteLoading}
+                  autoFocus
+                  autoComplete="off"
+                />
+              </div>
+              <div className="flex gap-2 justify-end">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={deleteLoading}
+                  onClick={() => { setDeleteTarget(null); setDeleteConfirmText('') }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  disabled={deleteLoading || deleteConfirmText !== 'DELETE'}
+                  onClick={handleDeleteConfirm}
+                >
+                  {deleteLoading ? 'Deleting…' : 'Delete'}
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
       </div>
     </main>
   )

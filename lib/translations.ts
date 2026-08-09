@@ -132,6 +132,22 @@ export const translations = {
     cameraScanSuccess: 'QR code scanned successfully!',
     cameraScanning: 'Scanning for QR code...',
     flashlightNotSupported: 'Flashlight not supported on this device.',
+
+    // Offline / sync
+    offlineBanner: 'You are offline. Scans are saved locally and will sync automatically when internet is back.',
+    offlineSaved: 'Saved offline — will sync when online.',
+    offlinePending: 'item(s) saved offline, pending sync',
+    syncSuccess: 'All offline items synced successfully!',
+    syncPartial: 'Sync complete.',
+    syncDuplicates: 'duplicate(s) already in database — review below.',
+    syncing: 'Syncing offline items...',
+    offlineQueueTitle: 'Offline Queue',
+    offlineQueueDesc: 'Items saved while offline. They sync automatically when internet is restored.',
+    offlineQueueEmpty: 'No offline items — all synced.',
+    offlineBadge: 'Offline',
+    pendingSyncBadge: 'Pending Sync',
+    dismissError: 'Dismiss',
+    retrySync: 'Retry Sync',
   },
 
   hi: {
@@ -266,6 +282,22 @@ export const translations = {
     cameraScanSuccess: 'QR कोड सफलतापूर्वक स्कैन हो गया!',
     cameraScanning: 'QR कोड खोजा जा रहा है...',
     flashlightNotSupported: 'इस डिवाइस पर फ्लैशलाइट समर्थित नहीं है।',
+
+    // Offline / sync
+    offlineBanner: 'आप ऑफलाइन हैं। स्कैन स्थानीय रूप से सेव हो रहे हैं और इंटरनेट आने पर स्वचालित रूप से सिंक होंगे।',
+    offlineSaved: 'ऑफलाइन सेव हो गया — ऑनलाइन होने पर सिंक होगा।',
+    offlinePending: 'आइटम ऑफलाइन सेव, सिंक बाकी',
+    syncSuccess: 'सभी ऑफलाइन आइटम सफलतापूर्वक सिंक हो गए!',
+    syncPartial: 'सिंक पूर्ण।',
+    syncDuplicates: 'डुप्लीकेट आइटम जो पहले से डेटाबेस में हैं — नीचे देखें।',
+    syncing: 'ऑफलाइन आइटम सिंक हो रहे हैं...',
+    offlineQueueTitle: 'ऑफलाइन कतार',
+    offlineQueueDesc: 'ऑफलाइन के दौरान सेव किए गए आइटम। इंटरनेट आने पर स्वचालित सिंक होते हैं।',
+    offlineQueueEmpty: 'कोई ऑफलाइन आइटम नहीं — सब सिंक हो गए।',
+    offlineBadge: 'ऑफलाइन',
+    pendingSyncBadge: 'सिंक बाकी',
+    dismissError: 'हटाएं',
+    retrySync: 'पुनः सिंक करें',
   },
 } as const
 
