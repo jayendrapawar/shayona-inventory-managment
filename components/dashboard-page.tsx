@@ -17,15 +17,40 @@ import {
   getOverallStockStats,
   exportOverallStockToCSV,
   getLoggedInUserName,
+  getScannedChartData,
+  getOverallChartData,
 } from '@/app/actions/dashboard'
-import type { OverallStockItem, OverallStockStats } from '@/app/actions/dashboard'
+import type {
+  OverallStockItem,
+  OverallStockStats,
+  ScansOverTimePoint,
+  DivisionBreakdownItem,
+  TopSKUItem,
+  EntryTypeItem,
+} from '@/app/actions/dashboard'
 import { signOut } from '@/lib/auth-client'
 import { useRouter } from 'next/navigation'
 import { useLanguage } from '@/lib/language-context'
 import { LanguageToggle } from '@/components/language-toggle'
-import { QrCode, Package, Tag, BarChart3, Filter } from 'lucide-react'
+import { QrCode, Package, Tag, BarChart3, Filter, TrendingUp, PieChart } from 'lucide-react'
+import {
+  LineChart,
+  Line,
+  BarChart,
+  Bar,
+  PieChart as RechartsPieChart,
+  Pie,
+  Cell,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+} from 'recharts'
 
 type Tab = 'scanned' | 'overall'
+type SubTab = 'data' | 'stats'
 
 interface InventoryItem {
   artNumber?: string
@@ -47,6 +72,13 @@ interface Statistics {
   totalItems: number
   uniqueItems: number
   scansLast24h: number
+}
+
+interface ChartData {
+  scansOverTime: ScansOverTimePoint[]
+  divisionBreakdown: DivisionBreakdownItem[]
+  topSKUs: TopSKUItem[]
+  entryTypeBreakdown: EntryTypeItem[]
 }
 
 function downloadCSV(rows: Record<string, string | number>[], filename: string) {
@@ -91,6 +123,10 @@ function KpiCard({ icon, iconBg, title, value, subtitle }: KpiCardProps) {
   )
 }
 
+// ─── Chart colour palette ────────────────────────────────────────────────────
+
+const CHART_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316']
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export function DashboardPage() {
@@ -98,6 +134,7 @@ export function DashboardPage() {
   const { t } = useLanguage()
 
   const [activeTab, setActiveTab] = useState<Tab>('scanned')
+  const [activeSubTab, setActiveSubTab] = useState<SubTab>('data')
   const [loggedInUser, setLoggedInUser] = useState<string | null>(null)
 
   // Scanned Inventory state
@@ -110,6 +147,11 @@ export function DashboardPage() {
   const [filteredStock, setFilteredStock] = useState<OverallStockItem[]>([])
   const [stockStats, setStockStats] = useState<OverallStockStats | null>(null)
   const [stockLoaded, setStockLoaded] = useState(false)
+
+  // Chart data
+  const [scannedChartData, setScannedChartData] = useState<ChartData | null>(null)
+  const [overallChartData, setOverallChartData] = useState<ChartData | null>(null)
+  const [chartLoading, setChartLoading] = useState(false)
 
   // Shared
   const [searchQuery, setSearchQuery] = useState('')
@@ -130,6 +172,16 @@ export function DashboardPage() {
     }
   }, [activeTab])
 
+  // Load chart data when sub-tab switches to 'stats'
+  useEffect(() => {
+    if (activeSubTab !== 'stats') return
+    if (activeTab === 'scanned' && !scannedChartData) {
+      loadScannedCharts()
+    } else if (activeTab === 'overall' && !overallChartData) {
+      loadOverallCharts()
+    }
+  }, [activeSubTab, activeTab])
+
   // Re-filter when tab or search changes
   useEffect(() => {
     applySearch(searchQuery)
@@ -137,7 +189,6 @@ export function DashboardPage() {
   }, [activeTab, inventory, stockItems])
 
   async function loadScannedInventory() {
-    // Skip fetching and don't show an error when offline — the banner already tells the user
     if (!navigator.onLine) { setLoading(false); return }
     try {
       setLoading(true)
@@ -150,7 +201,6 @@ export function DashboardPage() {
       setFilteredInventory(summaryData as InventoryItem[])
       setStats(statsData as Statistics)
     } catch (err) {
-      // Suppress network errors when offline — banner already explains it
       if (navigator.onLine) {
         setError(err instanceof Error ? err.message : 'Failed to load scanned inventory')
       }
@@ -178,6 +228,32 @@ export function DashboardPage() {
       }
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function loadScannedCharts() {
+    if (!navigator.onLine) return
+    try {
+      setChartLoading(true)
+      const data = await getScannedChartData()
+      setScannedChartData(data)
+    } catch {
+      // non-critical
+    } finally {
+      setChartLoading(false)
+    }
+  }
+
+  async function loadOverallCharts() {
+    if (!navigator.onLine) return
+    try {
+      setChartLoading(true)
+      const data = await getOverallChartData()
+      setOverallChartData(data)
+    } catch {
+      // non-critical
+    } finally {
+      setChartLoading(false)
     }
   }
 
@@ -215,8 +291,8 @@ export function DashboardPage() {
 
   function handleTabChange(tab: Tab) {
     setActiveTab(tab)
+    setActiveSubTab('data')
     setSearchQuery('')
-    // Reset filter to show all when switching tabs
     if (tab === 'scanned') setFilteredInventory(inventory)
     else setFilteredStock(stockItems)
   }
@@ -511,6 +587,182 @@ export function DashboardPage() {
     )
   }
 
+  function renderCharts(chartData: ChartData | null) {
+    if (chartLoading) {
+      return (
+        <div className="text-center py-8 text-sm text-muted-foreground">{t('loading')}</div>
+      )
+    }
+
+    if (!chartData) return null
+
+    const hasAnyData =
+      chartData.scansOverTime.some((d) => d.scans > 0) ||
+      chartData.divisionBreakdown.length > 0 ||
+      chartData.topSKUs.length > 0 ||
+      chartData.entryTypeBreakdown.length > 0
+
+    if (!hasAnyData) {
+      return (
+        <div className="text-center py-12 text-sm text-muted-foreground">
+          {t('noChartData')}
+        </div>
+      )
+    }
+
+    return (
+      <div className="space-y-6">
+
+        {/* Scans Over Time — Line Chart */}
+        {chartData.scansOverTime.some((d) => d.scans > 0) && (
+          <Card>
+            <CardHeader className="px-3 sm:px-6 pb-2">
+              <div className="flex items-center gap-2">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-50">
+                  <TrendingUp className="h-4 w-4 text-blue-600" />
+                </div>
+                <div>
+                  <CardTitle className="text-base sm:text-lg">{t('scansOverTime')}</CardTitle>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="px-0 sm:px-4 pb-4">
+              <ResponsiveContainer width="100%" height={220}>
+                <LineChart data={chartData.scansOverTime} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                  <XAxis dataKey="date" tick={{ fontSize: 11 }} />
+                  <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
+                  <Tooltip />
+                  <Legend iconSize={10} wrapperStyle={{ fontSize: 12 }} />
+                  <Line
+                    type="monotone"
+                    dataKey="scans"
+                    name={t('scansCount')}
+                    stroke="#3b82f6"
+                    strokeWidth={2}
+                    dot={false}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="quantity"
+                    name={t('quantityLabel')}
+                    stroke="#10b981"
+                    strokeWidth={2}
+                    dot={false}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </CardContent>
+          </Card>
+        )}
+
+        <div className="grid gap-6 md:grid-cols-2">
+
+          {/* Division Breakdown — Horizontal Bar Chart */}
+          {chartData.divisionBreakdown.length > 0 && (
+            <Card>
+              <CardHeader className="px-3 sm:px-6 pb-2">
+                <div className="flex items-center gap-2">
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-purple-50">
+                    <BarChart3 className="h-4 w-4 text-purple-600" />
+                  </div>
+                  <CardTitle className="text-base sm:text-lg">{t('divisionBreakdown')}</CardTitle>
+                </div>
+              </CardHeader>
+              <CardContent className="px-0 sm:px-4 pb-4">
+                <ResponsiveContainer width="100%" height={Math.max(160, chartData.divisionBreakdown.length * 36)}>
+                  <BarChart
+                    layout="vertical"
+                    data={chartData.divisionBreakdown}
+                    margin={{ top: 0, right: 20, left: 10, bottom: 0 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" horizontal={false} />
+                    <XAxis type="number" tick={{ fontSize: 11 }} allowDecimals={false} />
+                    <YAxis dataKey="division" type="category" tick={{ fontSize: 11 }} width={70} />
+                    <Tooltip />
+                    <Bar dataKey="quantity" name={t('quantityLabel')} fill="#8b5cf6" radius={[0, 4, 4, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Entry Type Breakdown — Pie Chart */}
+          {chartData.entryTypeBreakdown.length > 0 && (
+            <Card>
+              <CardHeader className="px-3 sm:px-6 pb-2">
+                <div className="flex items-center gap-2">
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-orange-50">
+                    <PieChart className="h-4 w-4 text-orange-500" />
+                  </div>
+                  <CardTitle className="text-base sm:text-lg">{t('entryTypeBreakdown')}</CardTitle>
+                </div>
+              </CardHeader>
+              <CardContent className="flex items-center justify-center pb-4">
+                <ResponsiveContainer width="100%" height={200}>
+                  <RechartsPieChart>
+                    <Pie
+                      data={chartData.entryTypeBreakdown}
+                      dataKey="count"
+                      nameKey="type"
+                      cx="50%"
+                      cy="50%"
+                      outerRadius={70}
+                      label={({ name, percent }) =>
+                        `${name ?? ''} ${((percent ?? 0) * 100).toFixed(0)}%`
+                      }
+                      labelLine={false}
+                    >
+                      {chartData.entryTypeBreakdown.map((_, i) => (
+                        <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip formatter={(v, name) => [v, name]} />
+                    <Legend iconSize={10} wrapperStyle={{ fontSize: 12 }} />
+                  </RechartsPieChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+
+        {/* Top SKUs — Bar Chart */}
+        {chartData.topSKUs.length > 0 && (
+          <Card>
+            <CardHeader className="px-3 sm:px-6 pb-2">
+              <div className="flex items-center gap-2">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-green-50">
+                  <Tag className="h-4 w-4 text-green-600" />
+                </div>
+                <CardTitle className="text-base sm:text-lg">{t('topSKUs')}</CardTitle>
+              </div>
+            </CardHeader>
+            <CardContent className="px-0 sm:px-4 pb-4">
+              <ResponsiveContainer width="100%" height={Math.max(180, chartData.topSKUs.length * 36)}>
+                <BarChart
+                  layout="vertical"
+                  data={chartData.topSKUs}
+                  margin={{ top: 0, right: 20, left: 10, bottom: 0 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" horizontal={false} />
+                  <XAxis type="number" tick={{ fontSize: 11 }} allowDecimals={false} />
+                  <YAxis dataKey="sku" type="category" tick={{ fontSize: 10 }} width={100} />
+                  <Tooltip />
+                  <Bar dataKey="quantity" name={t('quantityLabel')} radius={[0, 4, 4, 0]}>
+                    {chartData.topSKUs.map((_, i) => (
+                      <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </CardContent>
+          </Card>
+        )}
+
+      </div>
+    )
+  }
+
   // ─── Layout ──────────────────────────────────────────────────────────────
 
   return (
@@ -556,7 +808,7 @@ export function DashboardPage() {
           </div>
         )}
 
-        {/* Tabs */}
+        {/* Main Tabs — Scanned Inventory / Overall Stock */}
         <Tabs value={activeTab} onValueChange={(v) => handleTabChange(v as Tab)}>
           <TabsList className="grid w-full grid-cols-2">
             <TabsTrigger value="scanned">{t('scannedInventoryTab')}</TabsTrigger>
@@ -579,28 +831,50 @@ export function DashboardPage() {
         {/* KPI Cards */}
         {!loading && (activeTab === 'scanned' ? renderScannedKPIs() : renderOverallKPIs())}
 
-        {/* Search + Export */}
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="w-full sm:flex-1 sm:max-w-sm">
-            <Label htmlFor="search" className="sr-only">
-              {t('searchPlaceholder')}
-            </Label>
-            <Input
-              id="search"
-              placeholder={t('searchPlaceholder')}
-              value={searchQuery}
-              onChange={(e) => handleSearch(e.target.value)}
-            />
-          </div>
-          <div className="flex gap-2">
-            <Button className="w-full sm:w-auto" onClick={handleExport}>
-              {t('exportToCSV')}
-            </Button>
-          </div>
+        {/* Sub-tabs + Export on one line */}
+        <div className="flex items-center gap-2">
+          <Tabs value={activeSubTab} onValueChange={(v) => setActiveSubTab(v as SubTab)} className="flex-1">
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="data" className="flex items-center gap-1.5 text-xs sm:text-sm">
+                <Package className="h-3.5 w-3.5 shrink-0" />
+                <span className="truncate">{t('inventoryItems')}</span>
+              </TabsTrigger>
+              <TabsTrigger value="stats" className="flex items-center gap-1.5 text-xs sm:text-sm">
+                <BarChart3 className="h-3.5 w-3.5 shrink-0" />
+                <span className="truncate">{t('statisticsTab')}</span>
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
+          <Button size="sm" className="shrink-0" onClick={handleExport}>
+            {t('exportToCSV')}
+          </Button>
         </div>
 
-        {/* Table */}
-        {!loading && (activeTab === 'scanned' ? renderScannedTable() : renderOverallTable())}
+        {activeSubTab === 'data' && (
+          <>
+            {/* Search */}
+            <div className="w-full">
+              <Label htmlFor="search" className="sr-only">
+                {t('searchPlaceholder')}
+              </Label>
+              <Input
+                id="search"
+                placeholder={t('searchPlaceholder')}
+                value={searchQuery}
+                onChange={(e) => handleSearch(e.target.value)}
+              />
+            </div>
+
+            {/* Table */}
+            {!loading && (activeTab === 'scanned' ? renderScannedTable() : renderOverallTable())}
+          </>
+        )}
+
+        {activeSubTab === 'stats' && (
+          <div className="space-y-4">
+            {renderCharts(activeTab === 'scanned' ? scannedChartData : overallChartData)}
+          </div>
+        )}
 
       </div>
     </main>

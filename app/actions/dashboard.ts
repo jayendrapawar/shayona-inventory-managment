@@ -303,3 +303,154 @@ export async function exportOverallStockToCSV(): Promise<Record<string, string |
     'Scanned At': scan.scannedAt.toISOString(),
   }))
 }
+
+// ---------------------------------------------------------------------------
+// Chart data — Scanned Inventory (current user)
+// ---------------------------------------------------------------------------
+
+export interface ScansOverTimePoint {
+  date: string       // 'MM/DD'
+  scans: number
+  quantity: number
+}
+
+export interface DivisionBreakdownItem {
+  division: string
+  quantity: number
+}
+
+export interface TopSKUItem {
+  sku: string
+  quantity: number
+}
+
+export interface EntryTypeItem {
+  type: string
+  count: number
+}
+
+export async function getScannedChartData(): Promise<{
+  scansOverTime: ScansOverTimePoint[]
+  divisionBreakdown: DivisionBreakdownItem[]
+  topSKUs: TopSKUItem[]
+  entryTypeBreakdown: EntryTypeItem[]
+}> {
+  const user = await getUser()
+  const scanData = await db
+    .select()
+    .from(scans)
+    .where(eq(scans.scannedByName, user.name ?? ''))
+
+  // Last 14 days
+  const dayMap: Record<string, { scans: number; quantity: number }> = {}
+  for (let i = 13; i >= 0; i--) {
+    const d = new Date()
+    d.setDate(d.getDate() - i)
+    const key = `${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`
+    dayMap[key] = { scans: 0, quantity: 0 }
+  }
+  for (const scan of scanData) {
+    const d = new Date(scan.scannedAt)
+    const key = `${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`
+    if (key in dayMap) {
+      dayMap[key].scans += 1
+      dayMap[key].quantity += scan.quantity
+    }
+  }
+  const scansOverTime: ScansOverTimePoint[] = Object.entries(dayMap).map(([date, v]) => ({
+    date,
+    scans: v.scans,
+    quantity: v.quantity,
+  }))
+
+  // Division breakdown
+  const divMap: Record<string, number> = {}
+  for (const scan of scanData) {
+    const div = scan.division || 'Unknown'
+    divMap[div] = (divMap[div] ?? 0) + scan.quantity
+  }
+  const divisionBreakdown: DivisionBreakdownItem[] = Object.entries(divMap)
+    .map(([division, quantity]) => ({ division, quantity }))
+    .sort((a, b) => b.quantity - a.quantity)
+
+  // Top SKUs
+  const skuMap: Record<string, number> = {}
+  for (const scan of scanData) {
+    const key = [scan.artNumber, scan.colorNumber, scan.sizeNumber].filter(Boolean).join('-') || 'Unknown'
+    skuMap[key] = (skuMap[key] ?? 0) + scan.quantity
+  }
+  const topSKUs: TopSKUItem[] = Object.entries(skuMap)
+    .map(([sku, quantity]) => ({ sku, quantity }))
+    .sort((a, b) => b.quantity - a.quantity)
+    .slice(0, 10)
+
+  // Entry type breakdown
+  const typeMap: Record<string, number> = {}
+  for (const scan of scanData) {
+    typeMap[scan.entryType] = (typeMap[scan.entryType] ?? 0) + 1
+  }
+  const entryTypeBreakdown: EntryTypeItem[] = Object.entries(typeMap).map(([type, count]) => ({ type, count }))
+
+  return { scansOverTime, divisionBreakdown, topSKUs, entryTypeBreakdown }
+}
+
+// ---------------------------------------------------------------------------
+// Chart data — Overall Stock (all users)
+// ---------------------------------------------------------------------------
+
+export async function getOverallChartData(): Promise<{
+  scansOverTime: ScansOverTimePoint[]
+  divisionBreakdown: DivisionBreakdownItem[]
+  topSKUs: TopSKUItem[]
+  entryTypeBreakdown: EntryTypeItem[]
+}> {
+  const allScans = await db.select().from(scans)
+
+  const dayMap: Record<string, { scans: number; quantity: number }> = {}
+  for (let i = 13; i >= 0; i--) {
+    const d = new Date()
+    d.setDate(d.getDate() - i)
+    const key = `${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`
+    dayMap[key] = { scans: 0, quantity: 0 }
+  }
+  for (const scan of allScans) {
+    const d = new Date(scan.scannedAt)
+    const key = `${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`
+    if (key in dayMap) {
+      dayMap[key].scans += 1
+      dayMap[key].quantity += scan.quantity
+    }
+  }
+  const scansOverTime: ScansOverTimePoint[] = Object.entries(dayMap).map(([date, v]) => ({
+    date,
+    scans: v.scans,
+    quantity: v.quantity,
+  }))
+
+  const divMap: Record<string, number> = {}
+  for (const scan of allScans) {
+    const div = scan.division || 'Unknown'
+    divMap[div] = (divMap[div] ?? 0) + scan.quantity
+  }
+  const divisionBreakdown: DivisionBreakdownItem[] = Object.entries(divMap)
+    .map(([division, quantity]) => ({ division, quantity }))
+    .sort((a, b) => b.quantity - a.quantity)
+
+  const skuMap: Record<string, number> = {}
+  for (const scan of allScans) {
+    const key = [scan.artNumber, scan.colorNumber, scan.sizeNumber].filter(Boolean).join('-') || 'Unknown'
+    skuMap[key] = (skuMap[key] ?? 0) + scan.quantity
+  }
+  const topSKUs: TopSKUItem[] = Object.entries(skuMap)
+    .map(([sku, quantity]) => ({ sku, quantity }))
+    .sort((a, b) => b.quantity - a.quantity)
+    .slice(0, 10)
+
+  const typeMap: Record<string, number> = {}
+  for (const scan of allScans) {
+    typeMap[scan.entryType] = (typeMap[scan.entryType] ?? 0) + 1
+  }
+  const entryTypeBreakdown: EntryTypeItem[] = Object.entries(typeMap).map(([type, count]) => ({ type, count }))
+
+  return { scansOverTime, divisionBreakdown, topSKUs, entryTypeBreakdown }
+}

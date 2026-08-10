@@ -1,3 +1,19 @@
+---
+{
+  "id": "file_o2jb2ptg",
+  "filetype": "document",
+  "filename": "QUICK_START_DEPLOYMENT",
+  "created_at": "2026-08-09T22:44:33.686Z",
+  "updated_at": "2026-08-09T22:44:33.686Z",
+  "meta": {
+    "location": "/",
+    "tags": [],
+    "categories": [],
+    "description": "",
+    "source": "markdown"
+  }
+}
+---
 # Quick Start Deployment Guide
 
 This guide will get your Shayona Inventory Management System live on Vercel in under 15 minutes.

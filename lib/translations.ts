@@ -28,6 +28,22 @@ export const translations = {
     // Dashboard tabs
     scannedInventoryTab: 'Scanned Inventory',
     overallStockTab: 'Overall Stock',
+    statisticsTab: 'Statistics & Charts',
+
+    // Statistics & Charts tab
+    chartsTitle: 'Statistics & Charts',
+    chartsDesc: 'Visual breakdown of inventory data',
+    scansOverTime: 'Scans Over Time (last 14 days)',
+    divisionBreakdown: 'Quantity by Division',
+    topSKUs: 'Top 10 SKUs by Quantity',
+    entryTypeBreakdown: 'Entry Type Breakdown',
+    noChartData: 'Not enough data to display charts.',
+    date: 'Date',
+    scansCount: 'Scans',
+    division: 'Division',
+    quantityLabel: 'Quantity',
+    sku: 'SKU',
+    entryType: 'Entry Type',
 
     // Scanned Inventory KPIs
     totalItemsScanned: 'Total Items Scanned',
@@ -178,6 +194,22 @@ export const translations = {
     // Dashboard tabs
     scannedInventoryTab: 'स्कैन की गई इन्वेंटरी',
     overallStockTab: 'कुल स्टॉक',
+    statisticsTab: 'आँकड़े और चार्ट',
+
+    // Statistics & Charts tab
+    chartsTitle: 'आँकड़े और चार्ट',
+    chartsDesc: 'इन्वेंटरी डेटा का दृश्य विश्लेषण',
+    scansOverTime: 'स्कैन समयरेखा (पिछले 14 दिन)',
+    divisionBreakdown: 'डिवीज़न के अनुसार मात्रा',
+    topSKUs: 'शीर्ष 10 SKU (मात्रा के अनुसार)',
+    entryTypeBreakdown: 'प्रविष्टि प्रकार विश्लेषण',
+    noChartData: 'चार्ट दिखाने के लिए पर्याप्त डेटा नहीं है।',
+    date: 'दिनांक',
+    scansCount: 'स्कैन',
+    division: 'डिवीज़न',
+    quantityLabel: 'मात्रा',
+    sku: 'SKU',
+    entryType: 'प्रकार',
 
     // Scanned Inventory KPIs
     totalItemsScanned: 'कुल स्कैन किए गए आइटम',
