@@ -82,6 +82,9 @@ async function trySyncEntry(entry: OfflineEntry): Promise<'success' | 'duplicate
     entry.quantity,
     entry.notes,
     entry.mrp,
+    entry.division,
+    entry.mfgMonth,
+    entry.mfgYear,
   )
   if (res.ok)                                return 'success'
   if (res.error === DUPLICATE_ENTRY_ERROR)   return 'duplicate'

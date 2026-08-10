@@ -113,6 +113,9 @@ export async function addManualEntry(
   quantity: number,
   notes?: string,
   mrp?: number,
+  division?: string,
+  mfgMonth?: number,
+  mfgYear?: number,
 ): Promise<AddManualEntryResult> {
   const user = await getUser()
 
@@ -149,6 +152,9 @@ export async function addManualEntry(
       notes,
       quantity,
       mrp: mrp != null ? String(mrp) : undefined,
+      division: division || undefined,
+      mfgMonth: mfgMonth ?? undefined,
+      mfgYear: mfgYear ?? undefined,
     })
     .returning()
 

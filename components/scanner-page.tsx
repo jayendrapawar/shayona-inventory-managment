@@ -51,6 +51,9 @@ export function ScannerPage() {
     quantity: number | ''
     mrp: string
     notes: string
+    division: string
+    mfgMonth: string
+    mfgYear: string
   }>({
     artNumber: '',
     colorNumber: '',
@@ -58,6 +61,9 @@ export function ScannerPage() {
     quantity: '',
     mrp: '',
     notes: '',
+    division: '',
+    mfgMonth: '',
+    mfgYear: '',
   })
   const [manualLoading, setManualLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -493,6 +499,9 @@ export function ScannerPage() {
           quantity:      manualForm.quantity || 1,
           mrp:           manualForm.mrp ? parseFloat(manualForm.mrp) : undefined,
           notes:         manualForm.notes || undefined,
+          division:      manualForm.division || undefined,
+          mfgMonth:      manualForm.mfgMonth ? parseInt(manualForm.mfgMonth) : undefined,
+          mfgYear:       manualForm.mfgYear ? parseInt(manualForm.mfgYear) : undefined,
           scannedByName: userName || getCachedUser(),
           savedAt:       Date.now(),
           status:        'pending',
@@ -500,7 +509,7 @@ export function ScannerPage() {
         await enqueue(entry)
         await refreshOfflineQueue()
         setLastOfflineManual(entry)
-        setManualForm({ artNumber: '', colorNumber: '', sizeNumber: '', quantity: '', mrp: '', notes: '' })
+        setManualForm({ artNumber: '', colorNumber: '', sizeNumber: '', quantity: '', mrp: '', notes: '', division: '', mfgMonth: '', mfgYear: '' })
         showSuccess(t('offlineSaved'))
         return
       }
@@ -512,6 +521,9 @@ export function ScannerPage() {
         manualForm.quantity || 1,
         manualForm.notes || undefined,
         manualForm.mrp ? parseFloat(manualForm.mrp) : undefined,
+        manualForm.division || undefined,
+        manualForm.mfgMonth ? parseInt(manualForm.mfgMonth) : undefined,
+        manualForm.mfgYear ? parseInt(manualForm.mfgYear) : undefined,
       )
       if (!res.ok) {
         if (res.error === DUPLICATE_ENTRY_ERROR) {
@@ -523,7 +535,7 @@ export function ScannerPage() {
         return
       }
       setLastManualEntry(res.data)
-      setManualForm({ artNumber: '', colorNumber: '', sizeNumber: '', quantity: '', mrp: '', notes: '' })
+      setManualForm({ artNumber: '', colorNumber: '', sizeNumber: '', quantity: '', mrp: '', notes: '', division: '', mfgMonth: '', mfgYear: '' })
       showSuccess(t('manualEntrySuccess'))
       loadRecentScans()
     } catch (err) {
@@ -913,9 +925,12 @@ export function ScannerPage() {
                       <Label htmlFor="m-sizeNumber">{t('sizeNumber')}</Label>
                       <Input
                         id="m-sizeNumber"
+                        type="number"
+                        step="1"
+                        min="0"
                         placeholder={t('sizeNumberPlaceholder')}
                         value={manualForm.sizeNumber}
-                        onChange={(e) => setManualForm((prev) => ({ ...prev, sizeNumber: e.target.value }))}
+                        onChange={(e) => setManualForm((prev) => ({ ...prev, sizeNumber: e.target.value === '' ? '' : String(parseInt(e.target.value) || '') }))}
                         disabled={manualLoading}
                         required
                       />
@@ -951,6 +966,61 @@ export function ScannerPage() {
                         />
                       </div>
                     </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="m-division">Division</Label>
+                      <select
+                        id="m-division"
+                        value={manualForm.division}
+                        onChange={(e) => setManualForm((prev) => ({ ...prev, division: e.target.value }))}
+                        disabled={manualLoading}
+                        className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <option value="">Select Division</option>
+                        <option value="Flite PU">Flite PU</option>
+                        <option value="Flite EVA">Flite EVA</option>
+                        <option value="Sparx">Sparx</option>
+                        <option value="Bahamas">Bahamas</option>
+                      </select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="m-mfgMonth">Mfg Month</Label>
+                      <select
+                        id="m-mfgMonth"
+                        value={manualForm.mfgMonth}
+                        onChange={(e) => setManualForm((prev) => ({ ...prev, mfgMonth: e.target.value }))}
+                        disabled={manualLoading}
+                        className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <option value="">Select Month</option>
+                        <option value="1">January</option>
+                        <option value="2">February</option>
+                        <option value="3">March</option>
+                        <option value="4">April</option>
+                        <option value="5">May</option>
+                        <option value="6">June</option>
+                        <option value="7">July</option>
+                        <option value="8">August</option>
+                        <option value="9">September</option>
+                        <option value="10">October</option>
+                        <option value="11">November</option>
+                        <option value="12">December</option>
+                      </select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="m-mfgYear">Mfg Year</Label>
+                      <select
+                        id="m-mfgYear"
+                        value={manualForm.mfgYear}
+                        onChange={(e) => setManualForm((prev) => ({ ...prev, mfgYear: e.target.value }))}
+                        disabled={manualLoading}
+                        className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <option value="">Select Year</option>
+                        {Array.from({ length: 10 }, (_, i) => new Date().getFullYear() - i).map((y) => (
+                          <option key={y} value={String(y)}>{y}</option>
+                        ))}
+                      </select>
+                    </div>
                     <div className="space-y-2 sm:col-span-2">
                       <Label htmlFor="m-notes">{t('notes')}</Label>
                       <Input
@@ -971,7 +1041,7 @@ export function ScannerPage() {
                       type="button"
                       variant="outline"
                       disabled={manualLoading}
-                      onClick={() => setManualForm({ artNumber: '', colorNumber: '', sizeNumber: '', quantity: '', mrp: '', notes: '' })}
+                      onClick={() => setManualForm({ artNumber: '', colorNumber: '', sizeNumber: '', quantity: '', mrp: '', notes: '', division: '', mfgMonth: '', mfgYear: '' })}
                     >
                       {t('cancel')}
                     </Button>
