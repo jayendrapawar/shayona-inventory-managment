@@ -821,28 +821,28 @@ export function DashboardPage() {
       <div className="mx-auto max-w-7xl space-y-3 sm:space-y-5">
 
         {/* Header */}
-        <div className="flex items-center justify-between gap-2">
-          <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold tracking-tight truncate min-w-0">{t('dashboard')}</h1>
-          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-            <LanguageToggle />
-            <Button variant="outline" size="sm" className="text-xs sm:text-sm px-2 sm:px-3" onClick={() => router.push('/scanner')}>
-              {t('scanner')}
-            </Button>
-            <Button variant="outline" size="sm" className="text-xs sm:text-sm px-2 sm:px-3" onClick={handleLogout}>
-              {t('signOut')}
-            </Button>
-          </div>
-        </div>
-
-        {/* Logged-in user — below header, small */}
-        {loggedInUser && (
-          <div className="flex items-center gap-1.5">
-            <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue-600 text-white">
-              <User className="h-2.5 w-2.5" />
+        <div className="flex flex-col gap-0.5">
+          <div className="flex items-center justify-between gap-2">
+            <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold tracking-tight">{t('dashboard')}</h1>
+            <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+              <LanguageToggle />
+              <Button variant="outline" size="sm" className="text-xs sm:text-sm px-2 sm:px-3" onClick={() => router.push('/scanner')}>
+                {t('scanner')}
+              </Button>
+              <Button variant="outline" size="sm" className="text-xs sm:text-sm px-2 sm:px-3" onClick={handleLogout}>
+                {t('signOut')}
+              </Button>
             </div>
-            <span className="text-xs font-semibold text-foreground truncate">{loggedInUser}</span>
           </div>
-        )}
+          {loggedInUser && (
+            <div className="flex items-center gap-1 ml-auto mt-0.5">
+              <div className="flex h-4 w-4 items-center justify-center rounded-full bg-blue-600 text-white">
+                <User className="h-2.5 w-2.5" />
+              </div>
+              <span className="text-xs font-semibold text-muted-foreground">{loggedInUser}</span>
+            </div>
+          )}
+        </div>
 
         {/* Offline notice */}
         {!isOnline && (

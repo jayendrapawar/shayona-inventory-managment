@@ -726,35 +726,35 @@ export function ScannerPage() {
         )}
 
         {/* Header */}
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-1.5 min-w-0">
-            <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold tracking-tight truncate">{t('warehouseScanner')}</h1>
-            {!isOnline && (
-              <span className="shrink-0 rounded-full bg-yellow-100 border border-yellow-300 px-2 py-0.5 text-[10px] font-semibold text-yellow-700 uppercase tracking-wide">
-                {t('offlineBadge')}
-              </span>
-            )}
-          </div>
-          <div className="flex gap-1.5 sm:gap-2 items-center shrink-0">
-            <LanguageToggle />
-            <Button variant="outline" size="sm" className="text-xs sm:text-sm px-2 sm:px-3" onClick={() => router.push('/dashboard')}>
-              {t('dashboardLink')}
-            </Button>
-            <Button variant="outline" size="sm" className="text-xs sm:text-sm px-2 sm:px-3" onClick={handleLogout}>
-              {t('signOut')}
-            </Button>
-          </div>
-        </div>
-
-        {/* Logged-in user pill — replaces welcome subtitle */}
-        {userName && (
-          <div className="flex items-center gap-1.5">
-            <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue-600 text-white">
-              <User className="h-2.5 w-2.5" />
+        <div className="flex flex-col gap-0.5">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold tracking-tight">{t('warehouseScanner')}</h1>
+              {!isOnline && (
+                <span className="shrink-0 rounded-full bg-yellow-100 border border-yellow-300 px-2 py-0.5 text-[10px] font-semibold text-yellow-700 uppercase tracking-wide">
+                  {t('offlineBadge')}
+                </span>
+              )}
             </div>
-            <span className="text-xs font-semibold text-foreground truncate">{userName}</span>
+            <div className="flex gap-1.5 sm:gap-2 items-center shrink-0">
+              <LanguageToggle />
+              <Button variant="outline" size="sm" className="text-xs sm:text-sm px-2 sm:px-3" onClick={() => router.push('/dashboard')}>
+                {t('dashboardLink')}
+              </Button>
+              <Button variant="outline" size="sm" className="text-xs sm:text-sm px-2 sm:px-3" onClick={handleLogout}>
+                {t('signOut')}
+              </Button>
+            </div>
           </div>
-        )}
+          {userName && (
+            <div className="flex items-center gap-1 ml-auto mt-0.5">
+              <div className="flex h-4 w-4 items-center justify-center rounded-full bg-blue-600 text-white">
+                <User className="h-2.5 w-2.5" />
+              </div>
+              <span className="text-xs font-semibold text-muted-foreground">{userName}</span>
+            </div>
+          )}
+        </div>
 
         <Tabs
           defaultValue="camera"
