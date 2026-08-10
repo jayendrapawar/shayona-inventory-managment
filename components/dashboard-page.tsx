@@ -33,7 +33,7 @@ import { signOut } from '@/lib/auth-client'
 import { useRouter } from 'next/navigation'
 import { useLanguage } from '@/lib/language-context'
 import { LanguageToggle } from '@/components/language-toggle'
-import { QrCode, Package, Tag, BarChart3, Filter, TrendingUp, PieChart } from 'lucide-react'
+import { QrCode, Package, Tag, BarChart3, Filter, TrendingUp, PieChart, User } from 'lucide-react'
 import {
   LineChart,
   Line,
@@ -862,10 +862,26 @@ export function DashboardPage() {
         {/* Main Tabs — Scanned Inventory / Overall Stock */}
         <Tabs value={activeTab} onValueChange={(v) => handleTabChange(v as Tab)}>
           <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="scanned" className="text-xs sm:text-sm truncate">{t('scannedInventoryTab')}</TabsTrigger>
+            <TabsTrigger value="scanned" className="flex items-center gap-1.5 text-xs sm:text-sm truncate">
+              <User className="h-3.5 w-3.5 shrink-0" />
+              <span className="truncate">{t('scannedInventoryTab')}</span>
+            </TabsTrigger>
             <TabsTrigger value="overall" className="text-xs sm:text-sm truncate">{t('overallStockTab')}</TabsTrigger>
           </TabsList>
         </Tabs>
+
+        {/* Logged-in user context pill — only on Scanned Inventory tab */}
+        {activeTab === 'scanned' && loggedInUser && (
+          <div className="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2">
+            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-blue-600 text-white">
+              <User className="h-3.5 w-3.5" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-xs font-semibold text-blue-800 truncate">{loggedInUser}</p>
+              <p className="text-[10px] text-blue-600 leading-tight">{t('filteredByCurrentUser')}</p>
+            </div>
+          </div>
+        )}
 
         {/* Error */}
         {error && (
