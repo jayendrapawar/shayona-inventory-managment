@@ -984,42 +984,31 @@ export function ScannerPage() {
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="m-mfgMonth">Mfg Month</Label>
-                      <select
+                      <Input
                         id="m-mfgMonth"
+                        type="number"
+                        min="1"
+                        max="12"
+                        step="1"
+                        placeholder="MM"
                         value={manualForm.mfgMonth}
                         onChange={(e) => setManualForm((prev) => ({ ...prev, mfgMonth: e.target.value }))}
                         disabled={manualLoading}
-                        className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        <option value="">Select Month</option>
-                        <option value="1">January</option>
-                        <option value="2">February</option>
-                        <option value="3">March</option>
-                        <option value="4">April</option>
-                        <option value="5">May</option>
-                        <option value="6">June</option>
-                        <option value="7">July</option>
-                        <option value="8">August</option>
-                        <option value="9">September</option>
-                        <option value="10">October</option>
-                        <option value="11">November</option>
-                        <option value="12">December</option>
-                      </select>
+                      />
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="m-mfgYear">Mfg Year</Label>
-                      <select
+                      <Input
                         id="m-mfgYear"
+                        type="number"
+                        min="2000"
+                        max="2099"
+                        step="1"
+                        placeholder="YYYY"
                         value={manualForm.mfgYear}
                         onChange={(e) => setManualForm((prev) => ({ ...prev, mfgYear: e.target.value }))}
                         disabled={manualLoading}
-                        className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        <option value="">Select Year</option>
-                        {Array.from({ length: 10 }, (_, i) => new Date().getFullYear() - i).map((y) => (
-                          <option key={y} value={String(y)}>{y}</option>
-                        ))}
-                      </select>
+                      />
                     </div>
                     <div className="space-y-2 sm:col-span-2">
                       <Label htmlFor="m-notes">{t('notes')}</Label>
