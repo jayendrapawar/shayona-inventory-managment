@@ -890,39 +890,45 @@ export function ScannerPage() {
           </TabsContent>
 
           {/* ── Manual Entry Tab ─────────────────────────────────────────── */}
-          <TabsContent value="manual" className="space-y-4">
+          <TabsContent value="manual" className="space-y-3">
             <Card>
-              <CardHeader>
-                <CardTitle>{t('manualEntryTitle')}</CardTitle>
-                <CardDescription>{t('manualEntryDesc')}</CardDescription>
+              <CardHeader className="px-4 py-3 sm:px-6 sm:py-4">
+                <CardTitle className="text-base">{t('manualEntryTitle')}</CardTitle>
+                <CardDescription className="text-xs">{t('manualEntryDesc')}</CardDescription>
               </CardHeader>
-              <CardContent>
-                <form onSubmit={handleManualForm} className="space-y-4">
-                  <div className="grid grid-cols-1 gap-3 sm:gap-4 sm:grid-cols-2">
-                    <div className="space-y-2">
-                      <Label htmlFor="m-artNumber">{t('artNumber')}</Label>
+              <CardContent className="px-4 pb-4 sm:px-6">
+                <form onSubmit={handleManualForm} className="space-y-3">
+                  {/* Row 1 — Art · Color */}
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-1">
+                      <Label htmlFor="m-artNumber" className="text-xs">{t('artNumber')}</Label>
                       <Input
                         id="m-artNumber"
                         placeholder={t('artNumberPlaceholder')}
                         value={manualForm.artNumber}
                         onChange={(e) => setManualForm((prev) => ({ ...prev, artNumber: e.target.value }))}
                         disabled={manualLoading}
+                        className="h-8 text-sm"
                         required
                       />
                     </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="m-colorNumber">{t('colorNumber')}</Label>
+                    <div className="space-y-1">
+                      <Label htmlFor="m-colorNumber" className="text-xs">{t('colorNumber')}</Label>
                       <Input
                         id="m-colorNumber"
                         placeholder={t('colorNumberPlaceholder')}
                         value={manualForm.colorNumber}
                         onChange={(e) => setManualForm((prev) => ({ ...prev, colorNumber: e.target.value }))}
                         disabled={manualLoading}
+                        className="h-8 text-sm"
                         required
                       />
                     </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="m-sizeNumber">{t('sizeNumber')}</Label>
+                  </div>
+                  {/* Row 2 — Size · Qty */}
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-1">
+                      <Label htmlFor="m-sizeNumber" className="text-xs">{t('sizeNumber')}</Label>
                       <Input
                         id="m-sizeNumber"
                         type="number"
@@ -932,11 +938,12 @@ export function ScannerPage() {
                         value={manualForm.sizeNumber}
                         onChange={(e) => setManualForm((prev) => ({ ...prev, sizeNumber: e.target.value === '' ? '' : String(parseInt(e.target.value) || '') }))}
                         disabled={manualLoading}
+                        className="h-8 text-sm"
                         required
                       />
                     </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="m-quantity">{t('quantity')}</Label>
+                    <div className="space-y-1">
+                      <Label htmlFor="m-quantity" className="text-xs">{t('quantity')}</Label>
                       <Input
                         id="m-quantity"
                         type="number"
@@ -947,12 +954,16 @@ export function ScannerPage() {
                           setManualForm((prev) => ({ ...prev, quantity: e.target.value === '' ? '' : parseInt(e.target.value) || 1 }))
                         }
                         disabled={manualLoading}
+                        className="h-8 text-sm"
                       />
                     </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="m-mrp">{t('mrpCol')}</Label>
+                  </div>
+                  {/* Row 3 — MRP · Division */}
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-1">
+                      <Label htmlFor="m-mrp" className="text-xs">{t('mrpCol')}</Label>
                       <div className="relative">
-                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">₹</span>
+                        <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground"> ₹</span>
                         <Input
                           id="m-mrp"
                           type="number"
@@ -962,28 +973,31 @@ export function ScannerPage() {
                           value={manualForm.mrp}
                           onChange={(e) => setManualForm((prev) => ({ ...prev, mrp: e.target.value }))}
                           disabled={manualLoading}
-                          className="pl-7"
+                          className="h-8 text-sm pl-6"
                         />
                       </div>
                     </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="m-division">Division</Label>
+                    <div className="space-y-1">
+                      <Label htmlFor="m-division" className="text-xs">Division</Label>
                       <select
                         id="m-division"
                         value={manualForm.division}
                         onChange={(e) => setManualForm((prev) => ({ ...prev, division: e.target.value }))}
                         disabled={manualLoading}
-                        className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                        className="flex h-8 w-full rounded-md border border-input bg-background px-2 py-0 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
                       >
-                        <option value="">Select Division</option>
+                        <option value="">Division</option>
                         <option value="Flite PU">Flite PU</option>
                         <option value="Flite EVA">Flite EVA</option>
                         <option value="Sparx">Sparx</option>
                         <option value="Bahamas">Bahamas</option>
                       </select>
                     </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="m-mfgMonth">Mfg Month</Label>
+                  </div>
+                  {/* Row 4 — Mfg Month · Mfg Year */}
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-1">
+                      <Label htmlFor="m-mfgMonth" className="text-xs">Mfg Month</Label>
                       <Input
                         id="m-mfgMonth"
                         type="number"
@@ -994,10 +1008,11 @@ export function ScannerPage() {
                         value={manualForm.mfgMonth}
                         onChange={(e) => setManualForm((prev) => ({ ...prev, mfgMonth: e.target.value }))}
                         disabled={manualLoading}
+                        className="h-8 text-sm"
                       />
                     </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="m-mfgYear">Mfg Year</Label>
+                    <div className="space-y-1">
+                      <Label htmlFor="m-mfgYear" className="text-xs">Mfg Year</Label>
                       <Input
                         id="m-mfgYear"
                         type="number"
@@ -1008,27 +1023,31 @@ export function ScannerPage() {
                         value={manualForm.mfgYear}
                         onChange={(e) => setManualForm((prev) => ({ ...prev, mfgYear: e.target.value }))}
                         disabled={manualLoading}
-                      />
-                    </div>
-                    <div className="space-y-2 sm:col-span-2">
-                      <Label htmlFor="m-notes">{t('notes')}</Label>
-                      <Input
-                        id="m-notes"
-                        placeholder={t('notesPlaceholder')}
-                        value={manualForm.notes}
-                        onChange={(e) => setManualForm((prev) => ({ ...prev, notes: e.target.value }))}
-                        disabled={manualLoading}
+                        className="h-8 text-sm"
                       />
                     </div>
                   </div>
+                  {/* Row 5 — Notes full width */}
+                  <div className="space-y-1">
+                    <Label htmlFor="m-notes" className="text-xs">{t('notes')}</Label>
+                    <Input
+                      id="m-notes"
+                      placeholder={t('notesPlaceholder')}
+                      value={manualForm.notes}
+                      onChange={(e) => setManualForm((prev) => ({ ...prev, notes: e.target.value }))}
+                      disabled={manualLoading}
+                      className="h-8 text-sm"
+                    />
+                  </div>
                   <Banners />
-                  <div className="flex gap-2">
-                    <Button type="submit" className="w-full" disabled={manualLoading}>
+                  <div className="flex gap-2 pt-1">
+                    <Button type="submit" className="flex-1 h-9 text-sm" disabled={manualLoading}>
                       {manualLoading ? t('recording') : t('addEntry')}
                     </Button>
                     <Button
                       type="button"
                       variant="outline"
+                      className="h-9 text-sm px-4"
                       disabled={manualLoading}
                       onClick={() => setManualForm({ artNumber: '', colorNumber: '', sizeNumber: '', quantity: '', mrp: '', notes: '', division: '', mfgMonth: '', mfgYear: '' })}
                     >
