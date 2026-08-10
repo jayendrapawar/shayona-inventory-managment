@@ -418,13 +418,11 @@ export function ScannerPage() {
 
     if (!isOnline) {
       const parsed = parseQr(qrCode)
-      // Duplicate check against existing offline queue
+      // Duplicate check against existing offline queue — match by boxCode (last field)
+      const boxCode = qrCode.split('-').pop() ?? qrCode
       const queue = await getQueue()
       const dup = queue.find(
-        (e) => e.rawQrCode === qrCode ||
-          (e.artNumber === parsed.articleCode &&
-           e.colorNumber === parsed.colorCode &&
-           e.sizeNumber === parsed.size)
+        (e) => (e.rawQrCode?.split('-').pop() ?? '') === boxCode
       )
       if (dup) {
         showWarning(dup.scannedByName ? `${t('duplicateByUser')} ${dup.scannedByName}` : t('duplicateQR'))
@@ -479,30 +477,46 @@ export function ScannerPage() {
 
     try {
       if (!isOnline) {
-        const art   = manualForm.artNumber.trim().toUpperCase()
-        const color = manualForm.colorNumber.trim().toUpperCase()
-        const size  = manualForm.sizeNumber.trim().toUpperCase()
-        // Duplicate check against existing offline queue
+        const art      = manualForm.artNumber.trim().toUpperCase()
+        const color    = manualForm.colorNumber.trim().toUpperCase()
+        const size     = manualForm.sizeNumber.trim().toUpperCase()
+        const mrpVal   = manualForm.mrp ? parseFloat(manualForm.mrp) : undefined
+        const divVal   = manualForm.division || undefined
+        const monthVal = manualForm.mfgMonth ? parseInt(manualForm.mfgMonth) : undefined
+        const yearVal  = manualForm.mfgYear  ? parseInt(manualForm.mfgYear)  : undefined
+        const qty      = manualForm.quantity || 1
+
+        // Quantity-merge check — same Art+Color+Size+Division+MRP+MfgMonth+MfgYear in queue → increment
         const queue = await getQueue()
         const dup = queue.find(
-          (e) => e.artNumber === art && e.colorNumber === color && e.sizeNumber === size
+          (e) =>
+            e.entryType  === 'manual' &&
+            e.artNumber  === art   && e.colorNumber === color && e.sizeNumber === size &&
+            e.division   === divVal &&
+            e.mrp        === mrpVal &&
+            e.mfgMonth   === monthVal && e.mfgYear === yearVal
         )
         if (dup) {
-          showWarning(dup.scannedByName ? `${t('duplicateByUser')} ${dup.scannedByName}` : t('duplicateQR'))
+          await enqueue({ ...dup, quantity: dup.quantity + qty })
+          await refreshOfflineQueue()
+          setLastOfflineManual({ ...dup, quantity: dup.quantity + qty })
+          setManualForm({ artNumber: '', colorNumber: '', sizeNumber: '', quantity: '', mrp: '', notes: '', division: '', mfgMonth: '', mfgYear: '' })
+          showSuccess(t('offlineSaved'))
           return
         }
+
         const entry: OfflineEntry = {
           tempId:        crypto.randomUUID(),
           entryType:     'manual',
           artNumber:     art,
           colorNumber:   color,
           sizeNumber:    size,
-          quantity:      manualForm.quantity || 1,
-          mrp:           manualForm.mrp ? parseFloat(manualForm.mrp) : undefined,
+          quantity:      qty,
+          mrp:           mrpVal,
           notes:         manualForm.notes || undefined,
-          division:      manualForm.division || undefined,
-          mfgMonth:      manualForm.mfgMonth ? parseInt(manualForm.mfgMonth) : undefined,
-          mfgYear:       manualForm.mfgYear ? parseInt(manualForm.mfgYear) : undefined,
+          division:      divVal,
+          mfgMonth:      monthVal,
+          mfgYear:       yearVal,
           scannedByName: userName || getCachedUser(),
           savedAt:       Date.now(),
           status:        'pending',
@@ -553,8 +567,16 @@ export function ScannerPage() {
     if (!deleteTarget) return
     setDeleteLoading(true)
     try {
-      await deleteScan(deleteTarget.id)
-      setRecentScans((prev) => prev.filter((s) => s.id !== deleteTarget.id))
+      await deleteScan(
+        deleteTarget.id,
+        deleteTarget.rawQrCode?.split('-').pop(),
+      )
+      // Always remove this specific box entry from the list.
+      // If the DB row still exists (updated !== null), other boxes of the same
+      // SKU remain in the list with their own entries.
+      setRecentScans((prev) =>
+        prev.filter((s) => s.rawQrCode !== deleteTarget.rawQrCode)
+      )
       setDeleteTarget(null)
       setDeleteConfirmText('')
     } catch {

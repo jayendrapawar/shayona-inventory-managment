@@ -120,25 +120,38 @@ export async function addManualEntry(
   const user = await getUser()
 
   // Normalize inputs
-  const art = artNumber.trim().toUpperCase() || undefined
-  const color = colorNumber.trim().toUpperCase() || undefined
-  const size = sizeNumber.trim().toUpperCase() || undefined
+  const art      = artNumber.trim().toUpperCase()   || undefined
+  const color    = colorNumber.trim().toUpperCase() || undefined
+  const size     = sizeNumber.trim().toUpperCase()  || undefined
+  const mrpStr   = mrp != null ? String(mrp) : undefined
+  const divNorm  = division || undefined
 
-  // Duplicate check — same Art + Color + Size anywhere in scans
-  const existing = await db
-    .select({ id: scans.id, scannedByName: scans.scannedByName })
+  // Quantity-merge check — same Art+Color+Size+Division+MRP+MfgMonth+MfgYear → add quantity
+  const matched = await db
+    .select({ id: scans.id })
     .from(scans)
     .where(
       and(
-        colEq(scans.artNumber, art),
+        colEq(scans.artNumber,   art),
         colEq(scans.colorNumber, color),
-        colEq(scans.sizeNumber, size)
+        colEq(scans.sizeNumber,  size),
+        colEq(scans.division,    divNorm),
+        colEq(scans.mrp,         mrpStr),
+        mfgMonth != null ? eq(scans.mfgMonth, mfgMonth) : isNull(scans.mfgMonth),
+        mfgYear  != null ? eq(scans.mfgYear,  mfgYear)  : isNull(scans.mfgYear),
       )
     )
     .limit(1)
 
-  if (existing.length > 0) {
-    return { ok: false, error: DUPLICATE_ENTRY_ERROR, scannedByName: existing[0].scannedByName }
+  if (matched.length > 0) {
+    const rows = await db
+      .update(scans)
+      .set({ quantity: sql`${scans.quantity} + ${quantity}`, updatedAt: sql`now()` })
+      .where(eq(scans.id, matched[0].id))
+      .returning()
+
+    revalidatePath('/dashboard')
+    return { ok: true, data: rows[0] }
   }
 
   const rows = await db
@@ -151,8 +164,8 @@ export async function addManualEntry(
       scannedByName: user.name ?? undefined,
       notes,
       quantity,
-      mrp: mrp != null ? String(mrp) : undefined,
-      division: division || undefined,
+      mrp: mrpStr,
+      division: divNorm,
       mfgMonth: mfgMonth ?? undefined,
       mfgYear: mfgYear ?? undefined,
     })

@@ -63,7 +63,8 @@ export const verification = pgTable('verification', {
 export const scans = pgTable('scans', {
   id: serial('id').primaryKey(),
   entryType: text('entryType').notNull().default('scan'), // 'scan' | 'manual'
-  rawQrCode: text('rawQrCode'),
+  rawQrCode: text('rawQrCode'),  // All rawQrCodes that have been merged into this row (one per physical box scanned)
+  boxCodes: jsonb('boxCodes').$type<string[]>().default([]),
   artNumber: text('artNumber'),
   colorNumber: text('colorNumber'),
   sizeNumber: text('sizeNumber'),
