@@ -140,6 +140,7 @@ export function ScannerPage() {
   // Cooldown ref — true for 2s after each successful scan so the same
   // QR code isn't re-read while the worker is still holding the device.
   const scanPausedRef = useRef(false)
+  const [qrDetected, setQrDetected] = useState(false)
 
   // ── Feature-flag (scan grouping) state ────────────────────────────────────
   const [flags, setFlags]             = useState<string[]>([])
@@ -586,7 +587,11 @@ export function ScannerPage() {
       if (code) {
         // Pause reading for 2s so the same QR isn't re-read immediately
         scanPausedRef.current = true
-        setTimeout(() => { scanPausedRef.current = false }, 2000)
+        setQrDetected(true)
+        setTimeout(() => {
+          scanPausedRef.current = false
+          setQrDetected(false)
+        }, 2000)
         handleCameraScan(code.data)
         // Do NOT stopCamera() — keep the loop running for the next scan
       }
@@ -1196,14 +1201,16 @@ export function ScannerPage() {
                 </div>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="relative bg-black rounded-lg overflow-hidden aspect-video">
+                <div className="relative bg-black rounded-lg overflow-hidden aspect-[4/3] sm:aspect-video">
                   <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover" />
                   <canvas ref={canvasRef} className="hidden" />
                   {/* Scanning active overlay */}
                   {isCameraActive && (
                     <div className="absolute inset-0 pointer-events-none">
-                      <div className="absolute inset-0 border-4 border-green-400 rounded-lg animate-pulse" />
-                      <div className="absolute bottom-3 left-1/2 -translate-x-1/2 bg-black/60 text-green-300 text-xs font-medium px-3 py-1 rounded-full">
+                      <div className={`absolute inset-0 rounded-lg border-4 transition-colors duration-200 ${
+                        qrDetected ? 'border-green-400 animate-pulse' : 'border-white/20'
+                      }`} />
+                      <div className="absolute bottom-3 left-1/2 -translate-x-1/2 bg-black/60 text-white/70 text-xs font-medium px-3 py-1 rounded-full">
                         {t('cameraScanning')}
                       </div>
                     </div>
