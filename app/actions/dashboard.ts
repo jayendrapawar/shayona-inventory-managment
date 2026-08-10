@@ -329,6 +329,12 @@ export interface EntryTypeItem {
   count: number
 }
 
+export interface ScansByUserItem {
+  user: string
+  scans: number
+  quantity: number
+}
+
 export async function getScannedChartData(): Promise<{
   scansOverTime: ScansOverTimePoint[]
   divisionBreakdown: DivisionBreakdownItem[]
@@ -403,6 +409,7 @@ export async function getOverallChartData(): Promise<{
   divisionBreakdown: DivisionBreakdownItem[]
   topSKUs: TopSKUItem[]
   entryTypeBreakdown: EntryTypeItem[]
+  scansByUser: ScansByUserItem[]
 }> {
   const allScans = await db.select().from(scans)
 
@@ -452,5 +459,17 @@ export async function getOverallChartData(): Promise<{
   }
   const entryTypeBreakdown: EntryTypeItem[] = Object.entries(typeMap).map(([type, count]) => ({ type, count }))
 
-  return { scansOverTime, divisionBreakdown, topSKUs, entryTypeBreakdown }
+  // Scans per user — total scans count + total quantity per scannedByName
+  const userMap: Record<string, { scans: number; quantity: number }> = {}
+  for (const scan of allScans) {
+    const u = scan.scannedByName || 'Unknown'
+    if (!userMap[u]) userMap[u] = { scans: 0, quantity: 0 }
+    userMap[u].scans += 1
+    userMap[u].quantity += scan.quantity
+  }
+  const scansByUser: ScansByUserItem[] = Object.entries(userMap)
+    .map(([user, v]) => ({ user, scans: v.scans, quantity: v.quantity }))
+    .sort((a, b) => b.scans - a.scans)
+
+  return { scansOverTime, divisionBreakdown, topSKUs, entryTypeBreakdown, scansByUser }
 }

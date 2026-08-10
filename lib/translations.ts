@@ -37,6 +37,7 @@ export const translations = {
     divisionBreakdown: 'Quantity by Division',
     topSKUs: 'Top 10 SKUs by Quantity',
     entryTypeBreakdown: 'Entry Type Breakdown',
+    scansByUser: 'Total Scans by User',
     noChartData: 'Not enough data to display charts.',
     date: 'Date',
     scansCount: 'Scans',
@@ -44,6 +45,9 @@ export const translations = {
     quantityLabel: 'Quantity',
     sku: 'SKU',
     entryType: 'Entry Type',
+    userLabel: 'User',
+    myStatsTitle: 'My Scan Statistics',
+    warehouseStatsTitle: 'Warehouse Statistics',
 
     // Scanned Inventory KPIs
     totalItemsScanned: 'Total Items Scanned',
@@ -203,6 +207,7 @@ export const translations = {
     divisionBreakdown: 'डिवीज़न के अनुसार मात्रा',
     topSKUs: 'शीर्ष 10 SKU (मात्रा के अनुसार)',
     entryTypeBreakdown: 'प्रविष्टि प्रकार विश्लेषण',
+    scansByUser: 'उपयोगकर्ता के अनुसार स्कैन',
     noChartData: 'चार्ट दिखाने के लिए पर्याप्त डेटा नहीं है।',
     date: 'दिनांक',
     scansCount: 'स्कैन',
@@ -210,6 +215,9 @@ export const translations = {
     quantityLabel: 'मात्रा',
     sku: 'SKU',
     entryType: 'प्रकार',
+    userLabel: 'उपयोगकर्ता',
+    myStatsTitle: 'मेरे स्कैन आँकड़े',
+    warehouseStatsTitle: 'वेयरहाउस आँकड़े',
 
     // Scanned Inventory KPIs
     totalItemsScanned: 'कुल स्कैन किए गए आइटम',
