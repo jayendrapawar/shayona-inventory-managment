@@ -15,7 +15,6 @@ async function getUser() {
   return { id: session.user.id, name: session.user.name ?? null }
 }
 
-// Returns the current logged-in user's display name — used by the scanner header
 export async function getCurrentUserName(): Promise<string | null> {
   const user = await getUser()
   return user.name
@@ -25,13 +24,11 @@ export type RecordScanResult =
   | { ok: true; data: typeof scans.$inferSelect }
   | { ok: false; error: typeof DUPLICATE_QR_ERROR | typeof INVALID_QR_ERROR | 'ERROR'; scannedByName?: string | null }
 
-// Nullable-safe equality: uses IS NULL when value is absent, eq() otherwise
 function colEq(col: Parameters<typeof eq>[0], val: string | undefined) {
   return val ? eq(col, val) : isNull(col)
 }
 
 export async function recordScan(rawQrCode: string, notes?: string): Promise<RecordScanResult> {
-  // Reject before any DB call if QR doesn't match warehouse format
   if (!isValidWarehouseQr(rawQrCode)) {
     return { ok: false, error: INVALID_QR_ERROR }
   }
@@ -39,8 +36,6 @@ export async function recordScan(rawQrCode: string, notes?: string): Promise<Rec
   const user = await getUser()
   const parsed = parseQr(rawQrCode)
 
-  // Duplicate check — same box code already scanned (stored in rawQrCode of first-box rows
-  // or in the boxCodes jsonb array for merged rows)
   const existing = await db
     .select({ id: scans.id, scannedByName: scans.scannedByName })
     .from(scans)
@@ -54,7 +49,6 @@ export async function recordScan(rawQrCode: string, notes?: string): Promise<Rec
     return { ok: false, error: DUPLICATE_QR_ERROR, scannedByName: existing[0].scannedByName }
   }
 
-  // Quantity-merge check — same Art+Color+Size+Division+MRP+MfgMonth+MfgYear → increment
   const artNumber    = parsed.articleCode || undefined
   const colorNumber  = parsed.colorCode   || undefined
   const sizeNumber   = parsed.size        || undefined
@@ -90,8 +84,6 @@ export async function recordScan(rawQrCode: string, notes?: string): Promise<Rec
       .where(eq(scans.id, matched[0].id))
       .returning()
 
-    // revalidatePath removed — the scanner page uses client-state only; a
-    // full server re-render on every scan adds ~200-400 ms of unnecessary work.
     return { ok: true, data: rows[0] }
   }
 
@@ -117,14 +109,9 @@ export async function recordScan(rawQrCode: string, notes?: string): Promise<Rec
   return { ok: true, data: rows[0] }
 }
 
-// Last 50 box-level entries for the logged-in user, newest first.
-// Each camera-scan row is expanded into one virtual entry per boxCode so the
-// caller sees individual boxes (qty=1 each) rather than merged SKU totals.
-// Manual entries (no boxCodes) appear as a single entry with their set quantity.
 export async function getRecentScans(limit = 50) {
   const user = await getUser()
 
-  // Fetch more rows than needed so expansion still yields enough after slicing
   const dbRows = await db
     .select()
     .from(scans)
@@ -142,13 +129,11 @@ export async function getRecentScans(limit = 50) {
       : row.rawQrCode ? [row.rawQrCode] : []
 
     if (codes.length > 0) {
-      // One virtual entry per box, newest box first
       for (let i = codes.length - 1; i >= 0; i--) {
         expanded.push({ ...row, quantity: 1, rawQrCode: codes[i], _boxCode: codes[i] })
         if (expanded.length >= limit) break
       }
     } else {
-      // Manual entry — show as-is
       expanded.push(row)
     }
     if (expanded.length >= limit) break
@@ -169,9 +154,6 @@ export async function updateScanQuantity(scanId: number, quantity: number) {
   return result[0]
 }
 
-// Decrements quantity by 1 for the given row, removing boxCode from the
-// boxCodes array when provided. Deletes the row entirely when quantity hits 0.
-// Returns the updated row, or null if the row was deleted.
 export async function deleteScan(
   scanId: number,
   boxCode?: string,
@@ -197,7 +179,6 @@ export async function deleteScan(
     .update(scans)
     .set({
       quantity:  sql`${scans.quantity} - 1`,
-      // Remove the specific boxCode from the array if provided
       ...(boxCode
         ? { boxCodes: sql`(SELECT jsonb_agg(v) FROM jsonb_array_elements_text(COALESCE(${scans.boxCodes}, '[]'::jsonb)) v WHERE v != ${boxCode})` }
         : {}),

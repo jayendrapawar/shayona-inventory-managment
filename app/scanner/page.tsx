@@ -15,7 +15,6 @@ export default async function Scanner() {
     if (!session?.user) redirect('/sign-in')
   } catch (err) {
     if (isRedirectError(err)) throw err
-    // DB/network unreachable — still render scanner; offline queue handles scans
   }
 
   return <ScannerPage />

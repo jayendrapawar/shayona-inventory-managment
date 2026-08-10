@@ -15,7 +15,6 @@ export default async function Dashboard() {
     if (!session?.user) redirect('/sign-in')
   } catch (err) {
     if (isRedirectError(err)) throw err
-    // DB/network unreachable — redirect to scanner (works offline)
     redirect('/scanner')
   }
 
