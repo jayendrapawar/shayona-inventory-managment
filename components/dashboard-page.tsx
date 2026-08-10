@@ -158,6 +158,10 @@ export function DashboardPage() {
   const [overallChartData, setOverallChartData] = useState<OverallChartData | null>(null)
   const [chartLoading, setChartLoading] = useState(false)
 
+  // Drill-down state for Article → Color → Size chart
+  const [drillArt, setDrillArt] = useState<string | null>(null)
+  const [drillColor, setDrillColor] = useState<string | null>(null)
+
   // Shared
   const [searchQuery, setSearchQuery] = useState('')
   const [loading, setLoading] = useState(false)
@@ -744,36 +748,198 @@ export function DashboardPage() {
     )
   }
 
+  // ── Article → Color → Size drill-down chart (computed from inventory) ───────
+
+  function ChartArticleDrillDown() {
+    if (!inventory.length) return null
+
+    // Level 0 — total items per article
+    const artMap: Record<string, number> = {}
+    for (const item of inventory) {
+      const art = item.artNumber || 'Unknown'
+      artMap[art] = (artMap[art] ?? 0) + item.quantity
+    }
+    const artData = Object.entries(artMap)
+      .map(([art, qty]) => ({ name: art, qty }))
+      .sort((a, b) => b.qty - a.qty)
+
+    // Level 1 — total items per color for the selected article
+    const colorData: { name: string; qty: number }[] = []
+    if (drillArt) {
+      const colorMap: Record<string, number> = {}
+      for (const item of inventory) {
+        if ((item.artNumber || 'Unknown') !== drillArt) continue
+        const color = item.colorNumber || 'Unknown'
+        colorMap[color] = (colorMap[color] ?? 0) + item.quantity
+      }
+      Object.entries(colorMap)
+        .sort((a, b) => b[1] - a[1])
+        .forEach(([color, qty]) => colorData.push({ name: color, qty }))
+    }
+
+    // Level 2 — total items per size for the selected article + color
+    const sizeData: { name: string; qty: number }[] = []
+    if (drillArt && drillColor) {
+      const sizeMap: Record<string, number> = {}
+      for (const item of inventory) {
+        if ((item.artNumber || 'Unknown') !== drillArt) continue
+        if ((item.colorNumber || 'Unknown') !== drillColor) continue
+        const size = item.sizeNumber || 'Unknown'
+        sizeMap[size] = (sizeMap[size] ?? 0) + item.quantity
+      }
+      Object.entries(sizeMap)
+        .sort((a, b) => {
+          const na = parseFloat(a[0]), nb = parseFloat(b[0])
+          return isNaN(na) || isNaN(nb) ? a[0].localeCompare(b[0]) : na - nb
+        })
+        .forEach(([size, qty]) => sizeData.push({ name: size, qty }))
+    }
+
+    // Determine what to show
+    const chartData  = drillArt && drillColor ? sizeData : drillArt ? colorData : artData
+    const titleText  = drillArt && drillColor
+      ? `${drillArt} › ${drillColor} — Size breakdown`
+      : drillArt
+      ? `${drillArt} — Color breakdown`
+      : 'Items per Article'
+    const xLabel     = drillArt && drillColor ? 'Size' : drillArt ? 'Color' : 'Article'
+
+    const barHeight  = Math.max(180, chartData.length * 36)
+
+    return (
+      <Card>
+        <CardHeader className="px-3 sm:px-6 pb-2">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div className="flex items-center gap-2">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-50">
+                <BarChart3 className="h-4 w-4 text-blue-600" />
+              </div>
+              <div>
+                <CardTitle className="text-sm sm:text-base">{titleText}</CardTitle>
+                {drillArt && (
+                  <p className="text-[11px] text-muted-foreground mt-0.5">
+                    {drillArt && drillColor ? 'Click a bar to go deeper · ' : 'Click a bar to see sizes · '}
+                    tap breadcrumb to go back
+                  </p>
+                )}
+              </div>
+            </div>
+            {/* Breadcrumb */}
+            <div className="flex items-center gap-1 text-xs flex-wrap">
+              <button
+                className="text-blue-600 hover:underline font-medium"
+                onClick={() => { setDrillArt(null); setDrillColor(null) }}
+              >
+                All Articles
+              </button>
+              {drillArt && (
+                <>
+                  <span className="text-muted-foreground">›</span>
+                  <button
+                    className={`hover:underline font-medium ${drillColor ? 'text-blue-600' : 'text-foreground'}`}
+                    onClick={() => setDrillColor(null)}
+                  >
+                    {drillArt}
+                  </button>
+                </>
+              )}
+              {drillColor && (
+                <>
+                  <span className="text-muted-foreground">›</span>
+                  <span className="font-medium text-foreground">{drillColor}</span>
+                </>
+              )}
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="px-0 sm:px-4 pb-4">
+          {chartData.length === 0 ? (
+            <p className="text-center text-sm text-muted-foreground py-6">No data</p>
+          ) : (
+            <ResponsiveContainer width="100%" height={barHeight}>
+              <BarChart
+                layout="vertical"
+                data={chartData}
+                margin={{ top: 0, right: 16, left: 4, bottom: 0 }}
+                onClick={(e) => {
+                  const ev = e as unknown as { activePayload?: { payload: { name: string } }[] }
+                  if (!ev?.activePayload?.length) return
+                  const clicked = ev.activePayload[0].payload.name
+                  if (!drillArt) {
+                    setDrillArt(clicked)
+                    setDrillColor(null)
+                  } else if (!drillColor) {
+                    setDrillColor(clicked)
+                  }
+                }}
+                style={{ cursor: drillArt && drillColor ? 'default' : 'pointer' }}
+              >
+                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" horizontal={false} />
+                <XAxis type="number" tick={{ fontSize: 10 }} allowDecimals={false} />
+                <YAxis dataKey="name" type="category" tick={{ fontSize: 10 }} width={80} label={{ value: xLabel, angle: -90, position: 'insideLeft', offset: -2, style: { fontSize: 9, fill: '#9ca3af' } }} />
+                <Tooltip formatter={(v) => [v, 'Qty']} />
+                <Bar dataKey="qty" name="Qty" radius={[0, 4, 4, 0]}>
+                  {chartData.map((_, i) => (
+                    <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+          {!drillArt && (
+            <p className="px-3 pt-2 text-[11px] text-muted-foreground">Tap a bar to drill into color breakdown</p>
+          )}
+          {drillArt && !drillColor && (
+            <p className="px-3 pt-2 text-[11px] text-muted-foreground">Tap a bar to drill into size breakdown</p>
+          )}
+        </CardContent>
+      </Card>
+    )
+  }
+
   // ── Per-tab chart renderers ──────────────────────────────────────────────────
 
   function renderScannedCharts() {
-    if (chartLoading) return <div className="text-center py-8 text-sm text-muted-foreground">{t('loading')}</div>
-    if (!scannedChartData) return null
+    // The drill-down chart is always shown (data comes from inventory, not chartData)
+    const drillSection = (
+      <div className="space-y-6">
+        <div className="flex items-center gap-2 pb-1 border-b">
+          <QrCode className="h-4 w-4 text-blue-600 shrink-0" />
+          <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">{t('myStatsTitle')}</h3>
+        </div>
+        <ChartArticleDrillDown />
+      </div>
+    )
 
-    const hasData =
+    if (chartLoading) return <div className="space-y-6">{drillSection}<div className="text-center py-8 text-sm text-muted-foreground">{t('loading')}</div></div>
+    if (!scannedChartData) return drillSection
+
+    const hasOtherData =
       scannedChartData.scansOverTime.some((d) => d.scans > 0) ||
       scannedChartData.divisionBreakdown.length > 0 ||
       scannedChartData.topSKUs.length > 0 ||
       scannedChartData.entryTypeBreakdown.length > 0
 
-    if (!hasData) return <div className="text-center py-12 text-sm text-muted-foreground">{t('noChartData')}</div>
-
     return (
       <div className="space-y-6">
-        {/* Section label */}
         <div className="flex items-center gap-2 pb-1 border-b">
           <QrCode className="h-4 w-4 text-blue-600 shrink-0" />
           <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">{t('myStatsTitle')}</h3>
         </div>
 
-        <ChartScansOverTime data={scannedChartData.scansOverTime} />
+        {/* ── Article → Color → Size drill-down ── */}
+        <ChartArticleDrillDown />
 
-        <div className="grid gap-6 md:grid-cols-2">
-          <ChartDivisionBreakdown data={scannedChartData.divisionBreakdown} />
-          <ChartEntryType data={scannedChartData.entryTypeBreakdown} />
-        </div>
-
-        <ChartTopSKUs data={scannedChartData.topSKUs} />
+        {hasOtherData && (
+          <>
+            <ChartScansOverTime data={scannedChartData.scansOverTime} />
+            <div className="grid gap-6 md:grid-cols-2">
+              <ChartDivisionBreakdown data={scannedChartData.divisionBreakdown} />
+              <ChartEntryType data={scannedChartData.entryTypeBreakdown} />
+            </div>
+            <ChartTopSKUs data={scannedChartData.topSKUs} />
+          </>
+        )}
       </div>
     )
   }
