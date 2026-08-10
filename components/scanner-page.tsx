@@ -564,7 +564,7 @@ export function ScannerPage() {
           await enqueue({ ...dup, quantity: dup.quantity + qty })
           await refreshOfflineQueue()
           setLastOfflineManual({ ...dup, quantity: dup.quantity + qty })
-          setManualForm({ artNumber: '', colorNumber: '', sizeNumber: '', quantity: '', mrp: '', notes: '', division: '', mfgMonth: '', mfgYear: '' })
+          setManualForm((prev) => ({ ...prev, sizeNumber: '', quantity: '' }))
           showSuccess(t('offlineSaved'))
           return
         }
@@ -588,7 +588,7 @@ export function ScannerPage() {
         await enqueue(entry)
         await refreshOfflineQueue()
         setLastOfflineManual(entry)
-        setManualForm({ artNumber: '', colorNumber: '', sizeNumber: '', quantity: '', mrp: '', notes: '', division: '', mfgMonth: '', mfgYear: '' })
+        setManualForm((prev) => ({ ...prev, sizeNumber: '', quantity: '' }))
         showSuccess(t('offlineSaved'))
         return
       }
@@ -614,7 +614,7 @@ export function ScannerPage() {
         return
       }
       setLastManualEntry(res.data)
-      setManualForm({ artNumber: '', colorNumber: '', sizeNumber: '', quantity: '', mrp: '', notes: '', division: '', mfgMonth: '', mfgYear: '' })
+      setManualForm((prev) => ({ ...prev, sizeNumber: '', quantity: '' }))
       showSuccess(t('manualEntrySuccess'))
       loadRecentScans()
     } catch (err) {
@@ -1144,11 +1144,11 @@ export function ScannerPage() {
                     <Button
                       type="button"
                       variant="outline"
-                      className="h-9 text-sm px-4"
+                      className="h-9 text-sm px-4 text-destructive hover:text-destructive"
                       disabled={manualLoading}
                       onClick={() => setManualForm({ artNumber: '', colorNumber: '', sizeNumber: '', quantity: '', mrp: '', notes: '', division: '', mfgMonth: '', mfgYear: '' })}
                     >
-                      {t('cancel')}
+                      Clear All
                     </Button>
                   </div>
                   {lastManualEntry && (
