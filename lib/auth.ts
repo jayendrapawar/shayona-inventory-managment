@@ -14,12 +14,15 @@ const baseURL =
       ? `https://${process.env.VERCEL_URL}`
       : 'http://localhost:3000')
 
-// Static trusted origins — always include both known Vercel domains
+// Static trusted origins — all known production domains
 const staticTrustedOrigins: string[] = [
-  baseURL,
   'https://shayona-footwear.vercel.app',
   'https://shayona-inventory-managment.vercel.app',
+  'https://shayona-jpcodebeasts-projects.vercel.app',
+  'https://shayona-git-main-jpcodebeasts-projects.vercel.app',
 ]
+if (baseURL && !staticTrustedOrigins.includes(baseURL))
+  staticTrustedOrigins.push(baseURL)
 if (process.env.VERCEL_URL)
   staticTrustedOrigins.push(`https://${process.env.VERCEL_URL}`)
 if (process.env.VERCEL_PROJECT_PRODUCTION_URL)
