@@ -150,6 +150,11 @@ export function ScannerPage() {
   const [showNewFlagInput, setShowNewFlagInput] = useState(false)
   const [newFlagSaving, setNewFlagSaving] = useState(false)
 
+  // Refs that mirror the above state so the long-lived scanLoop closure
+  // always reads the *current* value without needing to be re-created.
+  const activeFlagRef = useRef<string>('')
+  const userNameRef   = useRef<string>('')
+
   const [dailyScanCount, setDailyScanCount] = useState<number>(0)
   const [userName, setUserName] = useState<string>('')
   const [recentScans, setRecentScans] = useState<RecentScan[]>([])
@@ -209,16 +214,14 @@ export function ScannerPage() {
 
   // ── Sync handler (called on reconnect & on mount when online) ──────────────
   const handleSync = useCallback(async () => {
-    const pending = offlineQueue.filter((e) => e.status === 'pending' || e.status === 'syncing')
+    // Always read from IDB — React state (offlineQueue) may be stale due to
+    // the empty-dependency-array useCallback closing over the initial value.
+    const q = await getQueue()
+    const pending = q.filter((e) => e.status === 'pending' || e.status === 'syncing')
     if (pending.length === 0) {
-      // Re-check IndexedDB directly in case state is stale
-      const q = await getQueue()
-      const actualPending = q.filter((e) => e.status === 'pending' || e.status === 'syncing')
-      if (actualPending.length === 0) {
-        // Still sync flags even when no scan queue (flags may have been created offline)
-        await refreshFlags(true)
-        return
-      }
+      // Still sync flags even when no scan queue (flags may have been created offline)
+      await refreshFlags(true)
+      return
     }
 
     setIsSyncing(true)
@@ -300,6 +303,12 @@ export function ScannerPage() {
     return () => document.removeEventListener('visibilitychange', onVisible)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // ── Keep refs in sync with their state counterparts ───────────────────────
+  // The scanLoop closure is created once at mount and never re-created; reading
+  // refs inside it always gets the latest value without React re-render cost.
+  useEffect(() => { activeFlagRef.current = activeFlag }, [activeFlag])
+  useEffect(() => { userNameRef.current   = userName   }, [userName])
 
   // ── Cleanup on unmount ─────────────────────────────────────────────────────
   useEffect(() => {
@@ -610,7 +619,7 @@ export function ScannerPage() {
       return
     }
 
-    if (!isOnline) {
+    if (!navigator.onLine) {
       const parsed = parseQr(qrCode)
       // Duplicate check against existing offline queue — match by boxCode (last field)
       const boxCode = qrCode.split('-').pop() ?? qrCode
@@ -635,8 +644,8 @@ export function ScannerPage() {
         mfgMonth:      parsed.mfgMonth || undefined,
         mfgYear:       parsed.mfgYear || undefined,
         quantity:      1,
-        notes:         activeFlag ? `[Flag: ${activeFlag}]` : undefined,
-        scannedByName: userName || getCachedUser(),
+        notes:         activeFlagRef.current ? `[Flag: ${activeFlagRef.current}]` : undefined,
+        scannedByName: userNameRef.current || getCachedUser(),
         savedAt:       Date.now(),
         status:        'pending',
       }
@@ -648,7 +657,7 @@ export function ScannerPage() {
       return
     }
 
-    const res = await recordScan(qrCode, activeFlag ? `[Flag: ${activeFlag}]` : undefined)
+    const res = await recordScan(qrCode, activeFlagRef.current ? `[Flag: ${activeFlagRef.current}]` : undefined)
     if (!res.ok) {
       if (res.error === INVALID_QR_ERROR) {
         showWarning('QR code format not recognised. Only warehouse QR codes can be scanned.')
@@ -675,7 +684,7 @@ export function ScannerPage() {
     setError(null)
 
     try {
-      if (!isOnline) {
+      if (!navigator.onLine) {
         const art      = manualForm.artNumber.trim().toUpperCase()
         const color    = manualForm.colorNumber.trim().toUpperCase()
         const size     = manualForm.sizeNumber.trim().toUpperCase()
@@ -1115,7 +1124,9 @@ export function ScannerPage() {
           className="w-full"
           onValueChange={(tab) => {
             if (tab === 'camera') {
-              startCamera()
+              // Only start the camera if it isn't already running; avoids
+              // re-requesting camera permission on every tab switch.
+              if (!isCameraActive) startCamera()
             } else {
               stopCamera()
             }
@@ -1481,8 +1492,8 @@ export function ScannerPage() {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {recentScans.map((scan) => (
-                          <TableRow key={scan.id}>
+                        {recentScans.map((scan, idx) => (
+                          <TableRow key={`${scan.id}-${scan.rawQrCode ?? idx}`}>
                             <TableCell className="px-3 sm:px-4">
                               <Badge variant={scan.entryType === 'scan' ? 'default' : 'secondary'} className="text-xs">
                                 {scan.entryType}

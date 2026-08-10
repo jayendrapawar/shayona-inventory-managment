@@ -109,7 +109,7 @@ export async function recordScan(rawQrCode: string, notes?: string): Promise<Rec
       mfgMonth,
       mfgYear,
       notes,
-      scannedByName: user.name ?? undefined,
+      scannedByName: user.name ?? '',
       quantity: 1,
     })
     .returning()

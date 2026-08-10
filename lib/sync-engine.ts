@@ -100,7 +100,7 @@ async function trySyncEntry(entry: OfflineEntry): Promise<'success' | 'duplicate
     const res = await recordScan(entry.rawQrCode, entry.notes)
     if (res.ok)                           return 'success'
     if (res.error === DUPLICATE_QR_ERROR) return 'duplicate'
-    return 'ERROR'
+    return `Server error: ${res.error}`
   }
 
   // manual entry
@@ -117,5 +117,5 @@ async function trySyncEntry(entry: OfflineEntry): Promise<'success' | 'duplicate
   )
   if (res.ok)                                return 'success'
   if (res.error === DUPLICATE_ENTRY_ERROR)   return 'duplicate'
-  return 'ERROR'
+  return `Server error: ${res.error}`
 }

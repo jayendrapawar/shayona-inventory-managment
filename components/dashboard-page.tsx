@@ -175,11 +175,12 @@ export function DashboardPage() {
   }, [])
 
   // Load Overall Stock when tab first switches to it
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (activeTab === 'overall' && !stockLoaded) {
       loadOverallStock()
     }
-  }, [activeTab])
+  }, [activeTab, stockLoaded])
 
   // Load chart data when sub-tab switches to 'stats'
   useEffect(() => {

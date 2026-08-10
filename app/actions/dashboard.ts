@@ -21,6 +21,7 @@ export async function getLoggedInUserName(): Promise<string | null> {
 }
 
 export async function searchInventory(query: string) {
+  await getUser() // auth guard — throws if unauthenticated
   if (!query.trim()) {
     return db.select().from(scans).orderBy(desc(scans.createdAt))
   }
@@ -143,7 +144,7 @@ export async function addManualEntry(
       artNumber: art ?? artNumber,
       colorNumber: color ?? colorNumber,
       sizeNumber: size ?? sizeNumber,
-      scannedByName: user.name ?? undefined,
+      scannedByName: user.name ?? '',
       notes,
       quantity,
       mrp: mrpStr,
@@ -304,6 +305,7 @@ export async function exportToExcel(): Promise<Record<string, string | number>[]
 }
 
 export async function exportOverallStockToCSV(): Promise<Record<string, string | number>[]> {
+  await getUser() // auth guard — throws if unauthenticated
   const allScans = await db.select().from(scans).orderBy(desc(scans.createdAt))
 
   return allScans.map((scan) => ({

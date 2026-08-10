@@ -34,16 +34,26 @@ export interface OfflineEntry {
 
 const DB_NAME = 'shayona-offline'
 const STORE   = 'pending-scans'
-const VERSION = 1
+// Must match the version in offline-flags.ts — both files share the same IDB database.
+// offline-flags.ts created version 2 with the flag stores; keep in sync.
+const VERSION = 2
 
 function openDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, VERSION)
-    req.onupgradeneeded = () => {
+    req.onupgradeneeded = (ev) => {
       const db = req.result
       if (!db.objectStoreNames.contains(STORE)) {
         db.createObjectStore(STORE, { keyPath: 'tempId' })
       }
+      // Also ensure flag stores exist (created by offline-flags.ts on version 2)
+      if (!db.objectStoreNames.contains('flag-cache')) {
+        db.createObjectStore('flag-cache', { keyPath: 'name' })
+      }
+      if (!db.objectStoreNames.contains('flag-pending')) {
+        db.createObjectStore('flag-pending', { keyPath: 'name' })
+      }
+      void ev
     }
     req.onsuccess = () => resolve(req.result)
     req.onerror   = () => reject(req.error)
