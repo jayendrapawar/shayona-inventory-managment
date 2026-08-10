@@ -2,130 +2,42 @@
 
 import jsQR from 'jsqr'
 import { User } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { type FormEvent, useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { Badge } from '@/components/ui/badge'
-import { recordScan, getCurrentUserName, getRecentScans, deleteScan } from '@/app/actions/scan'
 import { addManualEntry } from '@/app/actions/dashboard'
 import { createFlag } from '@/app/actions/flags'
-import { getCachedFlags, cacheFlags, enqueuePendingFlag } from '@/lib/offline-flags'
-import { syncFlags } from '@/lib/sync-engine'
-import { DUPLICATE_QR_ERROR, DUPLICATE_ENTRY_ERROR, INVALID_QR_ERROR } from '@/lib/errors'
-import { isValidWarehouseQr, parseQr } from '@/lib/qr-parser'
-import { signOut } from '@/lib/auth-client'
-import { useLanguage } from '@/lib/language-context'
+import { deleteScan, getCurrentUserName, getRecentScans, recordScan } from '@/app/actions/scan'
 import { LanguageToggle } from '@/components/language-toggle'
+import { DEFAULT_MANUAL_FORM, SCAN_INTERVAL_MS, SCAN_MAX_DIM } from '@/components/scanner/constants'
+import { getCachedUser, getDailyScanCount, getStoredActiveFlag, incrementDailyScanCount, saveStoredActiveFlag, setCachedUser } from '@/components/scanner/storage'
+import type { ManualFormState, RecentScan } from '@/components/scanner/types'
+import { FlagSelector, ScanSummaryCard } from '@/components/scanner/ui'
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { signOut } from '@/lib/auth-client'
+import { DUPLICATE_ENTRY_ERROR, DUPLICATE_QR_ERROR, INVALID_QR_ERROR } from '@/lib/errors'
+import { useLanguage } from '@/lib/language-context'
+import { cacheFlags, enqueuePendingFlag, getCachedFlags } from '@/lib/offline-flags'
 import { enqueue, getQueue, removeFromQueue, type OfflineEntry } from '@/lib/offline-queue'
+import { isValidWarehouseQr, parseQr } from '@/lib/qr-parser'
+import { syncFlags, syncQueue, type SyncResult } from '@/lib/sync-engine'
 import { useOnline } from '@/lib/use-online'
-import { syncQueue, type SyncResult } from '@/lib/sync-engine'
-
-type RecentScan = Awaited<ReturnType<typeof getRecentScans>>[number]
-
-// ─── Username persistence ────────────────────────────────────────────────────
-// We store the username in localStorage so offline scans can be labelled
-// even after a page refresh (server session isn't reachable offline).
-const USER_KEY = 'shayona-offline-user'
-
-// ─── Feature-flag active-selection persistence (per device) ──────────────────
-// Only the *selected* flag is stored locally — the flag list comes from the DB.
-const FLAG_KEY = 'shayona-active-flag'
-
-function getStoredActiveFlag(): string {
-  if (typeof window === 'undefined') return ''
-  return localStorage.getItem(FLAG_KEY) ?? ''
-}
-function saveStoredActiveFlag(flag: string) {
-  if (typeof window === 'undefined') return
-  localStorage.setItem(FLAG_KEY, flag)
-}
-
-// ─── Daily scan counter ───────────────────────────────────────────────────────
-// Persisted in localStorage as { date: 'YYYY-MM-DD', count: number }
-// Resets automatically when the calendar date changes (midnight).
-const DAILY_SCAN_KEY = 'shayona-daily-scan-count'
-
-function getTodayDateStr(): string {
-  const d = new Date()
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-}
-
-function getDailyScanCount(): number {
-  if (typeof window === 'undefined') return 0
-  try {
-    const raw = localStorage.getItem(DAILY_SCAN_KEY)
-    if (!raw) return 0
-    const { date, count } = JSON.parse(raw) as { date: string; count: number }
-    if (date !== getTodayDateStr()) return 0
-    return count ?? 0
-  } catch {
-    return 0
-  }
-}
-
-function incrementDailyScanCount(): number {
-  if (typeof window === 'undefined') return 0
-  const next = getDailyScanCount() + 1
-  localStorage.setItem(DAILY_SCAN_KEY, JSON.stringify({ date: getTodayDateStr(), count: next }))
-  return next
-}
-
-function getCachedUser(): string {
-  if (typeof window === 'undefined') return ''
-  return localStorage.getItem(USER_KEY) ?? ''
-}
-function setCachedUser(name: string) {
-  if (typeof window === 'undefined') return
-  localStorage.setItem(USER_KEY, name)
-}
-
-// Maximum width/height used when downscaling the video frame for jsQR.
-// A 480-pixel wide image gives jsQR enough resolution to reliably read QR
-// codes while processing ~9× fewer pixels than a 1080p or 4K frame.
-const SCAN_MAX_DIM = 480
-
-// Minimum milliseconds between jsQR decode attempts.  rAF fires at ~60 fps
-// which is far faster than jsQR can decode; throttling to ~15 fps keeps the
-// main thread responsive without missing any real-world scan opportunity.
-const SCAN_INTERVAL_MS = 66 // ≈15 fps
 
 export function ScannerPage() {
   const router = useRouter()
   const { t } = useLanguage()
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  // Offscreen canvas used exclusively for downscaled QR decoding so we never
-  // have to reset its dimensions (avoids the expensive context flush).
   const scanCanvasRef = useRef<HTMLCanvasElement | null>(null)
   const lastScanTimeRef = useRef<number>(0)
   const [isCameraActive, setIsCameraActive] = useState(false)
   const [isFlashlightOn, setIsFlashlightOn] = useState(false)
-  const [manualForm, setManualForm] = useState<{
-    artNumber: string
-    colorNumber: string
-    sizeNumber: string
-    quantity: number | ''
-    mrp: string
-    notes: string
-    division: string
-    mfgMonth: string
-    mfgYear: string
-  }>({
-    artNumber: '',
-    colorNumber: '',
-    sizeNumber: '',
-    quantity: '',
-    mrp: '',
-    notes: '',
-    division: '',
-    mfgMonth: '',
-    mfgYear: '',
-  })
+  const [manualForm, setManualForm] = useState<ManualFormState>({ ...DEFAULT_MANUAL_FORM })
   const [manualLoading, setManualLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
@@ -137,12 +49,9 @@ export function ScannerPage() {
   const [infoMsg, setInfoMsg] = useState<string | null>(null)
   const successTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const scanningRef = useRef(false)
-  // Cooldown ref — true for 2s after each successful scan so the same
-  // QR code isn't re-read while the worker is still holding the device.
   const scanPausedRef = useRef(false)
   const [qrDetected, setQrDetected] = useState(false)
 
-  // ── Feature-flag (scan grouping) state ────────────────────────────────────
   const [flags, setFlags]             = useState<string[]>([])
   const [activeFlag, setActiveFlag]   = useState<string>('')
   const [flagsLoading, setFlagsLoading] = useState(true)
@@ -150,8 +59,6 @@ export function ScannerPage() {
   const [showNewFlagInput, setShowNewFlagInput] = useState(false)
   const [newFlagSaving, setNewFlagSaving] = useState(false)
 
-  // Refs that mirror the above state so the long-lived scanLoop closure
-  // always reads the *current* value without needing to be re-created.
   const activeFlagRef = useRef<string>('')
   const userNameRef   = useRef<string>('')
 
@@ -167,59 +74,46 @@ export function ScannerPage() {
   const [deleteLoading, setDeleteLoading] = useState(false)
   const [deleteConfirmText, setDeleteConfirmText] = useState('')
 
-  // ── Offline state ──────────────────────────────────────────────────────────
   const [offlineQueue, setOfflineQueue] = useState<OfflineEntry[]>([])
   const [isSyncing, setIsSyncing] = useState(false)
   const [syncResult, setSyncResult] = useState<SyncResult | null>(null)
   const syncResultTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Refresh local queue from IndexedDB
-  async function refreshOfflineQueue() {
+  const refreshOfflineQueue = useCallback(async () => {
     try {
       const q = await getQueue()
       setOfflineQueue(q)
     } catch {
-      // IndexedDB unavailable — silently ignore
     }
-  }
+  }, [])
 
-  // ── Flag refresh helper — used on mount, reconnect, and tab focus ──────────
   const refreshFlags = useCallback(async (online: boolean) => {
     if (online) {
-      // Push any offline-created flags then pull latest from DB
       try {
         const latest = await syncFlags()
         const deduped = [...new Set(latest)]
         setFlags(deduped)
         await cacheFlags(deduped)
-        // Validate active selection
         setActiveFlag((prev) => {
           const kept = deduped.includes(prev) ? prev : (deduped[0] ?? '')
           if (kept !== prev) saveStoredActiveFlag(kept)
           return kept
         })
       } catch {
-        // Server unreachable despite navigator.onLine — fall back to cache
         const cached = await getCachedFlags()
         if (cached.length) setFlags(cached)
       }
     } else {
-      // Offline: show the local IDB cache
       const cached = await getCachedFlags()
       if (cached.length) setFlags(cached)
     }
     setFlagsLoading(false)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // ── Sync handler (called on reconnect & on mount when online) ──────────────
   const handleSync = useCallback(async () => {
-    // Always read from IDB — React state (offlineQueue) may be stale due to
-    // the empty-dependency-array useCallback closing over the initial value.
     const q = await getQueue()
     const pending = q.filter((e) => e.status === 'pending' || e.status === 'syncing')
     if (pending.length === 0) {
-      // Still sync flags even when no scan queue (flags may have been created offline)
       await refreshFlags(true)
       return
     }
@@ -231,29 +125,32 @@ export function ScannerPage() {
       if (syncResultTimerRef.current) clearTimeout(syncResultTimerRef.current)
       syncResultTimerRef.current = setTimeout(() => setSyncResult(null), 6000)
       await refreshOfflineQueue()
-      // Reload recent scans to show newly synced items
       if (result.synced > 0) loadRecentScans()
-      // Also sync flags on every reconnect
       await refreshFlags(true)
     } finally {
       setIsSyncing(false)
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [refreshFlags, refreshOfflineQueue])
 
-  // useOnline: tracks online/offline and calls handleSync on reconnect
   const isOnline = useOnline(handleSync)
 
-  // ── Mount: load user, recent scans, offline queue, auto-start camera ───────
+  const loadRecentScans = useCallback(async () => {
+    setRecentLoading(true)
+    try {
+      const data = await getRecentScans(50)
+      setRecentScans(data)
+    } catch {
+    } finally {
+      setRecentLoading(false)
+    }
+  }, [])
+
   useEffect(() => {
-    // Restore persisted daily scan count (works offline)
     setDailyScanCount(getDailyScanCount())
 
-    // Restore cached username immediately (available offline)
     const cached = getCachedUser()
     if (cached) setUserName(cached)
 
-    // 1. Show cached flags immediately (works offline, zero latency)
     getCachedFlags().then((cached) => {
       if (cached.length) {
         setFlags(cached)
@@ -262,10 +159,8 @@ export function ScannerPage() {
       }
     }).catch(() => {})
 
-    // 2. Fetch latest from DB in background (syncs pending flags too)
     refreshFlags(navigator.onLine)
 
-    // Try fetching the authoritative name from the server
     getCurrentUserName()
       .then((name) => {
         if (name) {
@@ -278,7 +173,6 @@ export function ScannerPage() {
     loadRecentScans()
     refreshOfflineQueue()
 
-    // If we're already online at mount and there's a queue, sync it
     if (navigator.onLine) {
       getQueue().then((q) => {
         if (q.some((e) => e.status === 'pending')) {
@@ -287,12 +181,9 @@ export function ScannerPage() {
       }).catch(() => {})
     }
 
-    // Auto-start camera immediately — no button tap needed
     startCamera()
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [handleSync, loadRecentScans, refreshFlags, refreshOfflineQueue])
 
-  // ── Refresh flags when tab becomes visible again (catches changes from other devices) ──
   useEffect(() => {
     const onVisible = () => {
       if (document.visibilityState === 'visible' && navigator.onLine) {
@@ -301,16 +192,11 @@ export function ScannerPage() {
     }
     document.addEventListener('visibilitychange', onVisible)
     return () => document.removeEventListener('visibilitychange', onVisible)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [refreshFlags])
 
-  // ── Keep refs in sync with their state counterparts ───────────────────────
-  // The scanLoop closure is created once at mount and never re-created; reading
-  // refs inside it always gets the latest value without React re-render cost.
   useEffect(() => { activeFlagRef.current = activeFlag }, [activeFlag])
   useEffect(() => { userNameRef.current   = userName   }, [userName])
 
-  // ── Cleanup on unmount ─────────────────────────────────────────────────────
   useEffect(() => {
     return () => {
       scanningRef.current = false
@@ -323,20 +209,7 @@ export function ScannerPage() {
     }
   }, [])
 
-  async function loadRecentScans() {
-    setRecentLoading(true)
-    try {
-      const data = await getRecentScans(50)
-      setRecentScans(data)
-    } catch {
-      // offline — silently ignore
-    } finally {
-      setRecentLoading(false)
-    }
-  }
-
   function triggerScanFeedback() {
-    // Beep — synthesised via Web Audio API (no audio file required)
     try {
       const ctx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)()
       const osc = ctx.createOscillator()
@@ -344,20 +217,17 @@ export function ScannerPage() {
       osc.connect(gain)
       gain.connect(ctx.destination)
       osc.type = 'sine'
-      osc.frequency.setValueAtTime(1046, ctx.currentTime)   // C6 — pleasant, short
+      osc.frequency.setValueAtTime(1046, ctx.currentTime)
       gain.gain.setValueAtTime(0.35, ctx.currentTime)
       gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.18)
       osc.start(ctx.currentTime)
       osc.stop(ctx.currentTime + 0.18)
       osc.onended = () => ctx.close()
     } catch {
-      // Web Audio not available — silently skip
     }
-    // Vibration — 80 ms pulse
     try {
       if (navigator.vibrate) navigator.vibrate(80)
     } catch {
-      // Vibration not available — silently skip
     }
   }
 
@@ -399,17 +269,13 @@ export function ScannerPage() {
     router.push('/sign-in')
   }
 
-  // ── Camera ─────────────────────────────────────────────────────────────────
-
-  async function startCamera() {
+  const startCamera = useCallback(async () => {
     try {
       setError(null)
       setSuccessMsg(null)
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: 'environment',
-          // Request a modest resolution — enough for QR scanning but much
-          // lighter than the 4K default on modern phones.
           width: { ideal: 1280 },
           height: { ideal: 720 },
         },
@@ -434,7 +300,7 @@ export function ScannerPage() {
       showError(t('cameraPermissionError'))
       console.error('Camera error:', err)
     }
-  }
+  }, [t])
 
   async function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -552,15 +418,11 @@ export function ScannerPage() {
       return
     }
 
-    // Skip frame during post-scan cooldown — camera stays live
     if (scanPausedRef.current) {
       requestAnimationFrame(() => scanLoop(video))
       return
     }
 
-    // Throttle: only decode once per SCAN_INTERVAL_MS to keep the main
-    // thread free.  rAF still fires at 60 fps so the video preview stays
-    // smooth; we just skip the expensive jsQR call on most frames.
     const now = performance.now()
     if (now - lastScanTimeRef.current < SCAN_INTERVAL_MS) {
       requestAnimationFrame(() => scanLoop(video))
@@ -568,9 +430,6 @@ export function ScannerPage() {
     }
     lastScanTimeRef.current = now
 
-    // Lazily create (or reuse) the offscreen scan canvas.  We size it once
-    // here and never reset its dimensions, avoiding the costly context flush
-    // that happens when you write to canvas.width / canvas.height.
     let sc = scanCanvasRef.current
     const scale = Math.min(1, SCAN_MAX_DIM / Math.max(video.videoWidth, video.videoHeight))
     const sw = Math.round(video.videoWidth * scale)
@@ -587,14 +446,12 @@ export function ScannerPage() {
       return
     }
 
-    // Draw the video frame downscaled into the small scan canvas.
     sctx.drawImage(video, 0, 0, sw, sh)
 
     try {
       const imageData = sctx.getImageData(0, 0, sw, sh)
       const code = jsQR(imageData.data, imageData.width, imageData.height)
       if (code) {
-        // Pause reading for 2s so the same QR isn't re-read immediately
         scanPausedRef.current = true
         setQrDetected(true)
         setTimeout(() => {
@@ -602,7 +459,6 @@ export function ScannerPage() {
           setQrDetected(false)
         }, 2000)
         handleCameraScan(code.data)
-        // Do NOT stopCamera() — keep the loop running for the next scan
       }
     } catch (err) {
       console.error('Camera QR scan error:', err)
@@ -610,10 +466,7 @@ export function ScannerPage() {
     requestAnimationFrame(() => scanLoop(video))
   }
 
-  // ── Core scan handler — online calls server, offline queues locally ─────────
-
   async function handleCameraScan(qrCode: string) {
-    // Reject QR codes that don't match the warehouse format — never store empty/garbage data
     if (!isValidWarehouseQr(qrCode)) {
       showWarning('QR code format not recognised.')
       return
@@ -621,7 +474,6 @@ export function ScannerPage() {
 
     if (!navigator.onLine) {
       const parsed = parseQr(qrCode)
-      // Duplicate check against existing offline queue — match by boxCode (last field)
       const boxCode = qrCode.split('-').pop() ?? qrCode
       const queue = await getQueue()
       const dup = queue.find(
@@ -676,7 +528,7 @@ export function ScannerPage() {
     loadRecentScans()
   }
 
-  async function handleManualForm(e: React.FormEvent) {
+  async function handleManualForm(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
     setManualLoading(true)
     setSuccessMsg(null)
@@ -694,7 +546,6 @@ export function ScannerPage() {
         const yearVal  = manualForm.mfgYear  ? parseInt(manualForm.mfgYear)  : undefined
         const qty      = manualForm.quantity || 1
 
-        // Quantity-merge check — same Art+Color+Size+Division+MRP+MfgMonth+MfgYear in queue → increment
         const queue = await getQueue()
         const dup = queue.find(
           (e) =>
@@ -775,8 +626,6 @@ export function ScannerPage() {
     }
   }
 
-  // ── Delete (server rows) ───────────────────────────────────────────────────
-
   async function handleDeleteConfirm() {
     if (!deleteTarget) return
     setDeleteLoading(true)
@@ -785,83 +634,28 @@ export function ScannerPage() {
         deleteTarget.id,
         deleteTarget.rawQrCode?.split('-').pop(),
       )
-      // Always remove this specific box entry from the list.
-      // If the DB row still exists (updated !== null), other boxes of the same
-      // SKU remain in the list with their own entries.
       setRecentScans((prev) =>
         prev.filter((s) => s.rawQrCode !== deleteTarget.rawQrCode)
       )
       setDeleteTarget(null)
       setDeleteConfirmText('')
     } catch {
-      // silently ignore — row stays visible
     } finally {
       setDeleteLoading(false)
     }
   }
-
-  // ── Dismiss an offline error entry ─────────────────────────────────────────
 
   async function handleDismissOfflineError(tempId: string) {
     await removeFromQueue(tempId)
     await refreshOfflineQueue()
   }
 
-  // ─── Last scan summary card ────────────────────────────────────────────────
-
-  function ScanSummaryCard({ label, artNumber, colorNumber, sizeNumber, mrp, division, scannedByName }: {
-    label: string
-    artNumber?: string | null
-    colorNumber?: string | null
-    sizeNumber?: string | null
-    mrp?: string | number | null
-    division?: string | null
-    scannedByName?: string | null
-  }) {
-    return (
-      <div className="rounded-xl border bg-zinc-900 text-white p-4 space-y-3">
-        <p className="text-[10px] font-semibold tracking-widest uppercase text-zinc-400">{label}</p>
-        <div className="grid grid-cols-2 gap-x-6 gap-y-3">
-          <div>
-            <p className="text-[11px] text-zinc-400 mb-0.5">Article</p>
-            <p className="text-base font-bold leading-tight">{artNumber || '—'}</p>
-          </div>
-          <div>
-            <p className="text-[11px] text-zinc-400 mb-0.5">Color</p>
-            <p className="text-base font-bold leading-tight">{colorNumber || '—'}</p>
-          </div>
-          <div>
-            <p className="text-[11px] text-zinc-400 mb-0.5">Size</p>
-            <p className="text-base font-bold leading-tight">{sizeNumber || '—'}</p>
-          </div>
-          <div>
-            <p className="text-[11px] text-zinc-400 mb-0.5">MRP</p>
-            <p className="text-base font-bold leading-tight">
-              {mrp != null ? `₹${Number(mrp).toFixed(2)}` : '—'}
-            </p>
-          </div>
-          <div>
-            <p className="text-[11px] text-zinc-400 mb-0.5">Division</p>
-            <p className="text-base font-bold leading-tight">{division || '—'}</p>
-          </div>
-          <div>
-            <p className="text-[11px] text-zinc-400 mb-0.5">By</p>
-            <p className="text-base font-bold leading-tight">{scannedByName || '—'}</p>
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  // ─── Flag selector helpers ─────────────────────────────────────────────────
 
   async function handleAddFlag() {
     const trimmed = newFlagInput.trim()
 
-    // Dedupe check — case-insensitive to prevent near-duplicates
     const alreadyExists = flags.some((f) => f.toLowerCase() === trimmed.toLowerCase())
     if (!trimmed || alreadyExists) {
-      // If it already exists just select it, don't create a duplicate
       if (alreadyExists && trimmed) {
         const existing = flags.find((f) => f.toLowerCase() === trimmed.toLowerCase())!
         setActiveFlag(existing)
@@ -875,7 +669,6 @@ export function ScannerPage() {
     setNewFlagSaving(true)
     try {
       if (navigator.onLine) {
-        // Online: persist to DB immediately, get back the full canonical list
         const res = await createFlag(trimmed)
         if (res.ok) {
           const deduped = [...new Set(res.flags)]
@@ -885,7 +678,6 @@ export function ScannerPage() {
           saveStoredActiveFlag(trimmed)
         }
       } else {
-        // Offline: add to local pending queue + update IDB cache + state
         await enqueuePendingFlag(trimmed)
         const newList = [...new Set([...flags, trimmed])]
         setFlags(newList)
@@ -900,87 +692,6 @@ export function ScannerPage() {
     }
   }
 
-  // ─── Flag selector ─────────────────────────────────────────────────────────
-
-  function FlagSelector() {
-    return (
-      <div className="space-y-2">
-        {/* Row 1: label + active pill + dropdown */}
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-semibold text-muted-foreground shrink-0">Select Flag:</span>
-
-          {/* Active flag pill */}
-          <span className="inline-flex items-center gap-1 rounded-full border border-blue-300 bg-blue-50 px-2.5 py-0.5 text-xs font-semibold text-blue-700 shrink-0 max-w-[120px] truncate">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-              strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-3 w-3 shrink-0">
-              <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
-              <line x1="4" y1="22" x2="4" y2="15" />
-            </svg>
-            <span className="truncate">{activeFlag || '…'}</span>
-          </span>
-
-          {/* Dropdown — existing flags + "+ New flag" option */}
-          <select
-            value={activeFlag}
-            disabled={flagsLoading}
-            onChange={(e) => {
-              const val = e.target.value
-              if (val === '__new__') {
-                setShowNewFlagInput(true)
-              } else {
-                setActiveFlag(val)
-                saveStoredActiveFlag(val)
-                setShowNewFlagInput(false)
-              }
-            }}
-            className="h-7 min-w-0 flex-1 rounded-md border border-input bg-background px-2 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer"
-          >
-            {flags.map((f) => (
-              <option key={f} value={f}>{f}</option>
-            ))}
-            <option value="__new__">＋ New flag</option>
-          </select>
-        </div>
-
-        {/* Row 2: new flag input — only shown after selecting "+ New flag" */}
-        {showNewFlagInput && (
-          <div className="flex items-center gap-2">
-            <input
-              type="text"
-              autoFocus
-              placeholder="Flag name…"
-              value={newFlagInput}
-              disabled={newFlagSaving}
-              onChange={(e) => setNewFlagInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') { e.preventDefault(); handleAddFlag() }
-                if (e.key === 'Escape') { setShowNewFlagInput(false); setNewFlagInput('') }
-              }}
-              className="h-7 flex-1 min-w-0 rounded-md border border-input bg-background px-2 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50"
-            />
-            <button
-              type="button"
-              disabled={newFlagSaving}
-              onClick={handleAddFlag}
-              className="h-7 shrink-0 rounded-md border border-blue-300 bg-blue-50 px-3 text-xs font-medium text-blue-700 hover:bg-blue-100 disabled:opacity-50"
-            >
-              {newFlagSaving ? '…' : 'Add'}
-            </button>
-            <button
-              type="button"
-              disabled={newFlagSaving}
-              onClick={() => { setShowNewFlagInput(false); setNewFlagInput('') }}
-              className="h-7 shrink-0 rounded-md border border-input bg-background px-3 text-xs text-muted-foreground hover:bg-muted disabled:opacity-50"
-            >
-              Cancel
-            </button>
-          </div>
-        )}
-      </div>
-    )
-  }
-
-  // ─── Feedback banners ──────────────────────────────────────────────────────
 
   function Banners() {
     return (
@@ -1009,12 +720,9 @@ export function ScannerPage() {
     )
   }
 
-  // ─── Pending count across all states ──────────────────────────────────────
   const pendingCount   = offlineQueue.filter((e) => e.status === 'pending' || e.status === 'syncing').length
   const errorCount     = offlineQueue.filter((e) => e.status === 'error').length
   const totalOffline   = offlineQueue.length
-
-  // ─── Render ────────────────────────────────────────────────────────────────
 
   return (
     <main className="min-h-screen bg-background p-3 sm:p-4 md:p-6">
@@ -1208,7 +916,26 @@ export function ScannerPage() {
                 </div>
                 {/* ── Flag selector row — below title/description ── */}
                 <div className="pt-2">
-                  <FlagSelector />
+                  <FlagSelector
+                    activeFlag={activeFlag}
+                    flags={flags}
+                    flagsLoading={flagsLoading}
+                    newFlagInput={newFlagInput}
+                    newFlagSaving={newFlagSaving}
+                    showNewFlagInput={showNewFlagInput}
+                    onActiveFlagChange={(value) => {
+                      setActiveFlag(value)
+                      saveStoredActiveFlag(value)
+                      setShowNewFlagInput(false)
+                    }}
+                    onAddFlag={handleAddFlag}
+                    onCancelNewFlag={() => {
+                      setShowNewFlagInput(false)
+                      setNewFlagInput('')
+                    }}
+                    onNewFlagInputChange={setNewFlagInput}
+                    onShowNewFlagInput={() => setShowNewFlagInput(true)}
+                  />
                 </div>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -1279,7 +1006,26 @@ export function ScannerPage() {
                 <CardDescription className="text-xs">{t('manualEntryDesc')}</CardDescription>
                 {/* ── Flag selector row ── */}
                 <div className="pt-2">
-                  <FlagSelector />
+                  <FlagSelector
+                    activeFlag={activeFlag}
+                    flags={flags}
+                    flagsLoading={flagsLoading}
+                    newFlagInput={newFlagInput}
+                    newFlagSaving={newFlagSaving}
+                    showNewFlagInput={showNewFlagInput}
+                    onActiveFlagChange={(value) => {
+                      setActiveFlag(value)
+                      saveStoredActiveFlag(value)
+                      setShowNewFlagInput(false)
+                    }}
+                    onAddFlag={handleAddFlag}
+                    onCancelNewFlag={() => {
+                      setShowNewFlagInput(false)
+                      setNewFlagInput('')
+                    }}
+                    onNewFlagInputChange={setNewFlagInput}
+                    onShowNewFlagInput={() => setShowNewFlagInput(true)}
+                  />
                 </div>
               </CardHeader>
               <CardContent className="px-4 pb-4 sm:px-6">
@@ -1435,7 +1181,7 @@ export function ScannerPage() {
                       variant="outline"
                       className="h-9 text-sm px-4 text-destructive hover:text-destructive"
                       disabled={manualLoading}
-                      onClick={() => setManualForm({ artNumber: '', colorNumber: '', sizeNumber: '', quantity: '', mrp: '', notes: '', division: '', mfgMonth: '', mfgYear: '' })}
+                      onClick={() => setManualForm({ ...DEFAULT_MANUAL_FORM })}
                     >
                       Clear All
                     </Button>

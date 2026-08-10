@@ -15,7 +15,6 @@ export default async function SignInPage() {
     if (session?.user) redirect('/')
   } catch (err) {
     if (isRedirectError(err)) throw err
-    // DB/network unreachable — just render sign-in page
   }
 
   return <GoogleSignIn />

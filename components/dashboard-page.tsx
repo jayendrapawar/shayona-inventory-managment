@@ -1,39 +1,48 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { useOnline } from '@/lib/use-online'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { Badge } from '@/components/ui/badge'
+import { useCallback, useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { BarChart3, Filter, Package, PieChart, QrCode, Tag, TrendingUp, User } from 'lucide-react'
 import {
-  getInventorySummary,
-  getStatistics,
-  exportToExcel,
-  getOverallStockSummary,
-  getOverallStockStats,
   exportOverallStockToCSV,
+  exportToExcel,
+  getInventorySummary,
   getLoggedInUserName,
-  getScannedChartData,
   getOverallChartData,
+  getOverallStockStats,
+  getOverallStockSummary,
+  getScannedChartData,
+  getStatistics,
 } from '@/app/actions/dashboard'
+import { LanguageToggle } from '@/components/language-toggle'
+import { CHART_COLORS, DRILLDOWN_EMPTY_LABEL } from '@/components/dashboard/constants'
 import type {
+  DivisionBreakdownItem,
+  EntryTypeItem,
+  InventoryItem,
+  OverallChartData,
   OverallStockItem,
   OverallStockStats,
-  ScansOverTimePoint,
-  DivisionBreakdownItem,
-  TopSKUItem,
-  EntryTypeItem,
+  ScannedChartData,
   ScansByUserItem,
-} from '@/app/actions/dashboard'
+  ScansOverTimePoint,
+  Statistics,
+  SubTab,
+  Tab,
+  TopSKUItem,
+} from '@/components/dashboard/types'
+import { EmptyState, FilterBadge, KpiCard, OfflineBanner, SectionLabel, UserPill } from '@/components/dashboard/ui'
+import { downloadCSV } from '@/components/dashboard/utils'
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { signOut } from '@/lib/auth-client'
-import { useRouter } from 'next/navigation'
 import { useLanguage } from '@/lib/language-context'
-import { LanguageToggle } from '@/components/language-toggle'
-import { QrCode, Package, Tag, BarChart3, Filter, TrendingUp, PieChart, User } from 'lucide-react'
+import { useOnline } from '@/lib/use-online'
 import {
   LineChart,
   Line,
@@ -50,90 +59,6 @@ import {
   ResponsiveContainer,
 } from 'recharts'
 
-type Tab = 'scanned' | 'overall'
-type SubTab = 'data' | 'stats'
-
-interface InventoryItem {
-  artNumber?: string
-  colorNumber?: string
-  sizeNumber?: string
-  division?: string
-  mrp?: number
-  mfgMonth?: number
-  mfgYear?: number
-  scannedByName?: string
-  entryType?: string
-  quantity: number
-  lastScanned: Date
-  count: number
-}
-
-interface Statistics {
-  totalScans: number
-  totalItems: number
-  uniqueItems: number
-  scansLast24h: number
-}
-
-interface ScannedChartData {
-  scansOverTime: ScansOverTimePoint[]
-  divisionBreakdown: DivisionBreakdownItem[]
-  topSKUs: TopSKUItem[]
-  entryTypeBreakdown: EntryTypeItem[]
-}
-
-interface OverallChartData extends ScannedChartData {
-  scansByUser: ScansByUserItem[]
-}
-
-function downloadCSV(rows: Record<string, string | number>[], filename: string) {
-  if (!rows.length) return
-  const csv = [
-    Object.keys(rows[0]).join(','),
-    ...rows.map((row) => Object.values(row).map((v) => `"${v}"`).join(',')),
-  ].join('\n')
-  const blob = new Blob([csv], { type: 'text/csv' })
-  const url = window.URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  a.click()
-  window.URL.revokeObjectURL(url)
-}
-
-// ─── KPI Card ────────────────────────────────────────────────────────────────
-
-interface KpiCardProps {
-  icon: React.ReactNode
-  iconBg: string
-  title: string
-  value: string | number
-  subtitle: string
-}
-
-function KpiCard({ icon, iconBg, title, value, subtitle }: KpiCardProps) {
-  return (
-    <Card>
-      <CardContent className="flex items-center gap-2 sm:gap-4 px-2.5 py-2.5 sm:px-5 sm:py-4">
-        <div className={`flex h-8 w-8 sm:h-10 sm:w-10 shrink-0 items-center justify-center rounded-lg ${iconBg}`}>
-          {icon}
-        </div>
-        <div className="min-w-0">
-          <p className="text-[11px] sm:text-xs font-medium text-muted-foreground leading-tight truncate">{title}</p>
-          <p className="text-xl sm:text-2xl lg:text-3xl font-bold leading-tight">{value}</p>
-          <p className="text-[10px] sm:text-xs text-muted-foreground mt-0.5 truncate">{subtitle}</p>
-        </div>
-      </CardContent>
-    </Card>
-  )
-}
-
-// ─── Chart colour palette ────────────────────────────────────────────────────
-
-const CHART_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316']
-
-// ─── Main Component ───────────────────────────────────────────────────────────
-
 export function DashboardPage() {
   const router = useRouter()
   const { t } = useLanguage()
@@ -142,40 +67,32 @@ export function DashboardPage() {
   const [activeSubTab, setActiveSubTab] = useState<SubTab>('data')
   const [loggedInUser, setLoggedInUser] = useState<string | null>(null)
 
-  // Scanned Inventory state
   const [inventory, setInventory] = useState<InventoryItem[]>([])
   const [filteredInventory, setFilteredInventory] = useState<InventoryItem[]>([])
   const [stats, setStats] = useState<Statistics | null>(null)
 
-  // Overall Stock state
   const [stockItems, setStockItems] = useState<OverallStockItem[]>([])
   const [filteredStock, setFilteredStock] = useState<OverallStockItem[]>([])
   const [stockStats, setStockStats] = useState<OverallStockStats | null>(null)
   const [stockLoaded, setStockLoaded] = useState(false)
 
-  // Chart data
   const [scannedChartData, setScannedChartData] = useState<ScannedChartData | null>(null)
   const [overallChartData, setOverallChartData] = useState<OverallChartData | null>(null)
   const [chartLoading, setChartLoading] = useState(false)
 
-  // Drill-down state for Article → Color → Size chart
   const [drillArt, setDrillArt] = useState<string | null>(null)
   const [drillColor, setDrillColor] = useState<string | null>(null)
 
-  // Shared
   const [searchQuery, setSearchQuery] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const isOnline = useOnline()
 
-  // Load user name + Scanned Inventory on mount
   useEffect(() => {
     getLoggedInUserName().then(setLoggedInUser).catch(() => {})
     loadScannedInventory()
   }, [])
 
-  // Load Overall Stock when tab first switches to it
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (activeTab === 'overall' && !stockLoaded) {
       loadOverallStock()
@@ -190,13 +107,38 @@ export function DashboardPage() {
     } else if (activeTab === 'overall' && !overallChartData) {
       loadOverallCharts()
     }
-  }, [activeSubTab, activeTab])
+  }, [activeSubTab, activeTab, overallChartData, scannedChartData])
 
-  // Re-filter when tab or search changes
+  const applySearch = useCallback((query: string) => {
+    const q = query.toLowerCase().trim()
+    if (activeTab === 'scanned') {
+      setFilteredInventory(
+        q
+          ? inventory.filter(
+              (item) =>
+                item.artNumber?.toLowerCase().includes(q) ||
+                item.colorNumber?.toLowerCase().includes(q) ||
+                item.sizeNumber?.toLowerCase().includes(q)
+            )
+          : inventory
+      )
+    } else {
+      setFilteredStock(
+        q
+          ? stockItems.filter(
+              (item) =>
+                item.artNumber?.toLowerCase().includes(q) ||
+                item.colorNumber?.toLowerCase().includes(q) ||
+                item.sizeNumber?.toLowerCase().includes(q)
+            )
+          : stockItems
+      )
+    }
+  }, [activeTab, inventory, stockItems])
+
   useEffect(() => {
     applySearch(searchQuery)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, inventory, stockItems])
+  }, [applySearch, searchQuery])
 
   async function loadScannedInventory() {
     if (!navigator.onLine) { setLoading(false); return }
@@ -248,7 +190,6 @@ export function DashboardPage() {
       const data = await getScannedChartData()
       setScannedChartData(data)
     } catch {
-      // non-critical
     } finally {
       setChartLoading(false)
     }
@@ -261,36 +202,8 @@ export function DashboardPage() {
       const data = await getOverallChartData()
       setOverallChartData(data)
     } catch {
-      // non-critical
     } finally {
       setChartLoading(false)
-    }
-  }
-
-  function applySearch(query: string) {
-    const q = query.toLowerCase().trim()
-    if (activeTab === 'scanned') {
-      setFilteredInventory(
-        q
-          ? inventory.filter(
-              (item) =>
-                item.artNumber?.toLowerCase().includes(q) ||
-                item.colorNumber?.toLowerCase().includes(q) ||
-                item.sizeNumber?.toLowerCase().includes(q)
-            )
-          : inventory
-      )
-    } else {
-      setFilteredStock(
-        q
-          ? stockItems.filter(
-              (item) =>
-                item.artNumber?.toLowerCase().includes(q) ||
-                item.colorNumber?.toLowerCase().includes(q) ||
-                item.sizeNumber?.toLowerCase().includes(q)
-            )
-          : stockItems
-      )
     }
   }
 
@@ -325,8 +238,6 @@ export function DashboardPage() {
     await signOut()
     router.push('/sign-in')
   }
-
-  // ─── Render helpers ─────────────────────────────────────────────────────
 
   function renderScannedKPIs() {
     if (!stats) return null
@@ -415,17 +326,16 @@ export function DashboardPage() {
                 <CardDescription className="text-xs sm:text-sm">{t('scannedInventoryDesc')}</CardDescription>
               </div>
             </div>
-            <div className="flex items-center gap-1.5 shrink-0 rounded-md bg-blue-50 px-2 py-1 text-xs font-medium text-blue-600">
-              <Filter className="h-3 w-3" />
+            <FilterBadge icon={<Filter className="h-3 w-3" />} className="bg-blue-50 text-blue-600">
               {t('filteredByCurrentUser')}
-            </div>
+            </FilterBadge>
           </div>
         </CardHeader>
         <CardContent className="px-0 sm:px-6">
           {filteredInventory.length === 0 ? (
-            <div className="text-center py-8 text-sm text-muted-foreground px-3">
+            <EmptyState>
               {inventory.length === 0 ? t('noInventoryYet') : t('noSearchResults')}
-            </div>
+            </EmptyState>
           ) : (
             <div className="overflow-x-auto">
               <Table>
@@ -509,17 +419,16 @@ export function DashboardPage() {
                 <CardDescription className="text-xs sm:text-sm">{t('overallStockDesc')}</CardDescription>
               </div>
             </div>
-            <div className="flex items-center gap-1.5 shrink-0 rounded-md bg-green-50 px-2 py-1 text-xs font-medium text-green-600">
-              <Filter className="h-3 w-3" />
+            <FilterBadge icon={<Filter className="h-3 w-3" />} className="bg-green-50 text-green-600">
               {t('filteredByAllUsers')}
-            </div>
+            </FilterBadge>
           </div>
         </CardHeader>
         <CardContent className="px-0 sm:px-6">
           {filteredStock.length === 0 ? (
-            <div className="text-center py-8 text-sm text-muted-foreground px-3">
+            <EmptyState>
               {stockItems.length === 0 ? t('noInventoryYet') : t('noSearchResults')}
-            </div>
+            </EmptyState>
           ) : (
             <div className="overflow-x-auto">
               <Table>
@@ -596,8 +505,6 @@ export function DashboardPage() {
       </Card>
     )
   }
-
-  // ── Shared chart sub-components ─────────────────────────────────────────────
 
   function ChartScansOverTime({ data }: { data: ScansOverTimePoint[] }) {
     if (!data.some((d) => d.scans > 0)) return null
@@ -749,28 +656,24 @@ export function DashboardPage() {
     )
   }
 
-  // ── Article → Color → Size drill-down chart (computed from inventory) ───────
-
   function ChartArticleDrillDown() {
     if (!inventory.length) return null
 
-    // Level 0 — total items per article
     const artMap: Record<string, number> = {}
     for (const item of inventory) {
-      const art = item.artNumber || 'Unknown'
+      const art = item.artNumber || DRILLDOWN_EMPTY_LABEL
       artMap[art] = (artMap[art] ?? 0) + item.quantity
     }
     const artData = Object.entries(artMap)
       .map(([art, qty]) => ({ name: art, qty }))
       .sort((a, b) => b.qty - a.qty)
 
-    // Level 1 — total items per color for the selected article
     const colorData: { name: string; qty: number }[] = []
     if (drillArt) {
       const colorMap: Record<string, number> = {}
       for (const item of inventory) {
-        if ((item.artNumber || 'Unknown') !== drillArt) continue
-        const color = item.colorNumber || 'Unknown'
+        if ((item.artNumber || DRILLDOWN_EMPTY_LABEL) !== drillArt) continue
+        const color = item.colorNumber || DRILLDOWN_EMPTY_LABEL
         colorMap[color] = (colorMap[color] ?? 0) + item.quantity
       }
       Object.entries(colorMap)
@@ -778,14 +681,13 @@ export function DashboardPage() {
         .forEach(([color, qty]) => colorData.push({ name: color, qty }))
     }
 
-    // Level 2 — total items per size for the selected article + color
     const sizeData: { name: string; qty: number }[] = []
     if (drillArt && drillColor) {
       const sizeMap: Record<string, number> = {}
       for (const item of inventory) {
-        if ((item.artNumber || 'Unknown') !== drillArt) continue
-        if ((item.colorNumber || 'Unknown') !== drillColor) continue
-        const size = item.sizeNumber || 'Unknown'
+        if ((item.artNumber || DRILLDOWN_EMPTY_LABEL) !== drillArt) continue
+        if ((item.colorNumber || DRILLDOWN_EMPTY_LABEL) !== drillColor) continue
+        const size = item.sizeNumber || DRILLDOWN_EMPTY_LABEL
         sizeMap[size] = (sizeMap[size] ?? 0) + item.quantity
       }
       Object.entries(sizeMap)
@@ -796,7 +698,6 @@ export function DashboardPage() {
         .forEach(([size, qty]) => sizeData.push({ name: size, qty }))
     }
 
-    // Determine what to show
     const chartData  = drillArt && drillColor ? sizeData : drillArt ? colorData : artData
     const titleText  = drillArt && drillColor
       ? `${drillArt} › ${drillColor} — Size breakdown`
@@ -825,7 +726,6 @@ export function DashboardPage() {
                 )}
               </div>
             </div>
-            {/* Breadcrumb */}
             <div className="flex items-center gap-1 text-xs flex-wrap">
               <button
                 className="text-blue-600 hover:underline font-medium"
@@ -898,16 +798,10 @@ export function DashboardPage() {
     )
   }
 
-  // ── Per-tab chart renderers ──────────────────────────────────────────────────
-
   function renderScannedCharts() {
-    // The drill-down chart is always shown (data comes from inventory, not chartData)
     const drillSection = (
       <div className="space-y-6">
-        <div className="flex items-center gap-2 pb-1 border-b">
-          <QrCode className="h-4 w-4 text-blue-600 shrink-0" />
-          <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">{t('myStatsTitle')}</h3>
-        </div>
+        <SectionLabel icon={<QrCode className="h-4 w-4 shrink-0 text-blue-600" />} title={t('myStatsTitle')} />
         <ChartArticleDrillDown />
       </div>
     )
@@ -923,12 +817,8 @@ export function DashboardPage() {
 
     return (
       <div className="space-y-6">
-        <div className="flex items-center gap-2 pb-1 border-b">
-          <QrCode className="h-4 w-4 text-blue-600 shrink-0" />
-          <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">{t('myStatsTitle')}</h3>
-        </div>
+        <SectionLabel icon={<QrCode className="h-4 w-4 shrink-0 text-blue-600" />} title={t('myStatsTitle')} />
 
-        {/* ── Article → Color → Size drill-down ── */}
         <ChartArticleDrillDown />
 
         {hasOtherData && (
@@ -960,13 +850,8 @@ export function DashboardPage() {
 
     return (
       <div className="space-y-6">
-        {/* Section label */}
-        <div className="flex items-center gap-2 pb-1 border-b">
-          <Package className="h-4 w-4 text-green-600 shrink-0" />
-          <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">{t('warehouseStatsTitle')}</h3>
-        </div>
+        <SectionLabel icon={<Package className="h-4 w-4 shrink-0 text-green-600" />} title={t('warehouseStatsTitle')} />
 
-        {/* Scans by user — prominent at top */}
         <ChartScansByUser data={overallChartData.scansByUser} />
 
         <ChartScansOverTime data={overallChartData.scansOverTime} />
@@ -981,13 +866,10 @@ export function DashboardPage() {
     )
   }
 
-  // ─── Layout ──────────────────────────────────────────────────────────────
-
   return (
     <main className="min-h-screen bg-background p-3 sm:p-4 md:p-6">
       <div className="mx-auto max-w-7xl space-y-3 sm:space-y-5">
 
-        {/* Header */}
         <div className="flex flex-col gap-0.5">
           <div className="flex items-center justify-between gap-2">
             <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold tracking-tight">{t('dashboard')}</h1>
@@ -1001,35 +883,13 @@ export function DashboardPage() {
               </Button>
             </div>
           </div>
-          {loggedInUser && (
-            <div className="flex items-center gap-1 ml-auto mt-0.5">
-              <div className="flex h-4 w-4 items-center justify-center rounded-full bg-blue-600 text-white">
-                <User className="h-2.5 w-2.5" />
-              </div>
-              <span className="text-xs font-semibold text-muted-foreground">{loggedInUser}</span>
-            </div>
-          )}
+          {loggedInUser && <UserPill icon={<User className="h-2.5 w-2.5" />} name={loggedInUser} />}
         </div>
 
-        {/* Offline notice */}
         {!isOnline && (
-          <div className="flex items-start gap-3 rounded-lg border border-yellow-300 bg-yellow-50 px-4 py-3 text-sm text-yellow-800">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
-              stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-              className="h-4 w-4 shrink-0 mt-0.5">
-              <line x1="1" y1="1" x2="23" y2="23" />
-              <path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55" />
-              <path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39" />
-              <path d="M10.71 5.05A16 16 0 0 1 22.56 9" />
-              <path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88" />
-              <path d="M8.53 16.11a6 6 0 0 1 6.95 0" />
-              <line x1="12" y1="20" x2="12.01" y2="20" />
-            </svg>
-            <span>You are offline. Dashboard data requires an internet connection.</span>
-          </div>
+          <OfflineBanner>You are offline. Dashboard data requires an internet connection.</OfflineBanner>
         )}
 
-        {/* Main Tabs — Scanned Inventory / Overall Stock */}
         <Tabs value={activeTab} onValueChange={(v) => handleTabChange(v as Tab)}>
           <TabsList className="grid w-full grid-cols-2">
             <TabsTrigger value="scanned" className="flex items-center gap-1.5 text-xs sm:text-sm truncate">
@@ -1040,22 +900,18 @@ export function DashboardPage() {
           </TabsList>
         </Tabs>
 
-        {/* Error */}
         {error && (
           <div className="rounded-md bg-destructive/15 px-4 py-3 text-sm text-destructive">
             {error}
           </div>
         )}
 
-        {/* Loading */}
         {loading && (
           <div className="text-center py-4 text-sm text-muted-foreground">{t('loading')}</div>
         )}
 
-        {/* KPI Cards */}
         {!loading && (activeTab === 'scanned' ? renderScannedKPIs() : renderOverallKPIs())}
 
-        {/* Sub-tabs + Export on one line */}
         <div className="flex items-center gap-2">
           <Tabs value={activeSubTab} onValueChange={(v) => setActiveSubTab(v as SubTab)} className="flex-1">
             <TabsList className="grid w-full grid-cols-2">
@@ -1076,7 +932,6 @@ export function DashboardPage() {
 
         {activeSubTab === 'data' && (
           <>
-            {/* Search */}
             <div className="w-full">
               <Label htmlFor="search" className="sr-only">
                 {t('searchPlaceholder')}
@@ -1089,7 +944,6 @@ export function DashboardPage() {
               />
             </div>
 
-            {/* Table */}
             {!loading && (activeTab === 'scanned' ? renderScannedTable() : renderOverallTable())}
           </>
         )}

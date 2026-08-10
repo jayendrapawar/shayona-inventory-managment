@@ -3,7 +3,7 @@
 import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
 import { scans } from '@/lib/db/schema'
-import { and, eq, isNull, desc, sql, count, sum } from 'drizzle-orm'
+import { and, eq, isNull, desc, sql } from 'drizzle-orm'
 import { headers } from 'next/headers'
 import { revalidatePath } from 'next/cache'
 import { DUPLICATE_ENTRY_ERROR } from '@/lib/errors'
@@ -14,14 +14,13 @@ async function getUser() {
   return { id: session.user.id, name: session.user.name ?? null }
 }
 
-// Returns the current logged-in user's display name — used by the dashboard header
 export async function getLoggedInUserName(): Promise<string | null> {
   const user = await getUser()
   return user.name
 }
 
 export async function searchInventory(query: string) {
-  await getUser() // auth guard — throws if unauthenticated
+  await getUser()
   if (!query.trim()) {
     return db.select().from(scans).orderBy(desc(scans.createdAt))
   }
@@ -42,7 +41,6 @@ export async function searchInventory(query: string) {
 
 export async function getInventorySummary() {
   const user = await getUser()
-  // Aggregate in SQL — one query, no JS reduce over unbounded rows
   const rows = await db
     .select({
       artNumber:     scans.artNumber,
@@ -84,7 +82,6 @@ export type AddManualEntryResult =
   | { ok: true; data: typeof scans.$inferSelect }
   | { ok: false; error: typeof DUPLICATE_ENTRY_ERROR | 'ERROR'; scannedByName?: string | null }
 
-// Nullable-safe equality helper
 function colEq(col: Parameters<typeof eq>[0], val: string | undefined) {
   return val ? eq(col, val) : isNull(col)
 }
@@ -102,14 +99,12 @@ export async function addManualEntry(
 ): Promise<AddManualEntryResult> {
   const user = await getUser()
 
-  // Normalize inputs
   const art      = artNumber.trim().toUpperCase()   || undefined
   const color    = colorNumber.trim().toUpperCase() || undefined
   const size     = sizeNumber.trim().toUpperCase()  || undefined
   const mrpStr   = mrp != null ? String(mrp) : undefined
   const divNorm  = division || undefined
 
-  // Quantity-merge check — same Art+Color+Size+Division+MRP+MfgMonth+MfgYear → add quantity
   const matched = await db
     .select({ id: scans.id })
     .from(scans)
@@ -181,10 +176,6 @@ export async function getStatistics() {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Overall Stock — aggregated across ALL entries (scan + manual)
-// ---------------------------------------------------------------------------
-
 export interface OverallStockItem {
   artNumber: string | undefined
   colorNumber: string | undefined
@@ -201,10 +192,10 @@ export interface OverallStockItem {
 }
 
 export interface OverallStockStats {
-  totalStockItems: number   // total units across all entries
-  uniqueSKUs: number        // distinct (art, color, size) combinations
-  totalLocations: number    // distinct scannedByName values
-  lowStockItems: number     // SKUs whose total quantity ≤ 5
+  totalStockItems: number
+  uniqueSKUs: number
+  totalLocations: number
+  lowStockItems: number
 }
 
 export async function getOverallStockSummary(): Promise<OverallStockItem[]> {
@@ -248,7 +239,6 @@ export async function getOverallStockSummary(): Promise<OverallStockItem[]> {
 }
 
 export async function getOverallStockStats(): Promise<OverallStockStats> {
-  // Compute per-SKU totals in a CTE, then aggregate the outer stats in one query
   const result = await db.execute<{
     total_stock_items: string
     unique_sk_us: string
@@ -280,7 +270,6 @@ export async function getOverallStockStats(): Promise<OverallStockStats> {
 }
 
 export async function exportToExcel(): Promise<Record<string, string | number>[]> {
-  // Scoped to the logged-in user only (matches the Scanned Inventory tab)
   const user = await getUser()
   const scanData = await db
     .select()
@@ -305,7 +294,7 @@ export async function exportToExcel(): Promise<Record<string, string | number>[]
 }
 
 export async function exportOverallStockToCSV(): Promise<Record<string, string | number>[]> {
-  await getUser() // auth guard — throws if unauthenticated
+  await getUser()
   const allScans = await db.select().from(scans).orderBy(desc(scans.createdAt))
 
   return allScans.map((scan) => ({
@@ -323,12 +312,8 @@ export async function exportOverallStockToCSV(): Promise<Record<string, string |
   }))
 }
 
-// ---------------------------------------------------------------------------
-// Chart data — Scanned Inventory (current user)
-// ---------------------------------------------------------------------------
-
 export interface ScansOverTimePoint {
-  date: string       // 'MM/DD'
+  date: string
   scans: number
   quantity: number
 }
@@ -365,7 +350,6 @@ export async function getScannedChartData(): Promise<{
   const fourteenDaysAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000)
 
   const [timeRows, divRows, skuRows, typeRows] = await Promise.all([
-    // Scans over time — grouped by calendar day
     db.select({
       day:      sql<string>`to_char(${scans.scannedAt}, 'MM/DD')`,
       scans:    sql<number>`count(*)::int`,
@@ -375,7 +359,6 @@ export async function getScannedChartData(): Promise<{
       .groupBy(sql`to_char(${scans.scannedAt}, 'MM/DD')`)
       .orderBy(sql`to_char(${scans.scannedAt}, 'MM/DD')`),
 
-    // Division breakdown
     db.select({
       division: sql<string>`coalesce(${scans.division}, 'Unknown')`,
       quantity: sql<number>`sum(${scans.quantity})::int`,
@@ -384,7 +367,6 @@ export async function getScannedChartData(): Promise<{
       .groupBy(sql`coalesce(${scans.division}, 'Unknown')`)
       .orderBy(desc(sql`sum(${scans.quantity})`)),
 
-    // Top SKUs
     db.select({
       sku:      sql<string>`coalesce(${scans.artNumber} || '-' || ${scans.colorNumber} || '-' || ${scans.sizeNumber}, 'Unknown')`,
       quantity: sql<number>`sum(${scans.quantity})::int`,
@@ -394,7 +376,6 @@ export async function getScannedChartData(): Promise<{
       .orderBy(desc(sql`sum(${scans.quantity})`))
       .limit(10),
 
-    // Entry type breakdown
     db.select({
       type:  scans.entryType,
       count: sql<number>`count(*)::int`,
@@ -403,7 +384,6 @@ export async function getScannedChartData(): Promise<{
       .groupBy(scans.entryType),
   ])
 
-  // Build a full 14-day skeleton and fill in DB results
   const dayMap: Record<string, { scans: number; quantity: number }> = {}
   for (let i = 13; i >= 0; i--) {
     const d = new Date(); d.setDate(d.getDate() - i)
@@ -421,10 +401,6 @@ export async function getScannedChartData(): Promise<{
     entryTypeBreakdown: typeRows.map((r) => ({ type: r.type, count: r.count })),
   }
 }
-
-// ---------------------------------------------------------------------------
-// Chart data — Overall Stock (all users)
-// ---------------------------------------------------------------------------
 
 export async function getOverallChartData(): Promise<{
   scansOverTime: ScansOverTimePoint[]
