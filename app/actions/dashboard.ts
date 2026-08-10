@@ -247,29 +247,34 @@ export async function getOverallStockSummary(): Promise<OverallStockItem[]> {
 }
 
 export async function getOverallStockStats(): Promise<OverallStockStats> {
-  const [stats] = await db
-    .select({
-      totalStockItems: sql<number>`sum(${scans.quantity})::int`,
-      uniqueSKUs:      sql<number>`count(distinct (${scans.artNumber}, ${scans.colorNumber}, ${scans.sizeNumber}))::int`,
-      totalLocations:  sql<number>`count(distinct ${scans.scannedByName})::int`,
-      lowStockItems:   sql<number>`count(distinct case when qty <= 5 then sku end)::int`,
-    })
-    .from(
-      db
-        .select({
-          sku: sql<string>`(${scans.artNumber} || '-' || ${scans.colorNumber} || '-' || ${scans.sizeNumber})`,
-          qty: sql<number>`sum(${scans.quantity})::int`,
-        })
-        .from(scans)
-        .groupBy(scans.artNumber, scans.colorNumber, scans.sizeNumber)
-        .as('sku_totals'),
+  // Compute per-SKU totals in a CTE, then aggregate the outer stats in one query
+  const result = await db.execute<{
+    total_stock_items: string
+    unique_sk_us: string
+    total_locations: string
+    low_stock_items: string
+  }>(sql`
+    WITH sku_totals AS (
+      SELECT
+        coalesce("artNumber", '') || '-' || coalesce("colorNumber", '') || '-' || coalesce("sizeNumber", '') AS sku,
+        sum("quantity")::int AS qty
+      FROM "scans"
+      GROUP BY "artNumber", "colorNumber", "sizeNumber"
     )
+    SELECT
+      (SELECT sum("quantity")::int FROM "scans")                          AS total_stock_items,
+      count(*)::int                                                        AS unique_sk_us,
+      (SELECT count(distinct "scannedByName")::int FROM "scans")          AS total_locations,
+      count(*) filter (where qty <= 5)::int                               AS low_stock_items
+    FROM sku_totals
+  `)
 
+  const row = result.rows?.[0]
   return {
-    totalStockItems: stats?.totalStockItems ?? 0,
-    uniqueSKUs:      stats?.uniqueSKUs      ?? 0,
-    totalLocations:  stats?.totalLocations  ?? 0,
-    lowStockItems:   stats?.lowStockItems   ?? 0,
+    totalStockItems: Number(row?.total_stock_items ?? 0),
+    uniqueSKUs:      Number(row?.unique_sk_us      ?? 0),
+    totalLocations:  Number(row?.total_locations   ?? 0),
+    lowStockItems:   Number(row?.low_stock_items   ?? 0),
   }
 }
 
