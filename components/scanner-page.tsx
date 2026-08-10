@@ -725,28 +725,28 @@ export function ScannerPage() {
         )}
 
         {/* Header */}
-        <div className="flex flex-col items-end gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="w-full">
-            <div className="flex items-center gap-2">
-              <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">{t('warehouseScanner')}</h1>
+        <div className="flex items-center justify-between gap-2">
+          <div className="min-w-0">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold tracking-tight truncate">{t('warehouseScanner')}</h1>
               {!isOnline && (
-                <span className="rounded-full bg-yellow-100 border border-yellow-300 px-2 py-0.5 text-[10px] font-semibold text-yellow-700 uppercase tracking-wide">
+                <span className="shrink-0 rounded-full bg-yellow-100 border border-yellow-300 px-2 py-0.5 text-[10px] font-semibold text-yellow-700 uppercase tracking-wide">
                   {t('offlineBadge')}
                 </span>
               )}
             </div>
-            <p className="text-sm text-muted-foreground">
+            <p className="text-xs sm:text-sm text-muted-foreground truncate">
               {userName
                 ? `${t('welcomeGreeting')} ${userName}! ${t('goodDay')}`
                 : t('scannerSubtitle')}
             </p>
           </div>
-          <div className="flex gap-2 items-center shrink-0 justify-end">
+          <div className="flex gap-1.5 sm:gap-2 items-center shrink-0">
             <LanguageToggle />
-            <Button variant="outline" size="sm" onClick={() => router.push('/dashboard')}>
+            <Button variant="outline" size="sm" className="text-xs sm:text-sm px-2 sm:px-3" onClick={() => router.push('/dashboard')}>
               {t('dashboardLink')}
             </Button>
-            <Button variant="outline" size="sm" onClick={handleLogout}>
+            <Button variant="outline" size="sm" className="text-xs sm:text-sm px-2 sm:px-3" onClick={handleLogout}>
               {t('signOut')}
             </Button>
           </div>
@@ -764,9 +764,9 @@ export function ScannerPage() {
           }}
         >
           <TabsList className={`grid w-full ${totalOffline > 0 ? 'grid-cols-4' : 'grid-cols-3'}`}>
-            <TabsTrigger value="camera" className="text-xs sm:text-sm">{t('cameraTab')}</TabsTrigger>
-            <TabsTrigger value="manual" className="text-xs sm:text-sm">{t('manualTab')}</TabsTrigger>
-            <TabsTrigger value="recent" className="text-xs sm:text-sm">{t('recentScansTab')}</TabsTrigger>
+            <TabsTrigger value="camera" className="text-[11px] sm:text-sm truncate">{t('cameraTab')}</TabsTrigger>
+            <TabsTrigger value="manual" className="text-[11px] sm:text-sm truncate">{t('manualTab')}</TabsTrigger>
+            <TabsTrigger value="recent" className="text-[11px] sm:text-sm truncate">{t('recentScansTab')}</TabsTrigger>
             {totalOffline > 0 && (
               <TabsTrigger value="offline" className="text-xs sm:text-sm px-1 sm:px-3">
                 {/* Mobile: wifi-off icon + badge only; Desktop: full label */}
@@ -794,25 +794,25 @@ export function ScannerPage() {
           {/* ── Camera Tab ──────────────────────────────────────────────── */}
           <TabsContent value="camera" className="space-y-4">
             <Card>
-              <CardHeader>
+              <CardHeader className="px-3 py-3 sm:px-6 sm:py-4">
                 <div className="flex items-center justify-between gap-2">
-                  <div>
-                    <CardTitle className="text-base sm:text-lg">{t('qrCodeScanner')}</CardTitle>
-                    <CardDescription className="text-xs sm:text-sm">{t('qrScannerDesc')}</CardDescription>
+                  <div className="min-w-0">
+                    <CardTitle className="text-sm sm:text-base lg:text-lg truncate">{t('qrCodeScanner')}</CardTitle>
+                    <CardDescription className="text-xs sm:text-sm truncate">{t('qrScannerDesc')}</CardDescription>
                   </div>
-                  <div className="flex items-center gap-1.5 sm:gap-2 rounded-full border px-2 sm:px-3 py-1.5 bg-background shadow-sm shrink-0">
-                    <span className="text-xs font-medium text-muted-foreground">OFF</span>
+                  <div className="flex items-center gap-1 sm:gap-1.5 rounded-full border px-2 sm:px-3 py-1 sm:py-1.5 bg-background shadow-sm shrink-0">
+                    <span className="text-[10px] sm:text-xs font-medium text-muted-foreground">OFF</span>
                     <button
                       type="button"
                       aria-label="Toggle flashlight"
                       onClick={toggleFlashlight}
-                      className={`relative inline-flex h-7 w-14 items-center rounded-full transition-colors focus-visible:outline-none ${
+                      className={`relative inline-flex h-6 w-11 sm:h-7 sm:w-14 items-center rounded-full transition-colors focus-visible:outline-none ${
                         isFlashlightOn ? 'bg-green-500' : 'bg-muted'
                       }`}
                     >
                       <span
-                        className={`inline-flex h-6 w-6 items-center justify-center rounded-full bg-white shadow transition-transform ${
-                          isFlashlightOn ? 'translate-x-7' : 'translate-x-0.5'
+                        className={`inline-flex h-5 w-5 sm:h-6 sm:w-6 items-center justify-center rounded-full bg-white shadow transition-transform ${
+                          isFlashlightOn ? 'translate-x-5 sm:translate-x-7' : 'translate-x-0.5'
                         }`}
                       >
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
@@ -827,7 +827,7 @@ export function ScannerPage() {
                         </svg>
                       </span>
                     </button>
-                    <span className={`text-xs font-medium ${isFlashlightOn ? 'text-green-600' : 'text-muted-foreground'}`}>ON</span>
+                    <span className={`text-[10px] sm:text-xs font-medium ${isFlashlightOn ? 'text-green-600' : 'text-muted-foreground'}`}>ON</span>
                   </div>
                 </div>
               </CardHeader>

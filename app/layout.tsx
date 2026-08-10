@@ -37,8 +37,8 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en" className="bg-background">
-      <body className="antialiased bg-background">
+    <html lang="en" className="bg-background overflow-x-hidden">
+      <body className="antialiased bg-background overflow-x-hidden">
         <LanguageProvider>
           <ServiceWorkerRegistration />
           <GlobalNetworkStatus />

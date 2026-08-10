@@ -154,10 +154,30 @@
 }
 
 @layer base {
-  * {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
     @apply border-border outline-ring/50;
   }
+
+  html {
+    /* Fluid base font: 14px on 320px screens → 16px on 1280px+ */
+    font-size: clamp(14px, calc(14px + (16 - 14) * ((100vw - 320px) / (1280 - 320))), 16px);
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+    overflow-x: hidden;
+  }
+
   body {
     @apply bg-background text-foreground;
+    overflow-x: hidden;
+    min-width: 320px;
+    word-break: break-word;
+  }
+
+  /* Prevent images / embeds from blowing out container widths */
+  img, video, canvas, svg {
+    max-width: 100%;
   }
 }

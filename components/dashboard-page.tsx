@@ -109,14 +109,14 @@ interface KpiCardProps {
 function KpiCard({ icon, iconBg, title, value, subtitle }: KpiCardProps) {
   return (
     <Card>
-      <CardContent className="flex items-center gap-3 sm:gap-4 px-3 py-3 sm:px-5 sm:py-4">
-        <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${iconBg}`}>
+      <CardContent className="flex items-center gap-2 sm:gap-4 px-2.5 py-2.5 sm:px-5 sm:py-4">
+        <div className={`flex h-8 w-8 sm:h-10 sm:w-10 shrink-0 items-center justify-center rounded-lg ${iconBg}`}>
           {icon}
         </div>
         <div className="min-w-0">
-          <p className="text-xs sm:text-sm font-medium text-muted-foreground leading-tight">{title}</p>
-          <p className="text-2xl sm:text-3xl font-bold leading-tight">{value}</p>
-          <p className="text-xs text-muted-foreground mt-0.5">{subtitle}</p>
+          <p className="text-[11px] sm:text-xs font-medium text-muted-foreground leading-tight truncate">{title}</p>
+          <p className="text-xl sm:text-2xl lg:text-3xl font-bold leading-tight">{value}</p>
+          <p className="text-[10px] sm:text-xs text-muted-foreground mt-0.5 truncate">{subtitle}</p>
         </div>
       </CardContent>
     </Card>
@@ -627,13 +627,13 @@ export function DashboardPage() {
               </div>
             </CardHeader>
             <CardContent className="px-0 sm:px-4 pb-4">
-              <ResponsiveContainer width="100%" height={220}>
-                <LineChart data={chartData.scansOverTime} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
+              <ResponsiveContainer width="100%" aspect={2.2} minHeight={180}>
+                <LineChart data={chartData.scansOverTime} margin={{ top: 5, right: 12, left: -18, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                  <XAxis dataKey="date" tick={{ fontSize: 11 }} />
-                  <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
+                  <XAxis dataKey="date" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
+                  <YAxis allowDecimals={false} tick={{ fontSize: 10 }} width={32} />
                   <Tooltip />
-                  <Legend iconSize={10} wrapperStyle={{ fontSize: 12 }} />
+                  <Legend iconSize={10} wrapperStyle={{ fontSize: 11 }} />
                   <Line
                     type="monotone"
                     dataKey="scans"
@@ -670,15 +670,15 @@ export function DashboardPage() {
                 </div>
               </CardHeader>
               <CardContent className="px-0 sm:px-4 pb-4">
-                <ResponsiveContainer width="100%" height={Math.max(160, chartData.divisionBreakdown.length * 36)}>
+                <ResponsiveContainer width="100%" height={Math.max(140, chartData.divisionBreakdown.length * 32)}>
                   <BarChart
                     layout="vertical"
                     data={chartData.divisionBreakdown}
-                    margin={{ top: 0, right: 20, left: 10, bottom: 0 }}
+                    margin={{ top: 0, right: 12, left: 4, bottom: 0 }}
                   >
                     <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" horizontal={false} />
-                    <XAxis type="number" tick={{ fontSize: 11 }} allowDecimals={false} />
-                    <YAxis dataKey="division" type="category" tick={{ fontSize: 11 }} width={70} />
+                    <XAxis type="number" tick={{ fontSize: 10 }} allowDecimals={false} />
+                    <YAxis dataKey="division" type="category" tick={{ fontSize: 10 }} width={64} />
                     <Tooltip />
                     <Bar dataKey="quantity" name={t('quantityLabel')} fill="#8b5cf6" radius={[0, 4, 4, 0]} />
                   </BarChart>
@@ -699,7 +699,7 @@ export function DashboardPage() {
                 </div>
               </CardHeader>
               <CardContent className="flex items-center justify-center pb-4">
-                <ResponsiveContainer width="100%" height={200}>
+                <ResponsiveContainer width="100%" aspect={1.6} minHeight={160}>
                   <RechartsPieChart>
                     <Pie
                       data={chartData.entryTypeBreakdown}
@@ -707,7 +707,7 @@ export function DashboardPage() {
                       nameKey="type"
                       cx="50%"
                       cy="50%"
-                      outerRadius={70}
+                      outerRadius="38%"
                       label={({ name, percent }) =>
                         `${name ?? ''} ${((percent ?? 0) * 100).toFixed(0)}%`
                       }
@@ -718,7 +718,7 @@ export function DashboardPage() {
                       ))}
                     </Pie>
                     <Tooltip formatter={(v, name) => [v, name]} />
-                    <Legend iconSize={10} wrapperStyle={{ fontSize: 12 }} />
+                    <Legend iconSize={10} wrapperStyle={{ fontSize: 11 }} />
                   </RechartsPieChart>
                 </ResponsiveContainer>
               </CardContent>
@@ -738,15 +738,15 @@ export function DashboardPage() {
               </div>
             </CardHeader>
             <CardContent className="px-0 sm:px-4 pb-4">
-              <ResponsiveContainer width="100%" height={Math.max(180, chartData.topSKUs.length * 36)}>
+              <ResponsiveContainer width="100%" height={Math.max(160, chartData.topSKUs.length * 32)}>
                 <BarChart
                   layout="vertical"
                   data={chartData.topSKUs}
-                  margin={{ top: 0, right: 20, left: 10, bottom: 0 }}
+                  margin={{ top: 0, right: 12, left: 4, bottom: 0 }}
                 >
                   <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" horizontal={false} />
-                  <XAxis type="number" tick={{ fontSize: 11 }} allowDecimals={false} />
-                  <YAxis dataKey="sku" type="category" tick={{ fontSize: 10 }} width={100} />
+                  <XAxis type="number" tick={{ fontSize: 10 }} allowDecimals={false} />
+                  <YAxis dataKey="sku" type="category" tick={{ fontSize: 10 }} width={90} />
                   <Tooltip />
                   <Bar dataKey="quantity" name={t('quantityLabel')} radius={[0, 4, 4, 0]}>
                     {chartData.topSKUs.map((_, i) => (
@@ -767,24 +767,24 @@ export function DashboardPage() {
 
   return (
     <main className="min-h-screen bg-background p-3 sm:p-4 md:p-6">
-      <div className="mx-auto max-w-7xl space-y-4 sm:space-y-6">
+      <div className="mx-auto max-w-7xl space-y-3 sm:space-y-5">
 
         {/* Header */}
-        <div className="flex flex-col items-end gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="w-full">
-            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">{t('dashboard')}</h1>
-            <p className="text-sm text-muted-foreground">
+        <div className="flex items-center justify-between gap-2">
+          <div className="min-w-0">
+            <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold tracking-tight truncate">{t('dashboard')}</h1>
+            <p className="text-xs sm:text-sm text-muted-foreground truncate">
               {activeTab === 'scanned' && loggedInUser
                 ? `${t('scannedInventoryTab')} — ${loggedInUser}`
                 : t('dashboardSubtitle')}
             </p>
           </div>
-          <div className="flex items-center gap-2 shrink-0 justify-end">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             <LanguageToggle />
-            <Button variant="outline" size="sm" onClick={() => router.push('/scanner')}>
+            <Button variant="outline" size="sm" className="text-xs sm:text-sm px-2 sm:px-3" onClick={() => router.push('/scanner')}>
               {t('scanner')}
             </Button>
-            <Button variant="outline" size="sm" onClick={handleLogout}>
+            <Button variant="outline" size="sm" className="text-xs sm:text-sm px-2 sm:px-3" onClick={handleLogout}>
               {t('signOut')}
             </Button>
           </div>
@@ -811,8 +811,8 @@ export function DashboardPage() {
         {/* Main Tabs — Scanned Inventory / Overall Stock */}
         <Tabs value={activeTab} onValueChange={(v) => handleTabChange(v as Tab)}>
           <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="scanned">{t('scannedInventoryTab')}</TabsTrigger>
-            <TabsTrigger value="overall">{t('overallStockTab')}</TabsTrigger>
+            <TabsTrigger value="scanned" className="text-xs sm:text-sm truncate">{t('scannedInventoryTab')}</TabsTrigger>
+            <TabsTrigger value="overall" className="text-xs sm:text-sm truncate">{t('overallStockTab')}</TabsTrigger>
           </TabsList>
         </Tabs>
 
