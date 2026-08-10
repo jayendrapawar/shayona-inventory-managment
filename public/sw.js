@@ -9,9 +9,9 @@
  *   - Everything else                  → NetworkFirst
  */
 
-const CACHE_NAME    = 'shayona-v2'
-const STATIC_CACHE  = 'shayona-static-v2'
-const PAGES_CACHE   = 'shayona-pages-v2'
+const CACHE_NAME    = 'shayona-v3'
+const STATIC_CACHE  = 'shayona-static-v3'
+const PAGES_CACHE   = 'shayona-pages-v3'
 
 // App shell pages to pre-cache on install.
 // Only cache pages that render without auth (/sign-in) or that gracefully
