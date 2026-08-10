@@ -488,6 +488,7 @@ export function ScannerPage() {
         showWarning(dup.scannedByName ? `${t('duplicateByUser')} ${dup.scannedByName}` : t('duplicateQR'))
         return
       }
+      triggerScanFeedback()
       const entry: OfflineEntry = {
         tempId:        crypto.randomUUID(),
         entryType:     'scan',
@@ -508,7 +509,6 @@ export function ScannerPage() {
       await refreshOfflineQueue()
       setLastOfflineScan(entry)
       setDailyScanCount(incrementDailyScanCount())
-      triggerScanFeedback()
       showSuccess(t('offlineSaved'))
       return
     }
