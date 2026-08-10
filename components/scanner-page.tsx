@@ -228,6 +228,32 @@ export function ScannerPage() {
     }
   }
 
+  function triggerScanFeedback() {
+    // Beep — synthesised via Web Audio API (no audio file required)
+    try {
+      const ctx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)()
+      const osc = ctx.createOscillator()
+      const gain = ctx.createGain()
+      osc.connect(gain)
+      gain.connect(ctx.destination)
+      osc.type = 'sine'
+      osc.frequency.setValueAtTime(1046, ctx.currentTime)   // C6 — pleasant, short
+      gain.gain.setValueAtTime(0.35, ctx.currentTime)
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.18)
+      osc.start(ctx.currentTime)
+      osc.stop(ctx.currentTime + 0.18)
+      osc.onended = () => ctx.close()
+    } catch {
+      // Web Audio not available — silently skip
+    }
+    // Vibration — 80 ms pulse
+    try {
+      if (navigator.vibrate) navigator.vibrate(80)
+    } catch {
+      // Vibration not available — silently skip
+    }
+  }
+
   function showSuccess(msg: string) {
     if (successTimerRef.current) clearTimeout(successTimerRef.current)
     setError(null)
@@ -482,6 +508,7 @@ export function ScannerPage() {
       await refreshOfflineQueue()
       setLastOfflineScan(entry)
       setDailyScanCount(incrementDailyScanCount())
+      triggerScanFeedback()
       showSuccess(t('offlineSaved'))
       return
     }
@@ -500,6 +527,7 @@ export function ScannerPage() {
     }
     setLastCameraScan(res.data)
     setDailyScanCount(incrementDailyScanCount())
+    triggerScanFeedback()
     showSuccess(t('cameraScanSuccess'))
     loadRecentScans()
   }
