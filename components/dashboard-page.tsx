@@ -822,20 +822,8 @@ export function DashboardPage() {
 
         {/* Header */}
         <div className="flex items-center justify-between gap-2">
-          <div className="min-w-0">
-            <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold tracking-tight truncate">{t('dashboard')}</h1>
-            <p className="text-xs sm:text-sm text-muted-foreground truncate">{t('dashboardSubtitle')}</p>
-          </div>
+          <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold tracking-tight truncate min-w-0">{t('dashboard')}</h1>
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-            {/* Logged-in user — always visible in header */}
-            {loggedInUser && (
-              <div className="flex items-center gap-1.5">
-                <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-600 text-white">
-                  <User className="h-3 w-3" />
-                </div>
-                <span className="text-xs font-semibold text-foreground truncate max-w-[80px] sm:max-w-[140px]">{loggedInUser}</span>
-              </div>
-            )}
             <LanguageToggle />
             <Button variant="outline" size="sm" className="text-xs sm:text-sm px-2 sm:px-3" onClick={() => router.push('/scanner')}>
               {t('scanner')}
@@ -845,6 +833,16 @@ export function DashboardPage() {
             </Button>
           </div>
         </div>
+
+        {/* Logged-in user — below header, small */}
+        {loggedInUser && (
+          <div className="flex items-center gap-1.5">
+            <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue-600 text-white">
+              <User className="h-2.5 w-2.5" />
+            </div>
+            <span className="text-xs font-semibold text-foreground truncate">{loggedInUser}</span>
+          </div>
+        )}
 
         {/* Offline notice */}
         {!isOnline && (

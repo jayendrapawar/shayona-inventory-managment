@@ -1,6 +1,7 @@
 'use client'
 
 import jsQR from 'jsqr'
+import { User } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
@@ -726,20 +727,13 @@ export function ScannerPage() {
 
         {/* Header */}
         <div className="flex items-center justify-between gap-2">
-          <div className="min-w-0">
-            <div className="flex items-center gap-1.5 min-w-0">
-              <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold tracking-tight truncate">{t('warehouseScanner')}</h1>
-              {!isOnline && (
-                <span className="shrink-0 rounded-full bg-yellow-100 border border-yellow-300 px-2 py-0.5 text-[10px] font-semibold text-yellow-700 uppercase tracking-wide">
-                  {t('offlineBadge')}
-                </span>
-              )}
-            </div>
-            <p className="text-xs sm:text-sm text-muted-foreground truncate">
-              {userName
-                ? `${t('welcomeGreeting')} ${userName}! ${t('goodDay')}`
-                : t('scannerSubtitle')}
-            </p>
+          <div className="flex items-center gap-1.5 min-w-0">
+            <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold tracking-tight truncate">{t('warehouseScanner')}</h1>
+            {!isOnline && (
+              <span className="shrink-0 rounded-full bg-yellow-100 border border-yellow-300 px-2 py-0.5 text-[10px] font-semibold text-yellow-700 uppercase tracking-wide">
+                {t('offlineBadge')}
+              </span>
+            )}
           </div>
           <div className="flex gap-1.5 sm:gap-2 items-center shrink-0">
             <LanguageToggle />
@@ -751,6 +745,16 @@ export function ScannerPage() {
             </Button>
           </div>
         </div>
+
+        {/* Logged-in user pill — replaces welcome subtitle */}
+        {userName && (
+          <div className="flex items-center gap-1.5">
+            <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue-600 text-white">
+              <User className="h-2.5 w-2.5" />
+            </div>
+            <span className="text-xs font-semibold text-foreground truncate">{userName}</span>
+          </div>
+        )}
 
         <Tabs
           defaultValue="camera"
