@@ -3,9 +3,6 @@ const nextConfig = {
   typescript: {
     ignoreBuildErrors: true,
   },
-  images: {
-    unoptimized: true,
-  },
   // Allow local network devices (phones, tablets on the same Wi-Fi) to
   // access HMR/webpack dev resources without the cross-origin block warning.
   allowedDevOrigins: [

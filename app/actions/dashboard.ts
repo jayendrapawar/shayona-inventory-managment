@@ -3,7 +3,7 @@
 import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
 import { scans } from '@/lib/db/schema'
-import { and, eq, isNull, desc, sql } from 'drizzle-orm'
+import { and, eq, isNull, desc, sql, count, sum } from 'drizzle-orm'
 import { headers } from 'next/headers'
 import { revalidatePath } from 'next/cache'
 import { DUPLICATE_ENTRY_ERROR } from '@/lib/errors'
@@ -40,61 +40,43 @@ export async function searchInventory(query: string) {
 }
 
 export async function getInventorySummary() {
-  // Scanned tab shows only the current user's scans
   const user = await getUser()
-
-  const scanData = await db
-    .select()
+  // Aggregate in SQL — one query, no JS reduce over unbounded rows
+  const rows = await db
+    .select({
+      artNumber:     scans.artNumber,
+      colorNumber:   scans.colorNumber,
+      sizeNumber:    scans.sizeNumber,
+      division:      scans.division,
+      mrp:           scans.mrp,
+      mfgMonth:      scans.mfgMonth,
+      mfgYear:       scans.mfgYear,
+      scannedByName: scans.scannedByName,
+      entryType:     scans.entryType,
+      quantity:      sql<number>`sum(${scans.quantity})::int`,
+      count:         sql<number>`count(*)::int`,
+      lastScanned:   sql<Date>`max(${scans.scannedAt})`,
+    })
     .from(scans)
     .where(eq(scans.scannedByName, user.name ?? ''))
+    .groupBy(
+      scans.artNumber, scans.colorNumber, scans.sizeNumber,
+      scans.division, scans.mrp, scans.mfgMonth, scans.mfgYear,
+      scans.scannedByName, scans.entryType,
+    )
+    .orderBy(desc(sql`max(${scans.scannedAt})`))
 
-  // Group and aggregate; new fields taken from the first scan for each SKU key
-  const summary = scanData.reduce(
-    (acc, scan) => {
-      const key = `${scan.artNumber}-${scan.colorNumber}-${scan.sizeNumber}`
-      if (!acc[key]) {
-        acc[key] = {
-          artNumber: scan.artNumber ?? undefined,
-          colorNumber: scan.colorNumber ?? undefined,
-          sizeNumber: scan.sizeNumber ?? undefined,
-          division: scan.division ?? undefined,
-          mrp: scan.mrp != null ? Number(scan.mrp) : undefined,
-          mfgMonth: scan.mfgMonth ?? undefined,
-          mfgYear: scan.mfgYear ?? undefined,
-          scannedByName: scan.scannedByName ?? undefined,
-          entryType: scan.entryType,
-          quantity: 0,
-          lastScanned: scan.scannedAt,
-          count: 0,
-        }
-      }
-      acc[key].quantity += scan.quantity
-      acc[key].count += 1
-      if (scan.scannedAt > acc[key].lastScanned) {
-        acc[key].lastScanned = scan.scannedAt
-      }
-      return acc
-    },
-    {} as Record<
-      string,
-      {
-        artNumber?: string
-        colorNumber?: string
-        sizeNumber?: string
-        division?: string
-        mrp?: number
-        mfgMonth?: number
-        mfgYear?: number
-        scannedByName?: string
-        entryType: string
-        quantity: number
-        lastScanned: Date
-        count: number
-      }
-    >
-  )
-
-  return Object.values(summary)
+  return rows.map((r) => ({
+    ...r,
+    mrp: r.mrp != null ? Number(r.mrp) : undefined,
+    artNumber: r.artNumber ?? undefined,
+    colorNumber: r.colorNumber ?? undefined,
+    sizeNumber: r.sizeNumber ?? undefined,
+    division: r.division ?? undefined,
+    scannedByName: r.scannedByName ?? undefined,
+    mfgMonth: r.mfgMonth ?? undefined,
+    mfgYear: r.mfgYear ?? undefined,
+  }))
 }
 
 export type AddManualEntryResult =
@@ -176,23 +158,26 @@ export async function addManualEntry(
 }
 
 export async function getStatistics() {
-  // Stats scoped to the logged-in user only (Scanned Inventory tab)
   const user = await getUser()
-  const scanData = await db
-    .select()
-    .from(scans)
-    .where(eq(scans.scannedByName, user.name ?? ''))
-
-  const totalScans = scanData.length
-  const totalItems = scanData.reduce((sum, scan) => sum + scan.quantity, 0)
-  const uniqueItems = new Set(
-    scanData.map((s) => `${s.artNumber}-${s.colorNumber}-${s.sizeNumber}`)
-  ).size
-
+  const name = user.name ?? ''
   const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000)
-  const scansLast24h = scanData.filter((s) => new Date(s.scannedAt) > oneDayAgo).length
 
-  return { totalScans, totalItems, uniqueItems, scansLast24h }
+  const [totals] = await db
+    .select({
+      totalScans:    sql<number>`count(*)::int`,
+      totalItems:    sql<number>`sum(${scans.quantity})::int`,
+      uniqueItems:   sql<number>`count(distinct (${scans.artNumber}, ${scans.colorNumber}, ${scans.sizeNumber}))::int`,
+      scansLast24h:  sql<number>`count(*) filter (where ${scans.scannedAt} > ${oneDayAgo})::int`,
+    })
+    .from(scans)
+    .where(eq(scans.scannedByName, name))
+
+  return {
+    totalScans:   totals?.totalScans   ?? 0,
+    totalItems:   totals?.totalItems   ?? 0,
+    uniqueItems:  totals?.uniqueItems  ?? 0,
+    scansLast24h: totals?.scansLast24h ?? 0,
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -222,56 +207,70 @@ export interface OverallStockStats {
 }
 
 export async function getOverallStockSummary(): Promise<OverallStockItem[]> {
-  const allScans = await db.select().from(scans)
+  const rows = await db
+    .select({
+      artNumber:     scans.artNumber,
+      colorNumber:   scans.colorNumber,
+      sizeNumber:    scans.sizeNumber,
+      division:      scans.division,
+      mrp:           scans.mrp,
+      mfgMonth:      scans.mfgMonth,
+      mfgYear:       scans.mfgYear,
+      scannedByName: scans.scannedByName,
+      entryType:     scans.entryType,
+      totalQuantity: sql<number>`sum(${scans.quantity})::int`,
+      totalScans:    sql<number>`count(*)::int`,
+      lastUpdated:   sql<Date>`max(${scans.scannedAt})`,
+    })
+    .from(scans)
+    .groupBy(
+      scans.artNumber, scans.colorNumber, scans.sizeNumber,
+      scans.division, scans.mrp, scans.mfgMonth, scans.mfgYear,
+      scans.scannedByName, scans.entryType,
+    )
+    .orderBy(desc(sql`max(${scans.scannedAt})`))
 
-  const map: Record<string, OverallStockItem> = {}
-  for (const scan of allScans) {
-    const key = `${scan.artNumber ?? ''}-${scan.colorNumber ?? ''}-${scan.sizeNumber ?? ''}`
-    if (!map[key]) {
-      map[key] = {
-        artNumber: scan.artNumber ?? undefined,
-        colorNumber: scan.colorNumber ?? undefined,
-        sizeNumber: scan.sizeNumber ?? undefined,
-        division: scan.division ?? undefined,
-        mrp: scan.mrp != null ? Number(scan.mrp) : undefined,
-        mfgMonth: scan.mfgMonth ?? undefined,
-        mfgYear: scan.mfgYear ?? undefined,
-        scannedByName: scan.scannedByName ?? undefined,
-        entryType: scan.entryType,
-        totalQuantity: 0,
-        totalScans: 0,
-        lastUpdated: scan.scannedAt,
-      }
-    }
-    map[key].totalQuantity += scan.quantity
-    map[key].totalScans += 1
-    if (scan.scannedAt > map[key].lastUpdated) {
-      map[key].lastUpdated = scan.scannedAt
-    }
-  }
-
-  return Object.values(map)
+  return rows.map((r) => ({
+    artNumber:     r.artNumber ?? undefined,
+    colorNumber:   r.colorNumber ?? undefined,
+    sizeNumber:    r.sizeNumber ?? undefined,
+    division:      r.division ?? undefined,
+    mrp:           r.mrp != null ? Number(r.mrp) : undefined,
+    mfgMonth:      r.mfgMonth ?? undefined,
+    mfgYear:       r.mfgYear ?? undefined,
+    scannedByName: r.scannedByName ?? undefined,
+    entryType:     r.entryType,
+    totalQuantity: r.totalQuantity,
+    totalScans:    r.totalScans,
+    lastUpdated:   r.lastUpdated,
+  }))
 }
 
 export async function getOverallStockStats(): Promise<OverallStockStats> {
-  const allScans = await db.select().from(scans)
+  const [stats] = await db
+    .select({
+      totalStockItems: sql<number>`sum(${scans.quantity})::int`,
+      uniqueSKUs:      sql<number>`count(distinct (${scans.artNumber}, ${scans.colorNumber}, ${scans.sizeNumber}))::int`,
+      totalLocations:  sql<number>`count(distinct ${scans.scannedByName})::int`,
+      lowStockItems:   sql<number>`count(distinct case when qty <= 5 then sku end)::int`,
+    })
+    .from(
+      db
+        .select({
+          sku: sql<string>`(${scans.artNumber} || '-' || ${scans.colorNumber} || '-' || ${scans.sizeNumber})`,
+          qty: sql<number>`sum(${scans.quantity})::int`,
+        })
+        .from(scans)
+        .groupBy(scans.artNumber, scans.colorNumber, scans.sizeNumber)
+        .as('sku_totals'),
+    )
 
-  const skuMap: Record<string, { quantity: number }> = {}
-  const nameSet = new Set<string>()
-
-  for (const scan of allScans) {
-    const key = `${scan.artNumber ?? ''}-${scan.colorNumber ?? ''}-${scan.sizeNumber ?? ''}`
-    if (!skuMap[key]) skuMap[key] = { quantity: 0 }
-    skuMap[key].quantity += scan.quantity
-    if (scan.scannedByName) nameSet.add(scan.scannedByName)
+  return {
+    totalStockItems: stats?.totalStockItems ?? 0,
+    uniqueSKUs:      stats?.uniqueSKUs      ?? 0,
+    totalLocations:  stats?.totalLocations  ?? 0,
+    lowStockItems:   stats?.lowStockItems   ?? 0,
   }
-
-  const totalStockItems = Object.values(skuMap).reduce((s, v) => s + v.quantity, 0)
-  const uniqueSKUs = Object.keys(skuMap).length
-  const totalLocations = nameSet.size
-  const lowStockItems = Object.values(skuMap).filter((v) => v.quantity <= 5).length
-
-  return { totalStockItems, uniqueSKUs, totalLocations, lowStockItems }
 }
 
 export async function exportToExcel(): Promise<Record<string, string | number>[]> {
@@ -355,62 +354,65 @@ export async function getScannedChartData(): Promise<{
   entryTypeBreakdown: EntryTypeItem[]
 }> {
   const user = await getUser()
-  const scanData = await db
-    .select()
-    .from(scans)
-    .where(eq(scans.scannedByName, user.name ?? ''))
+  const name = user.name ?? ''
+  const fourteenDaysAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000)
 
-  // Last 14 days
+  const [timeRows, divRows, skuRows, typeRows] = await Promise.all([
+    // Scans over time — grouped by calendar day
+    db.select({
+      day:      sql<string>`to_char(${scans.scannedAt}, 'MM/DD')`,
+      scans:    sql<number>`count(*)::int`,
+      quantity: sql<number>`sum(${scans.quantity})::int`,
+    }).from(scans)
+      .where(and(eq(scans.scannedByName, name), sql`${scans.scannedAt} >= ${fourteenDaysAgo}`))
+      .groupBy(sql`to_char(${scans.scannedAt}, 'MM/DD')`)
+      .orderBy(sql`to_char(${scans.scannedAt}, 'MM/DD')`),
+
+    // Division breakdown
+    db.select({
+      division: sql<string>`coalesce(${scans.division}, 'Unknown')`,
+      quantity: sql<number>`sum(${scans.quantity})::int`,
+    }).from(scans)
+      .where(eq(scans.scannedByName, name))
+      .groupBy(sql`coalesce(${scans.division}, 'Unknown')`)
+      .orderBy(desc(sql`sum(${scans.quantity})`)),
+
+    // Top SKUs
+    db.select({
+      sku:      sql<string>`coalesce(${scans.artNumber} || '-' || ${scans.colorNumber} || '-' || ${scans.sizeNumber}, 'Unknown')`,
+      quantity: sql<number>`sum(${scans.quantity})::int`,
+    }).from(scans)
+      .where(eq(scans.scannedByName, name))
+      .groupBy(scans.artNumber, scans.colorNumber, scans.sizeNumber)
+      .orderBy(desc(sql`sum(${scans.quantity})`))
+      .limit(10),
+
+    // Entry type breakdown
+    db.select({
+      type:  scans.entryType,
+      count: sql<number>`count(*)::int`,
+    }).from(scans)
+      .where(eq(scans.scannedByName, name))
+      .groupBy(scans.entryType),
+  ])
+
+  // Build a full 14-day skeleton and fill in DB results
   const dayMap: Record<string, { scans: number; quantity: number }> = {}
   for (let i = 13; i >= 0; i--) {
-    const d = new Date()
-    d.setDate(d.getDate() - i)
+    const d = new Date(); d.setDate(d.getDate() - i)
     const key = `${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`
     dayMap[key] = { scans: 0, quantity: 0 }
   }
-  for (const scan of scanData) {
-    const d = new Date(scan.scannedAt)
-    const key = `${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`
-    if (key in dayMap) {
-      dayMap[key].scans += 1
-      dayMap[key].quantity += scan.quantity
-    }
+  for (const r of timeRows) {
+    if (r.day in dayMap) { dayMap[r.day].scans = r.scans; dayMap[r.day].quantity = r.quantity }
   }
-  const scansOverTime: ScansOverTimePoint[] = Object.entries(dayMap).map(([date, v]) => ({
-    date,
-    scans: v.scans,
-    quantity: v.quantity,
-  }))
 
-  // Division breakdown
-  const divMap: Record<string, number> = {}
-  for (const scan of scanData) {
-    const div = scan.division || 'Unknown'
-    divMap[div] = (divMap[div] ?? 0) + scan.quantity
+  return {
+    scansOverTime:      Object.entries(dayMap).map(([date, v]) => ({ date, scans: v.scans, quantity: v.quantity })),
+    divisionBreakdown:  divRows.map((r) => ({ division: r.division, quantity: r.quantity })),
+    topSKUs:            skuRows.map((r) => ({ sku: r.sku, quantity: r.quantity })),
+    entryTypeBreakdown: typeRows.map((r) => ({ type: r.type, count: r.count })),
   }
-  const divisionBreakdown: DivisionBreakdownItem[] = Object.entries(divMap)
-    .map(([division, quantity]) => ({ division, quantity }))
-    .sort((a, b) => b.quantity - a.quantity)
-
-  // Top SKUs
-  const skuMap: Record<string, number> = {}
-  for (const scan of scanData) {
-    const key = [scan.artNumber, scan.colorNumber, scan.sizeNumber].filter(Boolean).join('-') || 'Unknown'
-    skuMap[key] = (skuMap[key] ?? 0) + scan.quantity
-  }
-  const topSKUs: TopSKUItem[] = Object.entries(skuMap)
-    .map(([sku, quantity]) => ({ sku, quantity }))
-    .sort((a, b) => b.quantity - a.quantity)
-    .slice(0, 10)
-
-  // Entry type breakdown
-  const typeMap: Record<string, number> = {}
-  for (const scan of scanData) {
-    typeMap[scan.entryType] = (typeMap[scan.entryType] ?? 0) + 1
-  }
-  const entryTypeBreakdown: EntryTypeItem[] = Object.entries(typeMap).map(([type, count]) => ({ type, count }))
-
-  return { scansOverTime, divisionBreakdown, topSKUs, entryTypeBreakdown }
 }
 
 // ---------------------------------------------------------------------------
@@ -424,65 +426,62 @@ export async function getOverallChartData(): Promise<{
   entryTypeBreakdown: EntryTypeItem[]
   scansByUser: ScansByUserItem[]
 }> {
-  const allScans = await db.select().from(scans)
+  const fourteenDaysAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000)
+
+  const [timeRows, divRows, skuRows, typeRows, userRows] = await Promise.all([
+    db.select({
+      day:      sql<string>`to_char(${scans.scannedAt}, 'MM/DD')`,
+      scans:    sql<number>`count(*)::int`,
+      quantity: sql<number>`sum(${scans.quantity})::int`,
+    }).from(scans)
+      .where(sql`${scans.scannedAt} >= ${fourteenDaysAgo}`)
+      .groupBy(sql`to_char(${scans.scannedAt}, 'MM/DD')`)
+      .orderBy(sql`to_char(${scans.scannedAt}, 'MM/DD')`),
+
+    db.select({
+      division: sql<string>`coalesce(${scans.division}, 'Unknown')`,
+      quantity: sql<number>`sum(${scans.quantity})::int`,
+    }).from(scans)
+      .groupBy(sql`coalesce(${scans.division}, 'Unknown')`)
+      .orderBy(desc(sql`sum(${scans.quantity})`)),
+
+    db.select({
+      sku:      sql<string>`coalesce(${scans.artNumber} || '-' || ${scans.colorNumber} || '-' || ${scans.sizeNumber}, 'Unknown')`,
+      quantity: sql<number>`sum(${scans.quantity})::int`,
+    }).from(scans)
+      .groupBy(scans.artNumber, scans.colorNumber, scans.sizeNumber)
+      .orderBy(desc(sql`sum(${scans.quantity})`))
+      .limit(10),
+
+    db.select({
+      type:  scans.entryType,
+      count: sql<number>`count(*)::int`,
+    }).from(scans).groupBy(scans.entryType),
+
+    db.select({
+      user:     sql<string>`coalesce(${scans.scannedByName}, 'Unknown')`,
+      scans:    sql<number>`count(*)::int`,
+      quantity: sql<number>`sum(${scans.quantity})::int`,
+    }).from(scans)
+      .groupBy(sql`coalesce(${scans.scannedByName}, 'Unknown')`)
+      .orderBy(desc(sql`count(*)`)),
+  ])
 
   const dayMap: Record<string, { scans: number; quantity: number }> = {}
   for (let i = 13; i >= 0; i--) {
-    const d = new Date()
-    d.setDate(d.getDate() - i)
+    const d = new Date(); d.setDate(d.getDate() - i)
     const key = `${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`
     dayMap[key] = { scans: 0, quantity: 0 }
   }
-  for (const scan of allScans) {
-    const d = new Date(scan.scannedAt)
-    const key = `${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`
-    if (key in dayMap) {
-      dayMap[key].scans += 1
-      dayMap[key].quantity += scan.quantity
-    }
+  for (const r of timeRows) {
+    if (r.day in dayMap) { dayMap[r.day].scans = r.scans; dayMap[r.day].quantity = r.quantity }
   }
-  const scansOverTime: ScansOverTimePoint[] = Object.entries(dayMap).map(([date, v]) => ({
-    date,
-    scans: v.scans,
-    quantity: v.quantity,
-  }))
 
-  const divMap: Record<string, number> = {}
-  for (const scan of allScans) {
-    const div = scan.division || 'Unknown'
-    divMap[div] = (divMap[div] ?? 0) + scan.quantity
+  return {
+    scansOverTime:      Object.entries(dayMap).map(([date, v]) => ({ date, scans: v.scans, quantity: v.quantity })),
+    divisionBreakdown:  divRows,
+    topSKUs:            skuRows,
+    entryTypeBreakdown: typeRows,
+    scansByUser:        userRows,
   }
-  const divisionBreakdown: DivisionBreakdownItem[] = Object.entries(divMap)
-    .map(([division, quantity]) => ({ division, quantity }))
-    .sort((a, b) => b.quantity - a.quantity)
-
-  const skuMap: Record<string, number> = {}
-  for (const scan of allScans) {
-    const key = [scan.artNumber, scan.colorNumber, scan.sizeNumber].filter(Boolean).join('-') || 'Unknown'
-    skuMap[key] = (skuMap[key] ?? 0) + scan.quantity
-  }
-  const topSKUs: TopSKUItem[] = Object.entries(skuMap)
-    .map(([sku, quantity]) => ({ sku, quantity }))
-    .sort((a, b) => b.quantity - a.quantity)
-    .slice(0, 10)
-
-  const typeMap: Record<string, number> = {}
-  for (const scan of allScans) {
-    typeMap[scan.entryType] = (typeMap[scan.entryType] ?? 0) + 1
-  }
-  const entryTypeBreakdown: EntryTypeItem[] = Object.entries(typeMap).map(([type, count]) => ({ type, count }))
-
-  // Scans per user — total scans count + total quantity per scannedByName
-  const userMap: Record<string, { scans: number; quantity: number }> = {}
-  for (const scan of allScans) {
-    const u = scan.scannedByName || 'Unknown'
-    if (!userMap[u]) userMap[u] = { scans: 0, quantity: 0 }
-    userMap[u].scans += 1
-    userMap[u].quantity += scan.quantity
-  }
-  const scansByUser: ScansByUserItem[] = Object.entries(userMap)
-    .map(([user, v]) => ({ user, scans: v.scans, quantity: v.quantity }))
-    .sort((a, b) => b.scans - a.scans)
-
-  return { scansOverTime, divisionBreakdown, topSKUs, entryTypeBreakdown, scansByUser }
 }

@@ -13,8 +13,10 @@
  */
 
 import { getQueue, removeFromQueue, updateEntry, type OfflineEntry } from './offline-queue'
+import { getCachedFlags, getPendingFlags, removePendingFlag, cacheFlags } from './offline-flags'
 import { recordScan }     from '@/app/actions/scan'
 import { addManualEntry } from '@/app/actions/dashboard'
+import { getFlags, createFlag } from '@/app/actions/flags'
 import { DUPLICATE_QR_ERROR, DUPLICATE_ENTRY_ERROR } from './errors'
 
 export interface SyncResult {
@@ -65,10 +67,37 @@ export async function syncQueue(): Promise<SyncResult> {
   return result
 }
 
+/**
+ * Flush any flags created while offline up to the server, then pull the
+ * latest authoritative list back and update the local cache.
+ * Returns the merged, deduplicated flag list.
+ */
+export async function syncFlags(): Promise<string[]> {
+  const pending = await getPendingFlags()
+
+  for (const name of pending) {
+    try {
+      await createFlag(name)       // onConflictDoNothing — safe if already in DB
+      await removePendingFlag(name)
+    } catch {
+      // Network error — leave in pending store for next attempt
+    }
+  }
+
+  try {
+    const latest = await getFlags()
+    await cacheFlags(latest)
+    return latest
+  } catch {
+    // Server unreachable — return whatever is in the local cache
+    return getCachedFlags()
+  }
+}
+
 /** Returns 'success' | 'duplicate' | error-message-string */
 async function trySyncEntry(entry: OfflineEntry): Promise<'success' | 'duplicate' | string> {
   if (entry.entryType === 'scan' && entry.rawQrCode) {
-    const res = await recordScan(entry.rawQrCode)
+    const res = await recordScan(entry.rawQrCode, entry.notes)
     if (res.ok)                           return 'success'
     if (res.error === DUPLICATE_QR_ERROR) return 'duplicate'
     return 'ERROR'

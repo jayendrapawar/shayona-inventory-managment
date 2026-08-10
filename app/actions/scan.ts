@@ -30,7 +30,7 @@ function colEq(col: Parameters<typeof eq>[0], val: string | undefined) {
   return val ? eq(col, val) : isNull(col)
 }
 
-export async function recordScan(rawQrCode: string): Promise<RecordScanResult> {
+export async function recordScan(rawQrCode: string, notes?: string): Promise<RecordScanResult> {
   // Reject before any DB call if QR doesn't match warehouse format
   if (!isValidWarehouseQr(rawQrCode)) {
     return { ok: false, error: INVALID_QR_ERROR }
@@ -90,7 +90,8 @@ export async function recordScan(rawQrCode: string): Promise<RecordScanResult> {
       .where(eq(scans.id, matched[0].id))
       .returning()
 
-    revalidatePath('/scanner')
+    // revalidatePath removed — the scanner page uses client-state only; a
+    // full server re-render on every scan adds ~200-400 ms of unnecessary work.
     return { ok: true, data: rows[0] }
   }
 
@@ -107,12 +108,12 @@ export async function recordScan(rawQrCode: string): Promise<RecordScanResult> {
       mrp,
       mfgMonth,
       mfgYear,
+      notes,
       scannedByName: user.name ?? undefined,
       quantity: 1,
     })
     .returning()
 
-  revalidatePath('/scanner')
   return { ok: true, data: rows[0] }
 }
 

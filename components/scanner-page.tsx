@@ -13,6 +13,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@/components/ui/badge'
 import { recordScan, getCurrentUserName, getRecentScans, deleteScan } from '@/app/actions/scan'
 import { addManualEntry } from '@/app/actions/dashboard'
+import { createFlag } from '@/app/actions/flags'
+import { getCachedFlags, cacheFlags, enqueuePendingFlag } from '@/lib/offline-flags'
+import { syncFlags } from '@/lib/sync-engine'
 import { DUPLICATE_QR_ERROR, DUPLICATE_ENTRY_ERROR, INVALID_QR_ERROR } from '@/lib/errors'
 import { isValidWarehouseQr, parseQr } from '@/lib/qr-parser'
 import { signOut } from '@/lib/auth-client'
@@ -28,6 +31,19 @@ type RecentScan = Awaited<ReturnType<typeof getRecentScans>>[number]
 // We store the username in localStorage so offline scans can be labelled
 // even after a page refresh (server session isn't reachable offline).
 const USER_KEY = 'shayona-offline-user'
+
+// ─── Feature-flag active-selection persistence (per device) ──────────────────
+// Only the *selected* flag is stored locally — the flag list comes from the DB.
+const FLAG_KEY = 'shayona-active-flag'
+
+function getStoredActiveFlag(): string {
+  if (typeof window === 'undefined') return ''
+  return localStorage.getItem(FLAG_KEY) ?? ''
+}
+function saveStoredActiveFlag(flag: string) {
+  if (typeof window === 'undefined') return
+  localStorage.setItem(FLAG_KEY, flag)
+}
 
 // ─── Daily scan counter ───────────────────────────────────────────────────────
 // Persisted in localStorage as { date: 'YYYY-MM-DD', count: number }
@@ -125,6 +141,14 @@ export function ScannerPage() {
   // QR code isn't re-read while the worker is still holding the device.
   const scanPausedRef = useRef(false)
 
+  // ── Feature-flag (scan grouping) state ────────────────────────────────────
+  const [flags, setFlags]             = useState<string[]>([])
+  const [activeFlag, setActiveFlag]   = useState<string>('')
+  const [flagsLoading, setFlagsLoading] = useState(true)
+  const [newFlagInput, setNewFlagInput] = useState('')
+  const [showNewFlagInput, setShowNewFlagInput] = useState(false)
+  const [newFlagSaving, setNewFlagSaving] = useState(false)
+
   const [dailyScanCount, setDailyScanCount] = useState<number>(0)
   const [userName, setUserName] = useState<string>('')
   const [recentScans, setRecentScans] = useState<RecentScan[]>([])
@@ -153,6 +177,35 @@ export function ScannerPage() {
     }
   }
 
+  // ── Flag refresh helper — used on mount, reconnect, and tab focus ──────────
+  const refreshFlags = useCallback(async (online: boolean) => {
+    if (online) {
+      // Push any offline-created flags then pull latest from DB
+      try {
+        const latest = await syncFlags()
+        const deduped = [...new Set(latest)]
+        setFlags(deduped)
+        await cacheFlags(deduped)
+        // Validate active selection
+        setActiveFlag((prev) => {
+          const kept = deduped.includes(prev) ? prev : (deduped[0] ?? '')
+          if (kept !== prev) saveStoredActiveFlag(kept)
+          return kept
+        })
+      } catch {
+        // Server unreachable despite navigator.onLine — fall back to cache
+        const cached = await getCachedFlags()
+        if (cached.length) setFlags(cached)
+      }
+    } else {
+      // Offline: show the local IDB cache
+      const cached = await getCachedFlags()
+      if (cached.length) setFlags(cached)
+    }
+    setFlagsLoading(false)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   // ── Sync handler (called on reconnect & on mount when online) ──────────────
   const handleSync = useCallback(async () => {
     const pending = offlineQueue.filter((e) => e.status === 'pending' || e.status === 'syncing')
@@ -160,7 +213,11 @@ export function ScannerPage() {
       // Re-check IndexedDB directly in case state is stale
       const q = await getQueue()
       const actualPending = q.filter((e) => e.status === 'pending' || e.status === 'syncing')
-      if (actualPending.length === 0) return
+      if (actualPending.length === 0) {
+        // Still sync flags even when no scan queue (flags may have been created offline)
+        await refreshFlags(true)
+        return
+      }
     }
 
     setIsSyncing(true)
@@ -172,6 +229,8 @@ export function ScannerPage() {
       await refreshOfflineQueue()
       // Reload recent scans to show newly synced items
       if (result.synced > 0) loadRecentScans()
+      // Also sync flags on every reconnect
+      await refreshFlags(true)
     } finally {
       setIsSyncing(false)
     }
@@ -189,6 +248,18 @@ export function ScannerPage() {
     // Restore cached username immediately (available offline)
     const cached = getCachedUser()
     if (cached) setUserName(cached)
+
+    // 1. Show cached flags immediately (works offline, zero latency)
+    getCachedFlags().then((cached) => {
+      if (cached.length) {
+        setFlags(cached)
+        const storedActive = getStoredActiveFlag()
+        setActiveFlag(cached.includes(storedActive) ? storedActive : cached[0] ?? '')
+      }
+    }).catch(() => {})
+
+    // 2. Fetch latest from DB in background (syncs pending flags too)
+    refreshFlags(navigator.onLine)
 
     // Try fetching the authoritative name from the server
     getCurrentUserName()
@@ -214,6 +285,18 @@ export function ScannerPage() {
 
     // Auto-start camera immediately — no button tap needed
     startCamera()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // ── Refresh flags when tab becomes visible again (catches changes from other devices) ──
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === 'visible' && navigator.onLine) {
+        refreshFlags(true)
+      }
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -547,6 +630,7 @@ export function ScannerPage() {
         mfgMonth:      parsed.mfgMonth || undefined,
         mfgYear:       parsed.mfgYear || undefined,
         quantity:      1,
+        notes:         activeFlag ? `[Flag: ${activeFlag}]` : undefined,
         scannedByName: userName || getCachedUser(),
         savedAt:       Date.now(),
         status:        'pending',
@@ -559,7 +643,7 @@ export function ScannerPage() {
       return
     }
 
-    const res = await recordScan(qrCode)
+    const res = await recordScan(qrCode, activeFlag ? `[Flag: ${activeFlag}]` : undefined)
     if (!res.ok) {
       if (res.error === INVALID_QR_ERROR) {
         showWarning('QR code format not recognised. Only warehouse QR codes can be scanned.')
@@ -615,6 +699,9 @@ export function ScannerPage() {
           return
         }
 
+        const flagNote = activeFlag ? `[Flag: ${activeFlag}]` : ''
+        const userNote = manualForm.notes.trim()
+        const combinedNotes = [flagNote, userNote].filter(Boolean).join(' ') || undefined
         const entry: OfflineEntry = {
           tempId:        crypto.randomUUID(),
           entryType:     'manual',
@@ -623,7 +710,7 @@ export function ScannerPage() {
           sizeNumber:    size,
           quantity:      qty,
           mrp:           mrpVal,
-          notes:         manualForm.notes || undefined,
+          notes:         combinedNotes,
           division:      divVal,
           mfgMonth:      monthVal,
           mfgYear:       yearVal,
@@ -639,12 +726,15 @@ export function ScannerPage() {
         return
       }
 
+      const flagNote = activeFlag ? `[Flag: ${activeFlag}]` : ''
+      const userNote = manualForm.notes.trim()
+      const combinedNotes = [flagNote, userNote].filter(Boolean).join(' ') || undefined
       const res = await addManualEntry(
         manualForm.artNumber,
         manualForm.colorNumber,
         manualForm.sizeNumber,
         manualForm.quantity || 1,
-        manualForm.notes || undefined,
+        combinedNotes,
         manualForm.mrp ? parseFloat(manualForm.mrp) : undefined,
         manualForm.division || undefined,
         manualForm.mfgMonth ? parseInt(manualForm.mfgMonth) : undefined,
@@ -745,6 +835,133 @@ export function ScannerPage() {
             <p className="text-base font-bold leading-tight">{scannedByName || '—'}</p>
           </div>
         </div>
+      </div>
+    )
+  }
+
+  // ─── Flag selector helpers ─────────────────────────────────────────────────
+
+  async function handleAddFlag() {
+    const trimmed = newFlagInput.trim()
+
+    // Dedupe check — case-insensitive to prevent near-duplicates
+    const alreadyExists = flags.some((f) => f.toLowerCase() === trimmed.toLowerCase())
+    if (!trimmed || alreadyExists) {
+      // If it already exists just select it, don't create a duplicate
+      if (alreadyExists && trimmed) {
+        const existing = flags.find((f) => f.toLowerCase() === trimmed.toLowerCase())!
+        setActiveFlag(existing)
+        saveStoredActiveFlag(existing)
+      }
+      setShowNewFlagInput(false)
+      setNewFlagInput('')
+      return
+    }
+
+    setNewFlagSaving(true)
+    try {
+      if (navigator.onLine) {
+        // Online: persist to DB immediately, get back the full canonical list
+        const res = await createFlag(trimmed)
+        if (res.ok) {
+          const deduped = [...new Set(res.flags)]
+          setFlags(deduped)
+          await cacheFlags(deduped)
+          setActiveFlag(trimmed)
+          saveStoredActiveFlag(trimmed)
+        }
+      } else {
+        // Offline: add to local pending queue + update IDB cache + state
+        await enqueuePendingFlag(trimmed)
+        const newList = [...new Set([...flags, trimmed])]
+        setFlags(newList)
+        await cacheFlags(newList)
+        setActiveFlag(trimmed)
+        saveStoredActiveFlag(trimmed)
+      }
+    } finally {
+      setNewFlagSaving(false)
+      setShowNewFlagInput(false)
+      setNewFlagInput('')
+    }
+  }
+
+  // ─── Flag selector ─────────────────────────────────────────────────────────
+
+  function FlagSelector() {
+    return (
+      <div className="space-y-2">
+        {/* Row 1: label + active pill + dropdown */}
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-semibold text-muted-foreground shrink-0">Select Flag:</span>
+
+          {/* Active flag pill */}
+          <span className="inline-flex items-center gap-1 rounded-full border border-blue-300 bg-blue-50 px-2.5 py-0.5 text-xs font-semibold text-blue-700 shrink-0 max-w-[120px] truncate">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-3 w-3 shrink-0">
+              <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
+              <line x1="4" y1="22" x2="4" y2="15" />
+            </svg>
+            <span className="truncate">{activeFlag || '…'}</span>
+          </span>
+
+          {/* Dropdown — existing flags + "+ New flag" option */}
+          <select
+            value={activeFlag}
+            disabled={flagsLoading}
+            onChange={(e) => {
+              const val = e.target.value
+              if (val === '__new__') {
+                setShowNewFlagInput(true)
+              } else {
+                setActiveFlag(val)
+                saveStoredActiveFlag(val)
+                setShowNewFlagInput(false)
+              }
+            }}
+            className="h-7 min-w-0 flex-1 rounded-md border border-input bg-background px-2 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer"
+          >
+            {flags.map((f) => (
+              <option key={f} value={f}>{f}</option>
+            ))}
+            <option value="__new__">＋ New flag</option>
+          </select>
+        </div>
+
+        {/* Row 2: new flag input — only shown after selecting "+ New flag" */}
+        {showNewFlagInput && (
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              autoFocus
+              placeholder="Flag name…"
+              value={newFlagInput}
+              disabled={newFlagSaving}
+              onChange={(e) => setNewFlagInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') { e.preventDefault(); handleAddFlag() }
+                if (e.key === 'Escape') { setShowNewFlagInput(false); setNewFlagInput('') }
+              }}
+              className="h-7 flex-1 min-w-0 rounded-md border border-input bg-background px-2 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50"
+            />
+            <button
+              type="button"
+              disabled={newFlagSaving}
+              onClick={handleAddFlag}
+              className="h-7 shrink-0 rounded-md border border-blue-300 bg-blue-50 px-3 text-xs font-medium text-blue-700 hover:bg-blue-100 disabled:opacity-50"
+            >
+              {newFlagSaving ? '…' : 'Add'}
+            </button>
+            <button
+              type="button"
+              disabled={newFlagSaving}
+              onClick={() => { setShowNewFlagInput(false); setNewFlagInput('') }}
+              className="h-7 shrink-0 rounded-md border border-input bg-background px-3 text-xs text-muted-foreground hover:bg-muted disabled:opacity-50"
+            >
+              Cancel
+            </button>
+          </div>
+        )}
       </div>
     )
   }
@@ -973,6 +1190,10 @@ export function ScannerPage() {
                     <span className={`text-[10px] sm:text-xs font-medium ${isFlashlightOn ? 'text-green-600' : 'text-muted-foreground'}`}>ON</span>
                   </div>
                 </div>
+                {/* ── Flag selector row — below title/description ── */}
+                <div className="pt-2">
+                  <FlagSelector />
+                </div>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="relative bg-black rounded-lg overflow-hidden aspect-video">
@@ -1038,6 +1259,10 @@ export function ScannerPage() {
               <CardHeader className="px-4 py-3 sm:px-6 sm:py-4">
                 <CardTitle className="text-base">{t('manualEntryTitle')}</CardTitle>
                 <CardDescription className="text-xs">{t('manualEntryDesc')}</CardDescription>
+                {/* ── Flag selector row ── */}
+                <div className="pt-2">
+                  <FlagSelector />
+                </div>
               </CardHeader>
               <CardContent className="px-4 pb-4 sm:px-6">
                 <form onSubmit={handleManualForm} className="space-y-3">

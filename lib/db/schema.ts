@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, boolean, serial, integer, jsonb, numeric } from 'drizzle-orm/pg-core'
+import { pgTable, text, timestamp, boolean, serial, integer, jsonb, numeric, unique } from 'drizzle-orm/pg-core'
 
 // --- Better Auth required tables -------------------------------------------
 // Column names are camelCase to match Better Auth's defaults. Do not rename.
@@ -79,3 +79,10 @@ export const scans = pgTable('scans', {
   createdAt: timestamp('createdAt').notNull().defaultNow(),
   updatedAt: timestamp('updatedAt').notNull().defaultNow(),
 })
+
+// Scan grouping flags — shared across all users, list displayed in scanner UI
+export const flags = pgTable('flags', {
+  id:        serial('id').primaryKey(),
+  name:      text('name').notNull(),
+  createdAt: timestamp('createdAt').notNull().defaultNow(),
+}, (t) => [unique('flags_name_unique').on(t.name)])
