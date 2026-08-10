@@ -29,6 +29,36 @@ type RecentScan = Awaited<ReturnType<typeof getRecentScans>>[number]
 // even after a page refresh (server session isn't reachable offline).
 const USER_KEY = 'shayona-offline-user'
 
+// ─── Daily scan counter ───────────────────────────────────────────────────────
+// Persisted in localStorage as { date: 'YYYY-MM-DD', count: number }
+// Resets automatically when the calendar date changes (midnight).
+const DAILY_SCAN_KEY = 'shayona-daily-scan-count'
+
+function getTodayDateStr(): string {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+function getDailyScanCount(): number {
+  if (typeof window === 'undefined') return 0
+  try {
+    const raw = localStorage.getItem(DAILY_SCAN_KEY)
+    if (!raw) return 0
+    const { date, count } = JSON.parse(raw) as { date: string; count: number }
+    if (date !== getTodayDateStr()) return 0
+    return count ?? 0
+  } catch {
+    return 0
+  }
+}
+
+function incrementDailyScanCount(): number {
+  if (typeof window === 'undefined') return 0
+  const next = getDailyScanCount() + 1
+  localStorage.setItem(DAILY_SCAN_KEY, JSON.stringify({ date: getTodayDateStr(), count: next }))
+  return next
+}
+
 function getCachedUser(): string {
   if (typeof window === 'undefined') return ''
   return localStorage.getItem(USER_KEY) ?? ''
@@ -81,6 +111,7 @@ export function ScannerPage() {
   // QR code isn't re-read while the worker is still holding the device.
   const scanPausedRef = useRef(false)
 
+  const [dailyScanCount, setDailyScanCount] = useState<number>(0)
   const [userName, setUserName] = useState<string>('')
   const [recentScans, setRecentScans] = useState<RecentScan[]>([])
   const [recentLoading, setRecentLoading] = useState(false)
@@ -138,6 +169,9 @@ export function ScannerPage() {
 
   // ── Mount: load user, recent scans, offline queue, auto-start camera ───────
   useEffect(() => {
+    // Restore persisted daily scan count (works offline)
+    setDailyScanCount(getDailyScanCount())
+
     // Restore cached username immediately (available offline)
     const cached = getCachedUser()
     if (cached) setUserName(cached)
@@ -447,6 +481,7 @@ export function ScannerPage() {
       await enqueue(entry)
       await refreshOfflineQueue()
       setLastOfflineScan(entry)
+      setDailyScanCount(incrementDailyScanCount())
       showSuccess(t('offlineSaved'))
       return
     }
@@ -464,6 +499,7 @@ export function ScannerPage() {
       return
     }
     setLastCameraScan(res.data)
+    setDailyScanCount(incrementDailyScanCount())
     showSuccess(t('cameraScanSuccess'))
     loadRecentScans()
   }
@@ -823,7 +859,14 @@ export function ScannerPage() {
               <CardHeader className="px-3 py-3 sm:px-6 sm:py-4">
                 <div className="flex items-center justify-between gap-2">
                   <div className="min-w-0">
-                    <CardTitle className="text-sm sm:text-base lg:text-lg truncate">{t('qrCodeScanner')}</CardTitle>
+                    <div className="flex items-center gap-2">
+                      <CardTitle className="text-sm sm:text-base lg:text-lg truncate">{t('qrCodeScanner')}</CardTitle>
+                      {dailyScanCount > 0 && (
+                        <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-green-500 px-1.5 text-xs font-bold text-white">
+                          {dailyScanCount}
+                        </span>
+                      )}
+                    </div>
                     <CardDescription className="text-xs sm:text-sm truncate">{t('qrScannerDesc')}</CardDescription>
                   </div>
                   <div className="flex items-center gap-1 sm:gap-1.5 rounded-full border px-2 sm:px-3 py-1 sm:py-1.5 bg-background shadow-sm shrink-0">
