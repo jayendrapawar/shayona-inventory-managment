@@ -68,11 +68,25 @@ function setCachedUser(name: string) {
   localStorage.setItem(USER_KEY, name)
 }
 
+// Maximum width/height used when downscaling the video frame for jsQR.
+// A 480-pixel wide image gives jsQR enough resolution to reliably read QR
+// codes while processing ~9× fewer pixels than a 1080p or 4K frame.
+const SCAN_MAX_DIM = 480
+
+// Minimum milliseconds between jsQR decode attempts.  rAF fires at ~60 fps
+// which is far faster than jsQR can decode; throttling to ~15 fps keeps the
+// main thread responsive without missing any real-world scan opportunity.
+const SCAN_INTERVAL_MS = 66 // ≈15 fps
+
 export function ScannerPage() {
   const router = useRouter()
   const { t } = useLanguage()
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  // Offscreen canvas used exclusively for downscaled QR decoding so we never
+  // have to reset its dimensions (avoids the expensive context flush).
+  const scanCanvasRef = useRef<HTMLCanvasElement | null>(null)
+  const lastScanTimeRef = useRef<number>(0)
   const [isCameraActive, setIsCameraActive] = useState(false)
   const [isFlashlightOn, setIsFlashlightOn] = useState(false)
   const [manualForm, setManualForm] = useState<{
@@ -299,7 +313,13 @@ export function ScannerPage() {
       setError(null)
       setSuccessMsg(null)
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment' },
+        video: {
+          facingMode: 'environment',
+          // Request a modest resolution — enough for QR scanning but much
+          // lighter than the 4K default on modern phones.
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+        },
         audio: false,
       })
       if (!videoRef.current) {
@@ -438,21 +458,47 @@ export function ScannerPage() {
       requestAnimationFrame(() => scanLoop(video))
       return
     }
-    const canvas = canvasRef.current
-    if (!canvas) return
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
-    canvas.width = video.videoWidth
-    canvas.height = video.videoHeight
-    ctx.drawImage(video, 0, 0)
+
     // Skip frame during post-scan cooldown — camera stays live
     if (scanPausedRef.current) {
       requestAnimationFrame(() => scanLoop(video))
       return
     }
 
+    // Throttle: only decode once per SCAN_INTERVAL_MS to keep the main
+    // thread free.  rAF still fires at 60 fps so the video preview stays
+    // smooth; we just skip the expensive jsQR call on most frames.
+    const now = performance.now()
+    if (now - lastScanTimeRef.current < SCAN_INTERVAL_MS) {
+      requestAnimationFrame(() => scanLoop(video))
+      return
+    }
+    lastScanTimeRef.current = now
+
+    // Lazily create (or reuse) the offscreen scan canvas.  We size it once
+    // here and never reset its dimensions, avoiding the costly context flush
+    // that happens when you write to canvas.width / canvas.height.
+    let sc = scanCanvasRef.current
+    const scale = Math.min(1, SCAN_MAX_DIM / Math.max(video.videoWidth, video.videoHeight))
+    const sw = Math.round(video.videoWidth * scale)
+    const sh = Math.round(video.videoHeight * scale)
+    if (!sc || sc.width !== sw || sc.height !== sh) {
+      sc = document.createElement('canvas')
+      sc.width = sw
+      sc.height = sh
+      scanCanvasRef.current = sc
+    }
+    const sctx = sc.getContext('2d', { willReadFrequently: true })
+    if (!sctx) {
+      requestAnimationFrame(() => scanLoop(video))
+      return
+    }
+
+    // Draw the video frame downscaled into the small scan canvas.
+    sctx.drawImage(video, 0, 0, sw, sh)
+
     try {
-      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
+      const imageData = sctx.getImageData(0, 0, sw, sh)
       const code = jsQR(imageData.data, imageData.width, imageData.height)
       if (code) {
         // Pause reading for 2s so the same QR isn't re-read immediately
