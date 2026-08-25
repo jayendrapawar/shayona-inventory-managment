@@ -61,11 +61,11 @@ export function AdminDashboard({ stats, orders, users }: Props) {
 
         {/* Stats Row */}
         <div className="grid grid-cols-3 sm:grid-cols-6 gap-3 mb-6">
-          <StatCard label="Total" value={stats.total} />
+          <StatCard label="Active" value={stats.total} />
           <StatCard label="Pending" value={stats.pending} color="text-yellow-600" />
           <StatCard label="Packed" value={stats.packed} color="text-purple-600" />
           <StatCard label="Dispatched" value={stats.dispatched} color="text-orange-600" />
-          <StatCard label="Delivered" value={stats.delivered} color="text-green-600" />
+          <StatCard label="Return" value={stats.delivered} color="text-green-600" />
           <StatCard label="Cancelled" value={stats.cancelled} color="text-red-600" />
         </div>
 
