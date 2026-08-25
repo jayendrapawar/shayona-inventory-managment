@@ -56,7 +56,7 @@ const MENU_ITEMS: MenuItem[] = [
   },
   {
     label: 'Master',
-    description: 'Users, roles & master data',
+    description: 'Manage products, categories and suppliers',
     href: '/master',
     icon: BookOpen,
     color: 'bg-teal-50 text-teal-600 dark:bg-teal-950 dark:text-teal-400',
