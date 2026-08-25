@@ -1,7 +1,7 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-import { ScanBarcode, ShoppingCart, Receipt, Package } from 'lucide-react'
+import { ScanBarcode, ShoppingCart, Receipt, Package, BookOpen, BarChart2 } from 'lucide-react'
 
 interface MenuItem {
   label: string
@@ -47,13 +47,29 @@ const MENU_ITEMS: MenuItem[] = [
     color: 'bg-orange-50 text-orange-600 dark:bg-orange-950 dark:text-orange-400',
     border: 'border-orange-200 dark:border-orange-800',
   },
+  {
+    label: 'Master',
+    description: 'Manage products, categories and suppliers',
+    href: '/master',
+    icon: BookOpen,
+    color: 'bg-teal-50 text-teal-600 dark:bg-teal-950 dark:text-teal-400',
+    border: 'border-teal-200 dark:border-teal-800',
+  },
+  {
+    label: 'Reports',
+    description: 'Inventory analytics and business reports',
+    href: '/reports',
+    icon: BarChart2,
+    color: 'bg-rose-50 text-rose-600 dark:bg-rose-950 dark:text-rose-400',
+    border: 'border-rose-200 dark:border-rose-800',
+  },
 ]
 
 export function HomeMenuPage() {
   const router = useRouter()
 
   return (
-    <div className="min-h-screen bg-background flex flex-col items-center justify-center px-4 py-12">
+    <div className="min-h-screen bg-background flex flex-col items-center justify-center px-4 pt-4 pb-12">
       <div className="w-full max-w-md">
         <div className="mb-8 text-center">
           <h1 className="text-2xl font-bold text-foreground tracking-tight">Shayona Inventory</h1>
