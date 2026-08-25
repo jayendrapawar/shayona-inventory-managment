@@ -14,6 +14,7 @@ export const STATUS_BADGE: Record<string, { label: string; color: string }> = {
 
 export const ROLE_BADGE: Record<string, { label: string; color: string }> = {
   admin:      { label: 'Admin',       color: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400' },
+  accountant: { label: 'Accountant',  color: 'bg-teal-100 text-teal-800 dark:bg-teal-900/30 dark:text-teal-400' },
   salesman:   { label: 'Salesman',    color: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400' },
   picker:     { label: 'Picker',      color: 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400' },
   dispatcher: { label: 'Dispatcher',  color: 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400' },
