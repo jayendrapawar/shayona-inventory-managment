@@ -6,10 +6,10 @@ import { user } from '@/lib/db/schema'
 import { eq } from 'drizzle-orm'
 import { isRedirectError } from 'next/dist/client/components/redirect-error'
 import { getAllOrders, getOrderStats } from '@/app/actions/orders'
-import { getAllUsers } from '@/app/actions/users'
+import { getUsersByRole } from '@/app/actions/users'
 import { AdminDashboard } from './admin-dashboard'
 
-export const metadata = { title: 'Admin — Orders | Shayona' }
+export const metadata = { title: 'Orders Dashboard | Shayona' }
 
 export default async function AdminPage() {
   try {
@@ -22,11 +22,20 @@ export default async function AdminPage() {
     redirect('/sign-in')
   }
 
-  const [stats, allOrders, allUsers] = await Promise.all([
+  const [stats, allOrders, pickerRows] = await Promise.all([
     getOrderStats(),
     getAllOrders(),
-    getAllUsers(),
+    getUsersByRole('picker'),
   ])
 
-  return <AdminDashboard stats={stats} orders={allOrders} users={allUsers} />
+  // Map picker rows to the shape AdminDashboard expects
+  const pickers = pickerRows.map(p => ({
+    id: p.id,
+    name: p.name,
+    email: p.email,
+    role: 'picker' as const,
+    createdAt: new Date(),
+  }))
+
+  return <AdminDashboard stats={stats} orders={allOrders} pickers={pickers} />
 }

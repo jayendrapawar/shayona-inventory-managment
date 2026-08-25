@@ -2,6 +2,7 @@
 
 import { useRouter } from 'next/navigation'
 import { ScanBarcode, ShoppingCart, Receipt, Package, BookOpen, BarChart2 } from 'lucide-react'
+import type { AppRole } from '@/app/actions/users'
 
 interface MenuItem {
   label: string
@@ -11,8 +12,10 @@ interface MenuItem {
   color: string
   border: string
   badge?: string
+  roles: AppRole[]
 }
 
+// roles: which roles can see this tile. Empty = all roles.
 const MENU_ITEMS: MenuItem[] = [
   {
     label: 'Scanner',
@@ -21,6 +24,7 @@ const MENU_ITEMS: MenuItem[] = [
     icon: ScanBarcode,
     color: 'bg-blue-50 text-blue-600 dark:bg-blue-950 dark:text-blue-400',
     border: 'border-blue-200 dark:border-blue-800',
+    roles: ['admin', 'accountant', 'salesman', 'picker', 'dispatcher', 'user'],
   },
   {
     label: 'Orders',
@@ -30,6 +34,7 @@ const MENU_ITEMS: MenuItem[] = [
     color: 'bg-green-50 text-green-600 dark:bg-green-950 dark:text-green-400',
     border: 'border-green-200 dark:border-green-800',
     badge: 'New',
+    roles: ['admin', 'salesman', 'picker', 'dispatcher'],
   },
   {
     label: 'Billing',
@@ -38,6 +43,7 @@ const MENU_ITEMS: MenuItem[] = [
     icon: Receipt,
     color: 'bg-purple-50 text-purple-600 dark:bg-purple-950 dark:text-purple-400',
     border: 'border-purple-200 dark:border-purple-800',
+    roles: ['admin', 'accountant'],
   },
   {
     label: 'Purchases',
@@ -46,14 +52,16 @@ const MENU_ITEMS: MenuItem[] = [
     icon: Package,
     color: 'bg-orange-50 text-orange-600 dark:bg-orange-950 dark:text-orange-400',
     border: 'border-orange-200 dark:border-orange-800',
+    roles: ['admin', 'accountant'],
   },
   {
     label: 'Master',
-    description: 'Manage products, categories and suppliers',
+    description: 'Users, roles & master data',
     href: '/master',
     icon: BookOpen,
     color: 'bg-teal-50 text-teal-600 dark:bg-teal-950 dark:text-teal-400',
     border: 'border-teal-200 dark:border-teal-800',
+    roles: ['admin', 'accountant'],
   },
   {
     label: 'Reports',
@@ -62,11 +70,13 @@ const MENU_ITEMS: MenuItem[] = [
     icon: BarChart2,
     color: 'bg-rose-50 text-rose-600 dark:bg-rose-950 dark:text-rose-400',
     border: 'border-rose-200 dark:border-rose-800',
+    roles: ['admin', 'accountant'],
   },
 ]
 
-export function HomeMenuPage() {
+export function HomeMenuPage({ role }: { role: AppRole }) {
   const router = useRouter()
+  const visible = MENU_ITEMS.filter(item => item.roles.includes(role))
 
   return (
     <div className="min-h-screen bg-background flex flex-col items-center justify-center px-4 pt-4 pb-12">
@@ -77,7 +87,7 @@ export function HomeMenuPage() {
         </div>
 
         <div className="grid grid-cols-2 gap-4">
-          {MENU_ITEMS.map(({ label, description, href, icon: Icon, color, border, badge }) => (
+          {visible.map(({ label, description, href, icon: Icon, color, border, badge }) => (
             <button
               key={href}
               onClick={() => router.push(href)}

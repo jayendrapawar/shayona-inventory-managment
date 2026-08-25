@@ -7,7 +7,7 @@ import { eq } from 'drizzle-orm'
 import { headers } from 'next/headers'
 import { revalidatePath } from 'next/cache'
 
-export type AppRole = 'admin' | 'salesman' | 'picker' | 'dispatcher' | 'user'
+export type AppRole = 'admin' | 'accountant' | 'salesman' | 'picker' | 'dispatcher' | 'user'
 
 async function requireAdmin() {
   const session = await auth.api.getSession({ headers: await headers() })
@@ -36,6 +36,7 @@ export async function getUsersByRole(role: AppRole) {
 export async function updateUserRole(userId: string, role: AppRole) {
   await requireAdmin()
   await db.update(user).set({ role }).where(eq(user.id, userId))
+  revalidatePath('/master')
   revalidatePath('/orders/admin')
 }
 
