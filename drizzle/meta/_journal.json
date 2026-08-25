@@ -15,6 +15,13 @@
       "when": 1786356175856,
       "tag": "0001_regular_shocker",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1787686965718,
+      "tag": "0002_happy_the_initiative",
+      "breakpoints": true
     }
   ]
 }

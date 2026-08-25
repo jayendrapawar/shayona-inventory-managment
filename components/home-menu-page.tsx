@@ -3,7 +3,17 @@
 import { useRouter } from 'next/navigation'
 import { ScanBarcode, ShoppingCart, Receipt, Package } from 'lucide-react'
 
-const MENU_ITEMS = [
+interface MenuItem {
+  label: string
+  description: string
+  href: string
+  icon: React.ElementType
+  color: string
+  border: string
+  badge?: string
+}
+
+const MENU_ITEMS: MenuItem[] = [
   {
     label: 'Scanner',
     description: 'Scan warehouse inventory items',
@@ -14,11 +24,12 @@ const MENU_ITEMS = [
   },
   {
     label: 'Orders',
-    description: 'View and manage customer orders',
+    description: 'Manage sales, packing & dispatch',
     href: '/orders',
     icon: ShoppingCart,
     color: 'bg-green-50 text-green-600 dark:bg-green-950 dark:text-green-400',
     border: 'border-green-200 dark:border-green-800',
+    badge: 'New',
   },
   {
     label: 'Billing',
@@ -50,12 +61,17 @@ export function HomeMenuPage() {
         </div>
 
         <div className="grid grid-cols-2 gap-4">
-          {MENU_ITEMS.map(({ label, description, href, icon: Icon, color, border }) => (
+          {MENU_ITEMS.map(({ label, description, href, icon: Icon, color, border, badge }) => (
             <button
               key={href}
               onClick={() => router.push(href)}
-              className={`flex flex-col items-center gap-3 rounded-2xl border ${border} bg-card p-6 text-center shadow-sm transition-all duration-150 hover:shadow-md active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring`}
+              className={`relative flex flex-col items-center gap-3 rounded-2xl border ${border} bg-card p-6 text-center shadow-sm transition-all duration-150 hover:shadow-md active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring`}
             >
+              {badge && (
+                <span className="absolute top-2.5 right-2.5 rounded-full bg-green-500 px-1.5 py-0.5 text-[10px] font-semibold text-white leading-none">
+                  {badge}
+                </span>
+              )}
               <span className={`flex h-14 w-14 items-center justify-center rounded-xl ${color}`}>
                 <Icon className="h-7 w-7" />
               </span>
