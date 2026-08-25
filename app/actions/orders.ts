@@ -81,6 +81,34 @@ export async function createOrder(input: CreateOrderInput) {
   return order
 }
 
+export async function updateOrder(orderId: number, input: CreateOrderInput) {
+  const u = await requireRole('salesman', 'admin')
+  const [order] = await db.select({ salesmanId: orders.salesmanId, status: orders.status })
+    .from(orders).where(eq(orders.id, orderId)).limit(1)
+  if (!order) throw new Error('Order not found')
+  if (order.salesmanId !== u.id && u.role !== 'admin') throw new Error('Forbidden')
+  if (!['pending', 'assigned'].includes(order.status)) throw new Error('Only pending or assigned orders can be edited')
+
+  // Replace shopkeeper name + notes
+  await db.update(orders)
+    .set({ shopkeeperName: input.shopkeeperName, notes: input.notes ?? null, updatedAt: sql`now()` })
+    .where(eq(orders.id, orderId))
+
+  // Replace all items: delete old, insert new
+  await db.delete(orderItems).where(eq(orderItems.orderId, orderId))
+  await db.insert(orderItems).values(
+    input.items.map(item => ({
+      orderId,
+      artNumber: item.artNumber.toUpperCase(),
+      colorNumber: item.colorNumber?.toUpperCase(),
+      sizeNumber: item.sizeNumber?.toUpperCase(),
+      quantityOrdered: item.quantityOrdered,
+    }))
+  )
+
+  revalidatePath('/orders')
+}
+
 export async function getSalesmanOrders() {
   const u = await requireRole('salesman', 'admin')
   return db
@@ -88,8 +116,6 @@ export async function getSalesmanOrders() {
       id: orders.id,
       orderNumber: orders.orderNumber,
       shopkeeperName: orders.shopkeeperName,
-      shopkeeperPhone: orders.shopkeeperPhone,
-      shopkeeperAddress: orders.shopkeeperAddress,
       status: orders.status,
       notes: orders.notes,
       orderedAt: orders.orderedAt,
@@ -97,6 +123,45 @@ export async function getSalesmanOrders() {
     .from(orders)
     .where(eq(orders.salesmanId, u.id))
     .orderBy(desc(orders.orderedAt))
+}
+
+/** Admin-only: returns ALL orders regardless of salesmanId. */
+export async function getAllSalesmanOrders() {
+  await requireRole('admin')
+  return db
+    .select({
+      id: orders.id,
+      orderNumber: orders.orderNumber,
+      shopkeeperName: orders.shopkeeperName,
+      status: orders.status,
+      notes: orders.notes,
+      orderedAt: orders.orderedAt,
+    })
+    .from(orders)
+    .orderBy(desc(orders.orderedAt))
+}
+
+export async function getSalesmanOrderWithItems(orderId: number) {
+  const u = await requireRole('salesman', 'admin')
+  const [order] = await db.select().from(orders)
+    .where(eq(orders.id, orderId)).limit(1)
+  if (!order) throw new Error('Order not found')
+  if (order.salesmanId !== u.id && u.role !== 'admin') throw new Error('Forbidden')
+  const items = await db.select().from(orderItems).where(eq(orderItems.orderId, orderId))
+  return { order, items }
+}
+
+export async function cancelOrder(orderId: number) {
+  const u = await requireRole('salesman', 'admin')
+  const [order] = await db.select({ salesmanId: orders.salesmanId, status: orders.status })
+    .from(orders).where(eq(orders.id, orderId)).limit(1)
+  if (!order) throw new Error('Order not found')
+  if (order.salesmanId !== u.id && u.role !== 'admin') throw new Error('Forbidden')
+  if (!['pending', 'assigned'].includes(order.status)) throw new Error('Only pending or assigned orders can be cancelled')
+  await db.update(orders)
+    .set({ status: 'cancelled', updatedAt: sql`now()` })
+    .where(eq(orders.id, orderId))
+  revalidatePath('/orders')
 }
 
 // ── Picker actions ────────────────────────────────────────────────────────────

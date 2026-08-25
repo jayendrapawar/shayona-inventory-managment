@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, boolean, serial, integer, jsonb, numeric, unique, pgEnum } from 'drizzle-orm/pg-core'
+import { pgTable, text, timestamp, boolean, serial, integer, jsonb, numeric, unique, pgEnum, index } from 'drizzle-orm/pg-core'
 
 // --- Better Auth required tables -------------------------------------------
 // Column names are camelCase to match Better Auth's defaults. Do not rename.
@@ -56,6 +56,52 @@ export const verification = pgTable('verification', {
   createdAt: timestamp('createdAt').defaultNow(),
   updatedAt: timestamp('updatedAt').defaultNow(),
 })
+
+// --- Master data tables ---
+
+export const shopkeepers = pgTable('shopkeepers', {
+  id:        serial('id').primaryKey(),
+  name:      text('name').notNull(),
+  code:      text('code'),
+  phone:     text('phone'),
+  address:   text('address'),
+  createdAt: timestamp('createdAt').notNull().defaultNow(),
+  updatedAt: timestamp('updatedAt').notNull().defaultNow(),
+}, (t) => [
+  index('shopkeepers_name_idx').on(t.name),
+])
+
+export const articles = pgTable('articles', {
+  id:        serial('id').primaryKey(),
+  artNumber: text('artNumber').notNull().unique(),
+  mrp:       numeric('mrp'),
+  rate:      numeric('rate'),
+  createdAt: timestamp('createdAt').notNull().defaultNow(),
+  updatedAt: timestamp('updatedAt').notNull().defaultNow(),
+}, (t) => [
+  index('articles_art_number_idx').on(t.artNumber),
+])
+
+export const articleColors = pgTable('article_colors', {
+  id:          serial('id').primaryKey(),
+  articleId:   integer('articleId').notNull().references(() => articles.id, { onDelete: 'cascade' }),
+  colorName:   text('colorName').notNull(),
+  colorHex:    text('colorHex'),
+  createdAt:   timestamp('createdAt').notNull().defaultNow(),
+})
+
+export const articleSizes = pgTable('article_sizes', {
+  id:          serial('id').primaryKey(),
+  articleId:   integer('articleId').notNull().references(() => articles.id, { onDelete: 'cascade' }),
+  sizeLabel:   text('sizeLabel').notNull(),
+  sortOrder:   integer('sortOrder').notNull().default(0),
+  createdAt:   timestamp('createdAt').notNull().defaultNow(),
+})
+
+export type Shopkeeper = typeof shopkeepers.$inferSelect
+export type Article    = typeof articles.$inferSelect
+export type ArticleColor = typeof articleColors.$inferSelect
+export type ArticleSize  = typeof articleSizes.$inferSelect
 
 // --- App tables: Inventory Management ---
 

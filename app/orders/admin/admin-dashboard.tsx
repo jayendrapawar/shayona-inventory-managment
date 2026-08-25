@@ -21,19 +21,17 @@ export function AdminDashboard({ stats, orders, pickers }: Props) {
   const [search, setSearch] = useState('')
 
   const filteredOrders = orders.filter(o =>
-    !search || o.shopkeeperName.toLowerCase().includes(search.toLowerCase()) || o.orderNumber.toLowerCase().includes(search.toLowerCase())
+    !search ||
+    o.shopkeeperName.toLowerCase().includes(search.toLowerCase()) ||
+    o.orderNumber.toLowerCase().includes(search.toLowerCase())
   )
 
   function handleStatusChange(orderId: number, status: string) {
-    startTransition(async () => {
-      await adminUpdateOrderStatus(orderId, status as OrderStatus)
-    })
+    startTransition(async () => { await adminUpdateOrderStatus(orderId, status as OrderStatus) })
   }
 
   function handleAssignPicker(orderId: number, pickerId: string) {
-    startTransition(async () => {
-      await adminAssignPicker(orderId, pickerId)
-    })
+    startTransition(async () => { await adminAssignPicker(orderId, pickerId) })
   }
 
   return (
@@ -44,27 +42,79 @@ export function AdminDashboard({ stats, orders, pickers }: Props) {
           <a href="/home" className="text-sm text-muted-foreground hover:text-foreground transition-colors">← Home</a>
         </div>
 
-        {/* Stats Row */}
+        {/* Stats */}
         <div className="grid grid-cols-3 sm:grid-cols-6 gap-3 mb-6">
-          <StatCard label="Active" value={stats.total} />
-          <StatCard label="Pending" value={stats.pending} color="text-yellow-600" />
-          <StatCard label="Packed" value={stats.packed} color="text-purple-600" />
+          <StatCard label="Active"     value={stats.total}      />
+          <StatCard label="Pending"    value={stats.pending}    color="text-yellow-600" />
+          <StatCard label="Packed"     value={stats.packed}     color="text-purple-600" />
           <StatCard label="Dispatched" value={stats.dispatched} color="text-orange-600" />
-          <StatCard label="Delivered" value={stats.delivered} color="text-green-600" />
-          <StatCard label="Cancelled" value={stats.cancelled} color="text-red-600" />
+          <StatCard label="Delivered"  value={stats.delivered}  color="text-green-600"  />
+          <StatCard label="Cancelled"  value={stats.cancelled}  color="text-red-600"    />
         </div>
 
         {/* Search */}
         <input
           type="search"
-          placeholder="Search orders…"
+          placeholder="Search by order or shopkeeper…"
           value={search}
           onChange={e => setSearch(e.target.value)}
           className="w-full mb-4 rounded-lg border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
         />
 
-        {/* Orders Table */}
-        <div className="rounded-xl border border-border overflow-hidden">
+        {filteredOrders.length === 0 && (
+          <p className="text-center py-10 text-sm text-muted-foreground">No orders found</p>
+        )}
+
+        {/* ── Mobile: card list ── */}
+        <div className="sm:hidden space-y-3">
+          {filteredOrders.map(order => (
+            <div key={order.id} className="rounded-xl border border-border bg-card p-4 space-y-3">
+              {/* Header row */}
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <p className="font-mono text-xs font-semibold text-foreground">{order.orderNumber}</p>
+                  <p className="text-sm font-medium text-foreground mt-0.5">{order.shopkeeperName}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">{fmt(order.orderedAt)}</p>
+                </div>
+                <StatusPill status={order.status} />
+              </div>
+
+              {/* Actions */}
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <p className="text-[10px] font-medium text-muted-foreground mb-1 uppercase tracking-wide">Assign Picker</p>
+                  <select
+                    disabled={isPending}
+                    defaultValue={order.pickerId ?? ''}
+                    onChange={e => e.target.value && handleAssignPicker(order.id, e.target.value)}
+                    className="w-full rounded-lg border border-border bg-background px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
+                  >
+                    <option value="">Select picker</option>
+                    {pickers.map(p => (
+                      <option key={p.id} value={p.id}>{p.name ?? p.email}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <p className="text-[10px] font-medium text-muted-foreground mb-1 uppercase tracking-wide">Status</p>
+                  <select
+                    disabled={isPending}
+                    defaultValue={order.status}
+                    onChange={e => handleStatusChange(order.id, e.target.value)}
+                    className="w-full rounded-lg border border-border bg-background px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
+                  >
+                    {ORDER_STATUSES.map(s => (
+                      <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* ── Desktop: table ── */}
+        <div className="hidden sm:block rounded-xl border border-border overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-muted/50">
@@ -78,9 +128,6 @@ export function AdminDashboard({ stats, orders, pickers }: Props) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {filteredOrders.length === 0 && (
-                  <tr><td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">No orders found</td></tr>
-                )}
                 {filteredOrders.map(order => (
                   <tr key={order.id} className="hover:bg-muted/30 transition-colors">
                     <td className="px-4 py-3 font-mono text-xs font-medium">{order.orderNumber}</td>
