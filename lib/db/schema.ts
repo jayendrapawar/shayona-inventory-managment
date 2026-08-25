@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, boolean, serial, integer, jsonb, numeric, unique } from 'drizzle-orm/pg-core'
+import { pgTable, text, timestamp, boolean, serial, integer, jsonb, numeric, unique, pgEnum } from 'drizzle-orm/pg-core'
 
 // --- Better Auth required tables -------------------------------------------
 // Column names are camelCase to match Better Auth's defaults. Do not rename.
@@ -86,3 +86,59 @@ export const flags = pgTable('flags', {
   name:      text('name').notNull(),
   createdAt: timestamp('createdAt').notNull().defaultNow(),
 }, (t) => [unique('flags_name_unique').on(t.name)])
+
+// --- Order Management ---
+
+export const orderStatusEnum = pgEnum('order_status', [
+  'pending',
+  'assigned',
+  'packed',
+  'dispatched',
+  'delivered',
+  'cancelled',
+])
+
+export const orderItemStatusEnum = pgEnum('order_item_status', [
+  'pending',
+  'packed',
+  'out_of_stock',
+])
+
+export const orders = pgTable('orders', {
+  id:                serial('id').primaryKey(),
+  orderNumber:       text('orderNumber').notNull().unique(),
+  shopkeeperName:    text('shopkeeperName').notNull(),
+  shopkeeperPhone:   text('shopkeeperPhone'),
+  shopkeeperAddress: text('shopkeeperAddress'),
+  salesmanId:        text('salesmanId').references(() => user.id, { onDelete: 'set null' }),
+  pickerId:          text('pickerId').references(() => user.id, { onDelete: 'set null' }),
+  dispatcherId:      text('dispatcherId').references(() => user.id, { onDelete: 'set null' }),
+  status:            orderStatusEnum('status').notNull().default('pending'),
+  notes:             text('notes'),
+  orderedAt:         timestamp('orderedAt').notNull().defaultNow(),
+  packedAt:          timestamp('packedAt'),
+  dispatchedAt:      timestamp('dispatchedAt'),
+  deliveredAt:       timestamp('deliveredAt'),
+  createdAt:         timestamp('createdAt').notNull().defaultNow(),
+  updatedAt:         timestamp('updatedAt').notNull().defaultNow(),
+})
+
+export const orderItems = pgTable('order_items', {
+  id:               serial('id').primaryKey(),
+  orderId:          integer('orderId').notNull().references(() => orders.id, { onDelete: 'cascade' }),
+  artNumber:        text('artNumber').notNull(),
+  colorNumber:      text('colorNumber'),
+  sizeNumber:       text('sizeNumber'),
+  quantityOrdered:  integer('quantityOrdered').notNull().default(1),
+  quantityPacked:   integer('quantityPacked').notNull().default(0),
+  status:           orderItemStatusEnum('status').notNull().default('pending'),
+  createdAt:        timestamp('createdAt').notNull().defaultNow(),
+  updatedAt:        timestamp('updatedAt').notNull().defaultNow(),
+})
+
+export type Order = typeof orders.$inferSelect
+export type NewOrder = typeof orders.$inferInsert
+export type OrderItem = typeof orderItems.$inferSelect
+export type NewOrderItem = typeof orderItems.$inferInsert
+export type OrderStatus = typeof orderStatusEnum.enumValues[number]
+export type OrderItemStatus = typeof orderItemStatusEnum.enumValues[number]

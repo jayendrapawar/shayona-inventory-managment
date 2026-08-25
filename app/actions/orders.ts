@@ -1,0 +1,259 @@
+'use server'
+
+import { auth } from '@/lib/auth'
+import { db } from '@/lib/db'
+import { orders, orderItems, user } from '@/lib/db/schema'
+import type { OrderStatus } from '@/lib/db/schema'
+import { eq, desc, inArray, sql } from 'drizzle-orm'
+import { headers } from 'next/headers'
+import { revalidatePath } from 'next/cache'
+
+// ── Auth helpers ──────────────────────────────────────────────────────────────
+
+async function getSession() {
+  const session = await auth.api.getSession({ headers: await headers() })
+  if (!session?.user) throw new Error('Unauthorized')
+  return session.user
+}
+
+async function requireRole(...roles: string[]) {
+  const u = await getSession()
+  const dbUser = await db.select({ role: user.role }).from(user).where(eq(user.id, u.id)).limit(1)
+  const role = dbUser[0]?.role ?? 'user'
+  if (!roles.includes(role)) throw new Error('Forbidden')
+  return { ...u, role }
+}
+
+// ── Order-number generator ────────────────────────────────────────────────────
+
+function genOrderNumber() {
+  const d = new Date()
+  const ymd = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`
+  const rand = Math.floor(Math.random() * 9000) + 1000
+  return `ORD-${ymd}-${rand}`
+}
+
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+export interface OrderItemInput {
+  artNumber: string
+  colorNumber?: string
+  sizeNumber?: string
+  quantityOrdered: number
+}
+
+export interface CreateOrderInput {
+  shopkeeperName: string
+  shopkeeperPhone?: string
+  shopkeeperAddress?: string
+  notes?: string
+  items: OrderItemInput[]
+}
+
+// ── Salesman actions ──────────────────────────────────────────────────────────
+
+export async function createOrder(input: CreateOrderInput) {
+  const u = await requireRole('salesman', 'admin')
+
+  if (!input.items.length) throw new Error('At least one item required')
+
+  const [order] = await db.insert(orders).values({
+    orderNumber: genOrderNumber(),
+    shopkeeperName: input.shopkeeperName,
+    shopkeeperPhone: input.shopkeeperPhone,
+    shopkeeperAddress: input.shopkeeperAddress,
+    salesmanId: u.id,
+    notes: input.notes,
+    status: 'pending',
+  }).returning()
+
+  await db.insert(orderItems).values(
+    input.items.map((item) => ({
+      orderId: order.id,
+      artNumber: item.artNumber.toUpperCase(),
+      colorNumber: item.colorNumber?.toUpperCase(),
+      sizeNumber: item.sizeNumber?.toUpperCase(),
+      quantityOrdered: item.quantityOrdered,
+    }))
+  )
+
+  revalidatePath('/orders')
+  return order
+}
+
+export async function getSalesmanOrders() {
+  const u = await requireRole('salesman', 'admin')
+  return db
+    .select({
+      id: orders.id,
+      orderNumber: orders.orderNumber,
+      shopkeeperName: orders.shopkeeperName,
+      shopkeeperPhone: orders.shopkeeperPhone,
+      shopkeeperAddress: orders.shopkeeperAddress,
+      status: orders.status,
+      notes: orders.notes,
+      orderedAt: orders.orderedAt,
+    })
+    .from(orders)
+    .where(eq(orders.salesmanId, u.id))
+    .orderBy(desc(orders.orderedAt))
+}
+
+// ── Picker actions ────────────────────────────────────────────────────────────
+
+export async function getPickerQueue() {
+  await requireRole('picker', 'admin')
+  return db
+    .select({
+      id: orders.id,
+      orderNumber: orders.orderNumber,
+      shopkeeperName: orders.shopkeeperName,
+      status: orders.status,
+      orderedAt: orders.orderedAt,
+      pickerId: orders.pickerId,
+    })
+    .from(orders)
+    .where(inArray(orders.status, ['pending', 'assigned']))
+    .orderBy(desc(orders.orderedAt))
+}
+
+export async function getOrderWithItems(orderId: number) {
+  await requireRole('picker', 'dispatcher', 'admin', 'salesman')
+  const [order] = await db.select().from(orders).where(eq(orders.id, orderId)).limit(1)
+  if (!order) throw new Error('Order not found')
+  const items = await db.select().from(orderItems).where(eq(orderItems.orderId, orderId))
+  return { order, items }
+}
+
+export async function updateItemPacked(itemId: number, quantityPacked: number) {
+  await requireRole('picker', 'admin')
+  const [item] = await db.select().from(orderItems).where(eq(orderItems.id, itemId)).limit(1)
+  if (!item) throw new Error('Item not found')
+
+  const newStatus = quantityPacked === 0
+    ? 'pending'
+    : quantityPacked >= item.quantityOrdered
+      ? 'packed'
+      : 'pending'
+
+  await db.update(orderItems)
+    .set({ quantityPacked, status: newStatus, updatedAt: sql`now()` })
+    .where(eq(orderItems.id, itemId))
+
+  revalidatePath('/orders')
+}
+
+export async function markItemOutOfStock(itemId: number) {
+  await requireRole('picker', 'admin')
+  await db.update(orderItems)
+    .set({ status: 'out_of_stock', updatedAt: sql`now()` })
+    .where(eq(orderItems.id, itemId))
+  revalidatePath('/orders')
+}
+
+export async function markOrderPacked(orderId: number) {
+  await requireRole('picker', 'admin')
+  await db.update(orders)
+    .set({ status: 'packed', packedAt: sql`now()`, updatedAt: sql`now()` })
+    .where(eq(orders.id, orderId))
+  revalidatePath('/orders')
+}
+
+// ── Dispatcher actions ────────────────────────────────────────────────────────
+
+export async function getPackedOrders() {
+  await requireRole('dispatcher', 'admin')
+  return db
+    .select({
+      id: orders.id,
+      orderNumber: orders.orderNumber,
+      shopkeeperName: orders.shopkeeperName,
+      shopkeeperPhone: orders.shopkeeperPhone,
+      shopkeeperAddress: orders.shopkeeperAddress,
+      status: orders.status,
+      packedAt: orders.packedAt,
+    })
+    .from(orders)
+    .where(inArray(orders.status, ['packed', 'dispatched']))
+    .orderBy(desc(orders.packedAt))
+}
+
+export async function markDispatched(orderId: number) {
+  const u = await requireRole('dispatcher', 'admin')
+  await db.update(orders)
+    .set({ status: 'dispatched', dispatcherId: u.id, dispatchedAt: sql`now()`, updatedAt: sql`now()` })
+    .where(eq(orders.id, orderId))
+  revalidatePath('/orders')
+}
+
+export async function markDelivered(orderId: number) {
+  await requireRole('dispatcher', 'admin')
+  await db.update(orders)
+    .set({ status: 'delivered', deliveredAt: sql`now()`, updatedAt: sql`now()` })
+    .where(eq(orders.id, orderId))
+  revalidatePath('/orders')
+}
+
+// ── Admin actions ─────────────────────────────────────────────────────────────
+
+export async function getAllOrders() {
+  await requireRole('admin')
+  return db
+    .select({
+      id: orders.id,
+      orderNumber: orders.orderNumber,
+      shopkeeperName: orders.shopkeeperName,
+      status: orders.status,
+      orderedAt: orders.orderedAt,
+      packedAt: orders.packedAt,
+      dispatchedAt: orders.dispatchedAt,
+      deliveredAt: orders.deliveredAt,
+      salesmanId: orders.salesmanId,
+      pickerId: orders.pickerId,
+      dispatcherId: orders.dispatcherId,
+    })
+    .from(orders)
+    .orderBy(desc(orders.orderedAt))
+}
+
+export async function adminUpdateOrderStatus(orderId: number, status: OrderStatus) {
+  await requireRole('admin')
+  const patch: Record<string, unknown> = { status, updatedAt: sql`now()` }
+  if (status === 'packed') patch.packedAt = sql`now()`
+  if (status === 'dispatched') patch.dispatchedAt = sql`now()`
+  if (status === 'delivered') patch.deliveredAt = sql`now()`
+  await db.update(orders).set(patch).where(eq(orders.id, orderId))
+  revalidatePath('/orders')
+}
+
+export async function adminAssignPicker(orderId: number, pickerId: string) {
+  await requireRole('admin')
+  await db.update(orders)
+    .set({ pickerId, status: 'assigned', updatedAt: sql`now()` })
+    .where(eq(orders.id, orderId))
+  revalidatePath('/orders')
+}
+
+export async function getOrderStats() {
+  await requireRole('admin')
+  const [row] = await db.execute<{
+    total: string; pending: string; packed: string; dispatched: string; delivered: string; cancelled: string
+  }>(sql`
+    SELECT
+      count(*)::int AS total,
+      count(*) filter (where status = 'pending')::int   AS pending,
+      count(*) filter (where status = 'packed')::int    AS packed,
+      count(*) filter (where status = 'dispatched')::int AS dispatched,
+      count(*) filter (where status = 'delivered')::int AS delivered,
+      count(*) filter (where status = 'cancelled')::int AS cancelled
+    FROM orders
+  `).then(r => r.rows)
+  return {
+    total:      Number(row?.total ?? 0),
+    pending:    Number(row?.pending ?? 0),
+    packed:     Number(row?.packed ?? 0),
+    dispatched: Number(row?.dispatched ?? 0),
+    delivered:  Number(row?.delivered ?? 0),
+    cancelled:  Number(row?.cancelled ?? 0),
+  }
+}
