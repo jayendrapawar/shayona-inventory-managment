@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useTransition } from 'react'
+import { saveVendor } from '@/app/actions/vendors'
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'] as const
 type Day = typeof DAYS[number]
@@ -77,6 +78,7 @@ export function VendorsTab({ initialVendors, onListChange }: Props) {
   const [editTarget, setEditTarget] = useState<Vendor | null>(null)
   const [form, setForm] = useState<Omit<Vendor, 'id'>>(EMPTY_FORM)
   const [formError, setFormError] = useState('')
+  const [isSaving, startSave] = useTransition()
 
   // ── Copy JSON state ──
   const [copied, setCopied] = useState(false)
@@ -113,13 +115,14 @@ export function VendorsTab({ initialVendors, onListChange }: Props) {
     if (!form.partyName.trim()) { setFormError('Party name is required.'); return }
     if (!form.phone.trim()) { setFormError('Phone is required.'); return }
     setFormError('')
-    if (modalMode === 'add') {
-      const newVendor: Vendor = { id: genId(vendors), ...form }
-      updateVendors([...vendors, newVendor])
-    } else if (modalMode === 'edit' && editTarget) {
-      updateVendors(vendors.map(v => v.id === editTarget.id ? { ...editTarget, ...form } : v))
-    }
-    setModalMode(null)
+    const vendor: Vendor = modalMode === 'add'
+      ? { id: genId(vendors), ...form }
+      : { ...editTarget!, ...form }
+    startSave(async () => {
+      const updated = await saveVendor(vendor)
+      updateVendors(updated)
+      setModalMode(null)
+    })
   }
 
   function handleCopyJson() {
@@ -238,36 +241,45 @@ export function VendorsTab({ initialVendors, onListChange }: Props) {
       <div className="hidden sm:block rounded-xl border border-border overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead className="bg-muted/50">
+            <thead className="bg-muted/50 border-b border-border">
               <tr>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">ID</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Party Name</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Party Owner</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Phone</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Address</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">City</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Area</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Day</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Salesman</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Status</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Actions</th>
+                <th className="text-left pl-4 pr-2 py-2.5 font-semibold text-[11px] text-muted-foreground uppercase tracking-wide whitespace-nowrap w-[58px]">ID</th>
+                <th className="text-left px-2 py-2.5 font-semibold text-[11px] text-muted-foreground uppercase tracking-wide whitespace-nowrap">Party Name</th>
+                <th className="text-left px-2 py-2.5 font-semibold text-[11px] text-muted-foreground uppercase tracking-wide whitespace-nowrap">Owner</th>
+                <th className="text-left px-2 py-2.5 font-semibold text-[11px] text-muted-foreground uppercase tracking-wide whitespace-nowrap">Phone</th>
+                <th className="text-left px-2 py-2.5 font-semibold text-[11px] text-muted-foreground uppercase tracking-wide whitespace-nowrap">Location</th>
+                <th className="text-left px-2 py-2.5 font-semibold text-[11px] text-muted-foreground uppercase tracking-wide whitespace-nowrap">Day</th>
+                <th className="text-left px-2 py-2.5 font-semibold text-[11px] text-muted-foreground uppercase tracking-wide whitespace-nowrap">Salesman</th>
+                <th className="text-left px-2 py-2.5 font-semibold text-[11px] text-muted-foreground uppercase tracking-wide whitespace-nowrap">Status</th>
+                <th className="pr-4 pl-2 py-2.5 w-[56px]"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
               {filtered.map(v => (
                 <tr key={v.id} className="hover:bg-muted/30 transition-colors">
-                  <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{v.id}</td>
-                  <td className="px-4 py-3 font-medium text-foreground">{v.partyName}</td>
-                  <td className="px-4 py-3 text-muted-foreground">{v.partyOwner || '—'}</td>
-                  <td className="px-4 py-3 text-muted-foreground">{v.phone}</td>
-                  <td className="px-4 py-3 text-muted-foreground">{v.address || '—'}</td>
-                  <td className="px-4 py-3 text-muted-foreground">{v.city || '—'}</td>
-                  <td className="px-4 py-3 text-muted-foreground">{v.area || '—'}</td>
-                  <td className="px-4 py-3"><DayPill day={v.day} /></td>
-                  <td className="px-4 py-3 text-muted-foreground">{v.salesman || '—'}</td>
-                  <td className="px-4 py-3"><StatusBadge status={v.status} /></td>
-                  <td className="px-4 py-3">
-                    <button onClick={() => openEdit(v)} className="rounded-md border border-border px-2.5 py-1 text-xs font-medium hover:bg-muted transition-colors">Edit</button>
+                  <td className="pl-4 pr-2 py-3 font-mono text-xs text-muted-foreground whitespace-nowrap">{v.id}</td>
+                  <td className="px-2 py-3 max-w-[160px]">
+                    <p className="font-medium text-foreground truncate text-sm" title={v.partyName}>{v.partyName}</p>
+                  </td>
+                  <td className="px-2 py-3 max-w-[120px]">
+                    <p className="text-sm text-muted-foreground truncate" title={v.partyOwner || ''}>{v.partyOwner || '—'}</p>
+                  </td>
+                  <td className="px-2 py-3 text-xs text-muted-foreground whitespace-nowrap">{v.phone}</td>
+                  <td className="px-2 py-3 max-w-[180px]">
+                    <p className="text-xs text-foreground truncate" title={[v.address, v.area, v.city].filter(Boolean).join(', ')}>
+                      {v.address || '—'}
+                    </p>
+                    {(v.area || v.city) && (
+                      <p className="text-[11px] text-muted-foreground truncate">{[v.area, v.city].filter(Boolean).join(', ')}</p>
+                    )}
+                  </td>
+                  <td className="px-2 py-3 whitespace-nowrap"><DayPill day={v.day} /></td>
+                  <td className="px-2 py-3 max-w-[120px]">
+                    <p className="text-sm text-muted-foreground truncate" title={v.salesman || ''}>{v.salesman || '—'}</p>
+                  </td>
+                  <td className="px-2 py-3 whitespace-nowrap"><StatusBadge status={v.status} /></td>
+                  <td className="pr-4 pl-2 py-3">
+                    <button onClick={() => openEdit(v)} className="rounded-md border border-border px-2.5 py-1 text-xs font-medium hover:bg-muted transition-colors whitespace-nowrap">Edit</button>
                   </td>
                 </tr>
               ))}
@@ -350,11 +362,11 @@ export function VendorsTab({ initialVendors, onListChange }: Props) {
             </div>
 
             <div className="flex gap-2 px-5 py-4 border-t border-border">
-              <button onClick={() => setModalMode(null)} className="flex-1 rounded-xl border border-border px-3 py-3 text-sm font-medium hover:bg-muted transition-colors">
+              <button onClick={() => setModalMode(null)} disabled={isSaving} className="flex-1 rounded-xl border border-border px-3 py-3 text-sm font-medium hover:bg-muted transition-colors disabled:opacity-50">
                 Cancel
               </button>
-              <button onClick={handleSave} className="flex-1 rounded-xl bg-foreground text-background px-3 py-3 text-sm font-semibold hover:opacity-90 active:scale-95 transition-all">
-                {modalMode === 'add' ? 'Add Vendor' : 'Save Changes'}
+              <button onClick={handleSave} disabled={isSaving} className="flex-1 rounded-xl bg-foreground text-background px-3 py-3 text-sm font-semibold hover:opacity-90 active:scale-95 transition-all disabled:opacity-60">
+                {isSaving ? 'Saving…' : modalMode === 'add' ? 'Add Vendor' : 'Save Changes'}
               </button>
             </div>
           </div>

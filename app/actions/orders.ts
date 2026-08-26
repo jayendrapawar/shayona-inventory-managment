@@ -44,8 +44,6 @@ export interface OrderItemInput {
 
 export interface CreateOrderInput {
   shopkeeperName: string
-  shopkeeperPhone?: string
-  shopkeeperAddress?: string
   notes?: string
   items: OrderItemInput[]
 }
@@ -60,8 +58,6 @@ export async function createOrder(input: CreateOrderInput) {
   const [order] = await db.insert(orders).values({
     orderNumber: genOrderNumber(),
     shopkeeperName: input.shopkeeperName,
-    shopkeeperPhone: input.shopkeeperPhone,
-    shopkeeperAddress: input.shopkeeperAddress,
     salesmanId: u.id,
     notes: input.notes,
     status: 'pending',
@@ -241,8 +237,6 @@ export async function getPackedOrders() {
       id: orders.id,
       orderNumber: orders.orderNumber,
       shopkeeperName: orders.shopkeeperName,
-      shopkeeperPhone: orders.shopkeeperPhone,
-      shopkeeperAddress: orders.shopkeeperAddress,
       status: orders.status,
       packedAt: orders.packedAt,
     })
