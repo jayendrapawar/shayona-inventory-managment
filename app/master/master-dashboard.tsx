@@ -82,7 +82,52 @@ export function MasterDashboard({ users, currentUserId }: Props) {
               onChange={e => setSearch(e.target.value)}
               className="w-full mb-4 rounded-lg border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
             />
-            <div className="rounded-xl border border-border overflow-hidden">
+
+            {filteredUsers.length === 0 && (
+              <p className="text-center py-8 text-sm text-muted-foreground">No users found</p>
+            )}
+
+            {/* ── Mobile: card list ── */}
+            <div className="sm:hidden space-y-3">
+              {filteredUsers.map(u => (
+                <div key={u.id} className="rounded-xl border border-border bg-card p-4 space-y-3">
+                  {/* Name + role pill */}
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="font-medium text-sm text-foreground">{u.name ?? '—'}</p>
+                        {u.id === currentUserId && (
+                          <span className="text-[10px] border-l-2 border-blue-400 pl-1.5 pr-1 py-px font-medium text-blue-500 dark:text-blue-400 tracking-wide">YOU</span>
+                        )}
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-0.5 break-all">{u.email}</p>
+                    </div>
+                    <RolePill role={u.role} />
+                  </div>
+
+                  {/* Joined */}
+                  <p className="text-xs text-muted-foreground">Joined {fmt(u.createdAt)}</p>
+
+                  {/* Assign role */}
+                  <div className="pt-2 border-t border-border">
+                    <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide mb-1.5">Assign Role</p>
+                    <select
+                      disabled={isPending}
+                      defaultValue={u.role ?? 'user'}
+                      onChange={e => handleRoleChange(u.id, e.target.value)}
+                      className="w-full rounded-lg border border-border bg-background px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
+                    >
+                      {ROLES.map(r => (
+                        <option key={r} value={r}>{r.charAt(0).toUpperCase() + r.slice(1)}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* ── Desktop: table ── */}
+            <div className="hidden sm:block rounded-xl border border-border overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead className="bg-muted/50">
@@ -95,15 +140,12 @@ export function MasterDashboard({ users, currentUserId }: Props) {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
-                    {filteredUsers.length === 0 && (
-                      <tr><td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">No users found</td></tr>
-                    )}
                     {filteredUsers.map(u => (
                       <tr key={u.id} className="hover:bg-muted/30 transition-colors">
                         <td className="px-4 py-3 font-medium">
                           {u.name ?? '—'}
                           {u.id === currentUserId && (
-                            <span className="ml-2 text-[10px] rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 px-1.5 py-0.5 font-semibold">you</span>
+                            <span className="ml-2 text-[10px] border-l-2 border-blue-400 pl-1.5 pr-1 py-px font-medium text-blue-500 dark:text-blue-400 tracking-wide">YOU</span>
                           )}
                         </td>
                         <td className="px-4 py-3 text-muted-foreground">{u.email}</td>
@@ -132,30 +174,51 @@ export function MasterDashboard({ users, currentUserId }: Props) {
 
         {/* Role reference tab */}
         {tab === 'roles' && (
-          <div className="rounded-xl border border-border overflow-hidden">
-            <table className="w-full text-sm">
-              <thead className="bg-muted/50">
-                <tr>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Role</th>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Description</th>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Module Access</th>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Users</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {ROLE_SUMMARY.map(({ role, description, access }) => (
-                  <tr key={role} className="hover:bg-muted/30 transition-colors">
-                    <td className="px-4 py-3"><RolePill role={role} /></td>
-                    <td className="px-4 py-3 text-muted-foreground">{description}</td>
-                    <td className="px-4 py-3 text-xs text-muted-foreground">{access}</td>
-                    <td className="px-4 py-3 font-semibold text-foreground">
-                      {users.filter(u => (u.role ?? 'user') === role).length}
-                    </td>
+          <>
+            {/* ── Mobile: card list ── */}
+            <div className="sm:hidden space-y-3">
+              {ROLE_SUMMARY.map(({ role, description, access }) => (
+                <div key={role} className="rounded-xl border border-border bg-card p-4 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <RolePill role={role} />
+                    <span className="text-sm font-semibold text-foreground">
+                      {users.filter(u => (u.role ?? 'user') === role).length} user{users.filter(u => (u.role ?? 'user') === role).length !== 1 ? 's' : ''}
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">{description}</p>
+                  <p className="text-[11px] text-muted-foreground leading-snug">
+                    <span className="font-medium text-foreground">Access: </span>{access}
+                  </p>
+                </div>
+              ))}
+            </div>
+
+            {/* ── Desktop: table ── */}
+            <div className="hidden sm:block rounded-xl border border-border overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/50">
+                  <tr>
+                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Role</th>
+                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Description</th>
+                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Module Access</th>
+                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Users</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {ROLE_SUMMARY.map(({ role, description, access }) => (
+                    <tr key={role} className="hover:bg-muted/30 transition-colors">
+                      <td className="px-4 py-3"><RolePill role={role} /></td>
+                      <td className="px-4 py-3 text-muted-foreground">{description}</td>
+                      <td className="px-4 py-3 text-xs text-muted-foreground">{access}</td>
+                      <td className="px-4 py-3 font-semibold text-foreground">
+                        {users.filter(u => (u.role ?? 'user') === role).length}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </div>
     </div>
