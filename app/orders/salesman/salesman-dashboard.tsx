@@ -618,6 +618,10 @@ export function SalesmanDashboard({ orders, userName }: Props) {
     setEditingLineId(null)
     setEditingOrderId(null)
     setLastUsedSet(null)
+    setColorQuantities({})
+    setDetailOrder(null)
+    setDetailItems([])
+    setDetailError('')
   }
 
   // ── Submit order (create new OR update existing) ──
@@ -671,6 +675,12 @@ export function SalesmanDashboard({ orders, userName }: Props) {
   async function handleEditOrder(order: ExistingOrder) {
     if (!EDITABLE_STATUSES.includes(order.status)) return
     setOrderActionError('')
+    // Clear any stale form state first so the edit starts clean
+    setLines([])
+    setColorQuantities({})
+    setEditingLineId(null)
+    setError('')
+    setSuccess('')
     try {
       const { order: o, items } = await getSalesmanOrderWithItems(order.id)
 
@@ -708,6 +718,9 @@ export function SalesmanDashboard({ orders, userName }: Props) {
       setSkQuery(o.shopkeeperName)
       setNotes(o.notes ?? '')
       setEditingOrderId(order.id)
+      // Close detail panel before showing the edit form
+      setDetailOrder(null)
+      setDetailItems([])
       setView('new')
     } catch (e: unknown) {
       setOrderActionError(e instanceof Error ? e.message : 'Failed to load order.')
@@ -721,6 +734,10 @@ export function SalesmanDashboard({ orders, userName }: Props) {
       try {
         await cancelOrder(cancelOrderId)
         setCancelOrderId(null)
+        // If we cancelled from the detail view, close it and go back to list
+        setDetailOrder(null)
+        setDetailItems([])
+        setView('list')
         router.refresh()
       } catch (e: unknown) {
         setOrderActionError(e instanceof Error ? e.message : 'Failed to cancel order.')
@@ -1224,10 +1241,55 @@ export function SalesmanDashboard({ orders, userName }: Props) {
                 <div className="px-4 py-3 bg-muted/30 border-b border-border flex items-center gap-2">
                   <svg className="w-4 h-4 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>
                   <h2 id="order-heading" className="text-sm font-semibold text-foreground">Current Order</h2>
+                  <span className="ml-auto text-xs text-muted-foreground">{lines.length} line{lines.length !== 1 ? 's' : ''}</span>
                 </div>
 
-                {/* Lines table */}
-                <div className="overflow-x-auto">
+                {/* ── Mobile: card per line ── */}
+                <div className="sm:hidden divide-y divide-border">
+                  {lines.map((line, idx) => {
+                    const pairs = linePairs(line)
+                    const isEditing = editingLineId === line.id
+                    const sizeSummary = line.sizes
+                      .filter(sz => (line.quantities[sz.sizeLabel] ?? 0) > 0)
+                      .map(sz => `${sz.sizeLabel}/${line.quantities[sz.sizeLabel]}`)
+                      .join(', ')
+                    return (
+                      <div key={line.id} className={`px-4 py-3 space-y-1.5 ${isEditing ? 'bg-amber-50/40 dark:bg-amber-900/10' : ''}`}>
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="text-xs text-muted-foreground w-4 shrink-0">{idx + 1}</span>
+                            <span className="font-semibold text-sm truncate">{line.artNumber}</span>
+                            <span className="flex items-center gap-1 text-xs text-muted-foreground shrink-0">
+                              <span className="w-2.5 h-2.5 rounded-full border border-border inline-block"
+                                style={{ background: swatch(line.colorHex, line.colorName) }} aria-hidden />
+                              {line.colorName}
+                            </span>
+                          </div>
+                          <span className="font-bold text-sm shrink-0">{pairs} pr</span>
+                        </div>
+                        {sizeSummary && (
+                          <p className="text-xs text-muted-foreground pl-6 truncate" title={sizeSummary}>{sizeSummary}</p>
+                        )}
+                        {isEditing && (
+                          <p className="pl-6 text-[10px] font-medium text-amber-600 dark:text-amber-400">Editing this line…</p>
+                        )}
+                        <div className="pl-6 flex items-center gap-4 pt-0.5">
+                          <button type="button" onClick={() => handleEditLine(line)}
+                            className="text-xs font-medium text-primary hover:underline">
+                            Edit
+                          </button>
+                          <button type="button" onClick={() => setDeleteLineId(line.id)}
+                            className="text-xs font-medium text-red-500 hover:underline">
+                            Remove
+                          </button>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+
+                {/* ── Desktop: table ── */}
+                <div className="hidden sm:block overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead className="border-b border-border bg-muted/20">
                       <tr>
@@ -1341,7 +1403,8 @@ export function SalesmanDashboard({ orders, userName }: Props) {
 
       {/* ── Cancel order confirmation ── */}
       {cancelOrderId != null && (() => {
-        const order = orders.find(o => o.id === cancelOrderId)
+        // Look up from orders list OR fall back to detailOrder (when cancelling from detail view)
+        const order = orders.find(o => o.id === cancelOrderId) ?? (detailOrder?.id === cancelOrderId ? detailOrder : null)
         return order ? (
           <ConfirmDialog
             title="Cancel this order?"
