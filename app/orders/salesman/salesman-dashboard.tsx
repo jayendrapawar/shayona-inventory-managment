@@ -806,35 +806,28 @@ export function SalesmanDashboard({ orders, userName }: Props) {
 
             {/* Filter + Sort bar */}
             {orders.length > 0 && (
-              <div className="flex flex-wrap items-center gap-2 pb-1">
-                {/* Status filter chips */}
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  <button type="button"
-                    onClick={() => setFilterStatus('all')}
-                    className={`rounded-lg px-3 py-1 text-xs font-medium border transition-colors ${filterStatus === 'all' ? 'bg-foreground text-background border-foreground' : 'border-border text-muted-foreground hover:text-foreground hover:border-foreground/40'}`}>
-                    All
-                  </button>
+              <div className="flex items-center gap-2 pb-1">
+                <span className="text-xs text-muted-foreground">Filter:</span>
+                <select
+                  value={filterStatus}
+                  onChange={e => setFilterStatus(e.target.value)}
+                  className="rounded-lg border border-border bg-background px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+                >
+                  <option value="all">All</option>
                   {ALL_STATUSES.map(s => (
-                    <button key={s} type="button"
-                      onClick={() => setFilterStatus(s)}
-                      className={`rounded-lg px-3 py-1 text-xs font-medium border transition-colors ${filterStatus === s ? 'bg-foreground text-background border-foreground' : 'border-border text-muted-foreground hover:text-foreground hover:border-foreground/40'}`}>
-                      {s.charAt(0).toUpperCase() + s.slice(1)}
-                    </button>
+                    <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>
                   ))}
-                </div>
-                {/* Sort */}
-                <div className="ml-auto flex items-center gap-1.5">
-                  <span className="text-xs text-muted-foreground">Sort:</span>
-                  <select
-                    value={sortBy}
-                    onChange={e => setSortBy(e.target.value as typeof sortBy)}
-                    className="rounded-lg border border-border bg-background px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
-                  >
-                    <option value="date-desc">Newest first</option>
-                    <option value="date-asc">Oldest first</option>
-                    <option value="order">Order number</option>
-                  </select>
-                </div>
+                </select>
+                <span className="text-xs text-muted-foreground ml-auto">Sort:</span>
+                <select
+                  value={sortBy}
+                  onChange={e => setSortBy(e.target.value as typeof sortBy)}
+                  className="rounded-lg border border-border bg-background px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+                >
+                  <option value="date-desc">Newest first</option>
+                  <option value="date-asc">Oldest first</option>
+                  <option value="order">Order number</option>
+                </select>
               </div>
             )}
 
