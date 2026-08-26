@@ -1,0 +1,38 @@
+[
+  {
+    "id": "V001",
+    "partyName": "Shree Textiles",
+    "partyOwner": "Ramesh Patel",
+    "phone": "+91 98765 43210",
+    "address": "12, Main Market Road",
+    "city": "Surat",
+    "area": "Ring Road",
+    "day": "Monday",
+    "salesman": "Arjun Mehta",
+    "status": "active"
+  },
+  {
+    "id": "V002",
+    "partyName": "Om Enterprises",
+    "partyOwner": "Priya Shah",
+    "phone": "+91 91234 56789",
+    "address": "45, Industrial Estate",
+    "city": "Ahmedabad",
+    "area": "Naroda",
+    "day": "Wednesday",
+    "salesman": "Kiran Desai",
+    "status": "active"
+  },
+  {
+    "id": "V003",
+    "partyName": "Balaji Trading Co.",
+    "partyOwner": "Ajay Verma",
+    "phone": "+91 99001 12233",
+    "address": "78, Shop No. 5, Zaveri Bazar",
+    "city": "Mumbai",
+    "area": "Zaveri Bazar",
+    "day": "Friday",
+    "salesman": "Suresh Nair",
+    "status": "inactive"
+  }
+]

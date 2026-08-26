@@ -4,27 +4,28 @@ import { useState, useTransition } from 'react'
 import { RolePill, fmt, PageHeader } from '../orders/_components/shared'
 import { updateUserRole } from '@/app/actions/users'
 import type { AppRole } from '@/app/actions/users'
+import { VendorsTab } from './vendors-tab'
+import type { Vendor } from './vendors-tab'
+import { SuppliersTab } from './suppliers-tab'
+import type { Supplier } from './suppliers-tab'
 
 interface Props {
   users: { id: string; name: string | null; email: string; role: string | null; createdAt: Date }[]
   currentUserId: string
+  vendors: Vendor[]
+  suppliers: Supplier[]
 }
 
 const ROLES: AppRole[] = ['admin', 'accountant', 'salesman', 'picker', 'dispatcher', 'user']
 
-const ROLE_SUMMARY: { role: AppRole; description: string; access: string }[] = [
-  { role: 'admin',      description: 'Full access to all modules',            access: 'Scanner, Orders, Billing, Purchases, Master, Reports' },
-  { role: 'accountant', description: 'Finance & privileged data access',      access: 'Billing, Purchases, Master (read), Reports' },
-  { role: 'salesman',   description: 'Create and manage sales orders',        access: 'Scanner, Orders' },
-  { role: 'picker',     description: 'Pack warehouse orders',                 access: 'Scanner, Orders' },
-  { role: 'dispatcher', description: 'Dispatch packed orders',                access: 'Scanner, Orders' },
-  { role: 'user',       description: 'Default — awaiting role assignment',    access: 'Scanner only' },
-]
+type Tab = 'users' | 'vendors' | 'suppliers'
 
-export function MasterDashboard({ users, currentUserId }: Props) {
-  const [tab, setTab] = useState<'users' | 'roles'>('users')
+export function MasterDashboard({ users, currentUserId, vendors: initialVendors, suppliers: initialSuppliers }: Props) {
+  const [tab, setTab] = useState<Tab>('users')
   const [isPending, startTransition] = useTransition()
   const [search, setSearch] = useState('')
+  const [vendorList, setVendorList] = useState<Vendor[]>(initialVendors)
+  const [supplierList, setSupplierList] = useState<Supplier[]>(initialSuppliers)
 
   const filteredUsers = users.filter(u =>
     !search ||
@@ -38,11 +39,22 @@ export function MasterDashboard({ users, currentUserId }: Props) {
     })
   }
 
+  function handleTabChange(t: Tab) {
+    setTab(t)
+    setSearch('')
+  }
+
+  const TABS: { id: Tab; label: string }[] = [
+    { id: 'users',     label: `Users (${users.length})` },
+    { id: 'vendors',   label: `Vendors (${vendorList.length})` },
+    { id: 'suppliers', label: `Suppliers (${supplierList.length})` },
+  ]
+
   return (
     <div className="min-h-screen bg-background">
       <div className="max-w-5xl mx-auto px-4 py-6">
         <div className="flex items-center justify-between mb-6">
-          <PageHeader title="Master" subtitle="User management & role assignment" />
+          <PageHeader title="Master" subtitle="User management, vendors & suppliers" />
           <a href="/home" className="text-sm text-muted-foreground hover:text-foreground transition-colors">← Home</a>
         </div>
 
@@ -60,19 +72,23 @@ export function MasterDashboard({ users, currentUserId }: Props) {
         </div>
 
         {/* Tabs */}
-        <div className="flex gap-1 border-b border-border mb-4">
-          {(['users', 'roles'] as const).map(t => (
+        <div className="flex gap-1 border-b border-border mb-4 overflow-x-auto">
+          {TABS.map(t => (
             <button
-              key={t}
-              onClick={() => { setTab(t); setSearch('') }}
-              className={`px-4 py-2 text-sm font-medium capitalize transition-colors border-b-2 -mb-px ${tab === t ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+              key={t.id}
+              onClick={() => handleTabChange(t.id)}
+              className={`px-4 py-2 text-sm font-medium whitespace-nowrap transition-colors border-b-2 -mb-px ${
+                tab === t.id
+                  ? 'border-primary text-foreground'
+                  : 'border-transparent text-muted-foreground hover:text-foreground'
+              }`}
             >
-              {t === 'users' ? `Users (${users.length})` : 'Role Reference'}
+              {t.label}
             </button>
           ))}
         </div>
 
-        {/* Users tab */}
+        {/* ── Users tab ── */}
         {tab === 'users' && (
           <>
             <input
@@ -172,54 +188,11 @@ export function MasterDashboard({ users, currentUserId }: Props) {
           </>
         )}
 
-        {/* Role reference tab */}
-        {tab === 'roles' && (
-          <>
-            {/* ── Mobile: card list ── */}
-            <div className="sm:hidden space-y-3">
-              {ROLE_SUMMARY.map(({ role, description, access }) => (
-                <div key={role} className="rounded-xl border border-border bg-card p-4 space-y-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <RolePill role={role} />
-                    <span className="text-sm font-semibold text-foreground">
-                      {users.filter(u => (u.role ?? 'user') === role).length} user{users.filter(u => (u.role ?? 'user') === role).length !== 1 ? 's' : ''}
-                    </span>
-                  </div>
-                  <p className="text-xs text-muted-foreground">{description}</p>
-                  <p className="text-[11px] text-muted-foreground leading-snug">
-                    <span className="font-medium text-foreground">Access: </span>{access}
-                  </p>
-                </div>
-              ))}
-            </div>
+        {/* ── Vendors tab ── */}
+        {tab === 'vendors' && <VendorsTab initialVendors={vendorList} onListChange={setVendorList} />}
 
-            {/* ── Desktop: table ── */}
-            <div className="hidden sm:block rounded-xl border border-border overflow-hidden">
-              <table className="w-full text-sm">
-                <thead className="bg-muted/50">
-                  <tr>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Role</th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Description</th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Module Access</th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Users</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  {ROLE_SUMMARY.map(({ role, description, access }) => (
-                    <tr key={role} className="hover:bg-muted/30 transition-colors">
-                      <td className="px-4 py-3"><RolePill role={role} /></td>
-                      <td className="px-4 py-3 text-muted-foreground">{description}</td>
-                      <td className="px-4 py-3 text-xs text-muted-foreground">{access}</td>
-                      <td className="px-4 py-3 font-semibold text-foreground">
-                        {users.filter(u => (u.role ?? 'user') === role).length}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </>
-        )}
+        {/* ── Suppliers tab ── */}
+        {tab === 'suppliers' && <SuppliersTab initialSuppliers={supplierList} onListChange={setSupplierList} />}
       </div>
     </div>
   )
