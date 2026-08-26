@@ -346,9 +346,30 @@ function uid() {
 // Main dashboard component
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ── Detail view types ──
+interface DetailItem {
+  id: number
+  artNumber: string
+  colorNumber: string | null
+  sizeNumber: string | null
+  quantityOrdered: number
+  quantityPacked: number
+  status: string
+}
+
 export function SalesmanDashboard({ orders, userName }: Props) {
-  const [view, setView] = useState<'list' | 'new'>('list')
+  const [view, setView] = useState<'list' | 'new' | 'detail'>('list')
   const router = useRouter()
+
+  // ── Detail view state ──
+  const [detailOrder, setDetailOrder] = useState<ExistingOrder | null>(null)
+  const [detailItems, setDetailItems] = useState<DetailItem[]>([])
+  const [detailLoading, setDetailLoading] = useState(false)
+  const [detailError, setDetailError] = useState('')
+
+  // ── Filter + sort state ──
+  const [filterStatus, setFilterStatus] = useState<string>('all')
+  const [sortBy, setSortBy] = useState<'date-desc' | 'date-asc' | 'order'>('date-desc')
 
   // ── SizeMatrix reset key — increment to force SizeMatrix remount after Add to Order ──
   const [matrixKey, setMatrixKey] = useState(0)
@@ -708,12 +729,40 @@ export function SalesmanDashboard({ orders, userName }: Props) {
     })
   }
 
+  // ── Open detail view for an order ──
+  async function handleViewOrder(order: ExistingOrder) {
+    setDetailOrder(order)
+    setDetailItems([])
+    setDetailError('')
+    setDetailLoading(true)
+    setView('detail')
+    try {
+      const { items } = await getSalesmanOrderWithItems(order.id)
+      setDetailItems(items as DetailItem[])
+    } catch (e: unknown) {
+      setDetailError(e instanceof Error ? e.message : 'Failed to load order details.')
+    } finally {
+      setDetailLoading(false)
+    }
+  }
+
   // ── Counts for stats ──
   const counts = {
     total: orders.length,
     pending: orders.filter(o => o.status === 'pending').length,
     delivered: orders.filter(o => o.status === 'delivered').length,
   }
+
+  // ── Filtered + sorted orders ──
+  const displayedOrders = useMemo(() => {
+    let list = filterStatus === 'all' ? orders : orders.filter(o => o.status === filterStatus)
+    if (sortBy === 'date-desc') list = [...list].sort((a, b) => new Date(b.orderedAt).getTime() - new Date(a.orderedAt).getTime())
+    if (sortBy === 'date-asc')  list = [...list].sort((a, b) => new Date(a.orderedAt).getTime() - new Date(b.orderedAt).getTime())
+    if (sortBy === 'order')     list = [...list].sort((a, b) => a.orderNumber.localeCompare(b.orderNumber))
+    return list
+  }, [orders, filterStatus, sortBy])
+
+  const ALL_STATUSES = ['pending', 'assigned', 'packed', 'dispatched', 'delivered', 'cancelled']
 
   // ─────────────────────────────────────────────────────────────────────────
   // Render
@@ -739,7 +788,7 @@ export function SalesmanDashboard({ orders, userName }: Props) {
             <button key={t} type="button"
               onClick={() => { setView(t); if (t === 'list') resetForm() }}
               className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px ${
-                view === t ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'
+                (view === t || (view === 'detail' && t === 'list')) ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'
               }`}>
               {t === 'list' ? 'All Orders' : '+ New Order'}
             </button>
@@ -754,6 +803,41 @@ export function SalesmanDashboard({ orders, userName }: Props) {
             {orderActionError && (
               <p className="text-sm text-red-600 bg-red-50 dark:bg-red-900/20 rounded-xl px-3 py-2">{orderActionError}</p>
             )}
+
+            {/* Filter + Sort bar */}
+            {orders.length > 0 && (
+              <div className="flex flex-wrap items-center gap-2 pb-1">
+                {/* Status filter chips */}
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <button type="button"
+                    onClick={() => setFilterStatus('all')}
+                    className={`rounded-lg px-3 py-1 text-xs font-medium border transition-colors ${filterStatus === 'all' ? 'bg-foreground text-background border-foreground' : 'border-border text-muted-foreground hover:text-foreground hover:border-foreground/40'}`}>
+                    All
+                  </button>
+                  {ALL_STATUSES.map(s => (
+                    <button key={s} type="button"
+                      onClick={() => setFilterStatus(s)}
+                      className={`rounded-lg px-3 py-1 text-xs font-medium border transition-colors ${filterStatus === s ? 'bg-foreground text-background border-foreground' : 'border-border text-muted-foreground hover:text-foreground hover:border-foreground/40'}`}>
+                      {s.charAt(0).toUpperCase() + s.slice(1)}
+                    </button>
+                  ))}
+                </div>
+                {/* Sort */}
+                <div className="ml-auto flex items-center gap-1.5">
+                  <span className="text-xs text-muted-foreground">Sort:</span>
+                  <select
+                    value={sortBy}
+                    onChange={e => setSortBy(e.target.value as typeof sortBy)}
+                    className="rounded-lg border border-border bg-background px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+                  >
+                    <option value="date-desc">Newest first</option>
+                    <option value="date-asc">Oldest first</option>
+                    <option value="order">Order number</option>
+                  </select>
+                </div>
+              </div>
+            )}
+
             {orders.length === 0 && (
               <div className="text-center py-12 text-muted-foreground">
                 <p className="text-sm">No orders yet.</p>
@@ -763,11 +847,18 @@ export function SalesmanDashboard({ orders, userName }: Props) {
                 </button>
               </div>
             )}
-            {orders.map(order => {
-              const canAct = EDITABLE_STATUSES.includes(order.status)
+            {displayedOrders.length === 0 && orders.length > 0 && (
+              <p className="text-center py-8 text-sm text-muted-foreground">No orders match this filter.</p>
+            )}
+            {displayedOrders.map(order => {
               const tag = orderTag(order)
               return (
-                <div key={order.id} className="rounded-xl border border-border bg-card p-4">
+                <button
+                  key={order.id}
+                  type="button"
+                  onClick={() => handleViewOrder(order)}
+                  className="w-full text-left rounded-xl border border-border bg-card p-4 hover:bg-muted/30 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
                   <div className="flex items-start justify-between gap-2">
                     <p className="font-medium text-sm">{order.shopkeeperName}</p>
                     <StatusPill status={order.status} />
@@ -784,28 +875,137 @@ export function SalesmanDashboard({ orders, userName }: Props) {
                       {tag === 'updated' ? fmt(order.updatedAt) : fmt(order.orderedAt)}
                     </span>
                   </div>
-                  {order.notes && <p className="mt-2 text-xs text-muted-foreground italic">{order.notes}</p>}
-                  {canAct && (
-                    <div className="mt-3 flex items-center gap-3 pt-3 border-t border-border">
-                      <button
-                        type="button"
-                        onClick={() => handleEditOrder(order)}
-                        className="text-xs font-medium text-primary hover:underline"
-                      >
-                        Edit
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => { setOrderActionError(''); setCancelOrderId(order.id) }}
-                        className="text-xs font-medium text-red-500 hover:underline"
-                      >
-                        Cancel Order
-                      </button>
-                    </div>
+                  {order.notes && <p className="mt-1.5 text-xs text-muted-foreground italic">{order.notes}</p>}
+                </button>
+              )
+            })}
+          </div>
+        )}
+
+        {/* ═══════════════════════════════════════════════════════════════
+            ORDER DETAIL VIEW
+        ════════════════════════════════════════════════════════════════ */}
+        {view === 'detail' && detailOrder && (
+          <div className="space-y-4">
+            {/* Back + header */}
+            <button type="button" onClick={() => setView('list')}
+              className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors">
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+              Back to All Orders
+            </button>
+
+            {/* Order summary card */}
+            <div className="rounded-xl border border-border bg-card p-4 space-y-3">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <p className="font-semibold text-base text-foreground">{detailOrder.shopkeeperName}</p>
+                  <p className="font-mono text-xs text-muted-foreground mt-0.5">{detailOrder.orderNumber}</p>
+                </div>
+                <StatusPill status={detailOrder.status} />
+              </div>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                <span className="text-muted-foreground">Ordered</span>
+                <span className="text-foreground">{fmt(detailOrder.orderedAt)}</span>
+                {Math.abs(new Date(detailOrder.updatedAt).getTime() - new Date(detailOrder.orderedAt).getTime()) > 5000 && (
+                  <>
+                    <span className="text-muted-foreground">Last updated</span>
+                    <span className="text-foreground">{fmt(detailOrder.updatedAt)}</span>
+                  </>
+                )}
+                {detailOrder.notes && (
+                  <>
+                    <span className="text-muted-foreground">Notes</span>
+                    <span className="text-foreground italic">{detailOrder.notes}</span>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Items */}
+            <div className="rounded-xl border border-border bg-card overflow-hidden">
+              <div className="px-4 py-3 bg-muted/30 border-b border-border">
+                <h2 className="text-sm font-semibold text-foreground">Order Items</h2>
+              </div>
+              {detailLoading && (
+                <p className="px-4 py-6 text-sm text-muted-foreground text-center">Loading items…</p>
+              )}
+              {detailError && (
+                <p className="px-4 py-4 text-sm text-red-600">{detailError}</p>
+              )}
+              {!detailLoading && !detailError && detailItems.length === 0 && (
+                <p className="px-4 py-6 text-sm text-muted-foreground text-center">No items found.</p>
+              )}
+              {!detailLoading && detailItems.length > 0 && (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-muted/20 border-b border-border">
+                      <tr>
+                        <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Article</th>
+                        <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Color</th>
+                        <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Size</th>
+                        <th className="text-right px-4 py-2.5 text-xs font-medium text-muted-foreground">Qty</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {detailItems.map(item => (
+                        <tr key={item.id} className="hover:bg-muted/20">
+                          <td className="px-4 py-2.5 font-semibold text-xs">{item.artNumber}</td>
+                          <td className="px-4 py-2.5 text-xs text-muted-foreground">{item.colorNumber ?? '—'}</td>
+                          <td className="px-4 py-2.5 text-xs text-muted-foreground">{item.sizeNumber ?? '—'}</td>
+                          <td className="px-4 py-2.5 text-xs font-medium text-right">{item.quantityOrdered}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot className="border-t border-border bg-muted/20">
+                      <tr>
+                        <td colSpan={3} className="px-4 py-2.5 text-xs font-medium text-muted-foreground text-right">Total pairs</td>
+                        <td className="px-4 py-2.5 text-xs font-bold text-right">
+                          {detailItems.reduce((s, i) => s + i.quantityOrdered, 0)}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            {/* Actions */}
+            {(() => {
+              const canAct = EDITABLE_STATUSES.includes(detailOrder.status)
+              const reason = !canAct ? `Only pending or assigned orders can be edited` : undefined
+              return (
+                <div className="space-y-2 pt-1">
+                  <div className="flex gap-3">
+                    <button
+                      type="button"
+                      disabled={!canAct}
+                      title={reason}
+                      onClick={() => handleEditOrder(detailOrder)}
+                      className="flex-1 rounded-xl border border-primary text-primary px-4 py-2.5 text-sm font-semibold hover:bg-primary/10 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+                    >
+                      Edit Order
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!canAct}
+                      title={reason}
+                      onClick={() => { setOrderActionError(''); setCancelOrderId(detailOrder.id) }}
+                      className="flex-1 rounded-xl border border-red-300 text-red-500 px-4 py-2.5 text-sm font-semibold hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+                    >
+                      Cancel Order
+                    </button>
+                  </div>
+                  {!canAct && (
+                    <p className="text-center text-xs text-muted-foreground">
+                      This order is <span className="font-medium text-foreground">{detailOrder.status}</span> and cannot be edited or cancelled.
+                    </p>
                   )}
                 </div>
               )
-            })}
+            })()}
+            {orderActionError && (
+              <p className="text-sm text-red-600 bg-red-50 dark:bg-red-900/20 rounded-xl px-3 py-2">{orderActionError}</p>
+            )}
           </div>
         )}
 
