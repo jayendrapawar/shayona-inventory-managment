@@ -6,26 +6,21 @@ import { updateUserRole } from '@/app/actions/users'
 import type { AppRole } from '@/app/actions/users'
 import { VendorsTab } from './vendors-tab'
 import type { Vendor } from './vendors-tab'
-import { SuppliersTab } from './suppliers-tab'
-import type { Supplier } from './suppliers-tab'
-
 interface Props {
   users: { id: string; name: string | null; email: string; role: string | null; createdAt: Date }[]
   currentUserId: string
   vendors: Vendor[]
-  suppliers: Supplier[]
 }
 
 const ROLES: AppRole[] = ['admin', 'accountant', 'salesman', 'picker', 'dispatcher', 'user']
 
-type Tab = 'users' | 'vendors' | 'suppliers'
+type Tab = 'users' | 'vendors'
 
-export function MasterDashboard({ users, currentUserId, vendors: initialVendors, suppliers: initialSuppliers }: Props) {
+export function MasterDashboard({ users, currentUserId, vendors: initialVendors }: Props) {
   const [tab, setTab] = useState<Tab>('users')
   const [isPending, startTransition] = useTransition()
   const [search, setSearch] = useState('')
   const [vendorList, setVendorList] = useState<Vendor[]>(initialVendors)
-  const [supplierList, setSupplierList] = useState<Supplier[]>(initialSuppliers)
 
   const filteredUsers = users.filter(u =>
     !search ||
@@ -45,16 +40,15 @@ export function MasterDashboard({ users, currentUserId, vendors: initialVendors,
   }
 
   const TABS: { id: Tab; label: string }[] = [
-    { id: 'users',     label: `Users (${users.length})` },
-    { id: 'vendors',   label: `Vendors (${vendorList.length})` },
-    { id: 'suppliers', label: `Suppliers (${supplierList.length})` },
+    { id: 'users',   label: `Users (${users.length})` },
+    { id: 'vendors', label: `Vendors (${vendorList.length})` },
   ]
 
   return (
     <div className="min-h-screen bg-background">
       <div className="max-w-5xl mx-auto px-4 py-6">
         <div className="flex items-center justify-between mb-6">
-          <PageHeader title="Master" subtitle="User management, vendors & suppliers" />
+          <PageHeader title="Master" subtitle="User management & vendors" />
           <a href="/home" className="text-sm text-muted-foreground hover:text-foreground transition-colors">← Home</a>
         </div>
 
@@ -191,8 +185,6 @@ export function MasterDashboard({ users, currentUserId, vendors: initialVendors,
         {/* ── Vendors tab ── */}
         {tab === 'vendors' && <VendorsTab initialVendors={vendorList} onListChange={setVendorList} />}
 
-        {/* ── Suppliers tab ── */}
-        {tab === 'suppliers' && <SuppliersTab initialSuppliers={supplierList} onListChange={setSupplierList} />}
       </div>
     </div>
   )

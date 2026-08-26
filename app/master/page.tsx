@@ -8,7 +8,6 @@ import { isRedirectError } from 'next/dist/client/components/redirect-error'
 import { getAllUsers } from '@/app/actions/users'
 import { MasterDashboard } from './master-dashboard'
 import type { Vendor } from './vendors-tab'
-import type { Supplier } from './suppliers-tab'
 import { readFile } from 'fs/promises'
 import path from 'path'
 
@@ -41,10 +40,9 @@ export default async function MasterPage() {
     redirect('/sign-in')
   }
 
-  const [allUsers, vendors, suppliers] = await Promise.all([
+  const [allUsers, vendors] = await Promise.all([
     getAllUsers(),
     readJson<Vendor[]>('data/vendors.json', []),
-    readJson<Supplier[]>('data/suppliers.json', []),
   ])
 
   return (
@@ -52,7 +50,6 @@ export default async function MasterPage() {
       users={allUsers}
       currentUserId={currentUserId}
       vendors={vendors}
-      suppliers={suppliers}
     />
   )
 }
