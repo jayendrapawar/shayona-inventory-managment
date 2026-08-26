@@ -116,12 +116,19 @@ export function AdminDashboard({ stats, orders, pickers }: Props) {
 
         {/* ── Detail panel overlay ── */}
         {detailOrder && (
-          <div className="fixed inset-0 z-40 flex justify-end bg-black/40 backdrop-blur-sm"
-            onClick={() => setDetailOrder(null)}>
+          <div
+            className="fixed inset-0 z-40 flex flex-col justify-end sm:flex-row sm:justify-end bg-black/40 backdrop-blur-sm"
+            onClick={() => setDetailOrder(null)}
+          >
             <div
-              className="relative w-full max-w-md bg-background border-l border-border h-full overflow-y-auto shadow-2xl"
+              className="relative w-full sm:max-w-md bg-background sm:border-l border-t sm:border-t-0 border-border sm:h-full max-h-[85vh] sm:max-h-none overflow-y-auto shadow-2xl rounded-t-2xl sm:rounded-none"
               onClick={e => e.stopPropagation()}
             >
+              {/* Mobile drag handle */}
+              <div className="sm:hidden flex justify-center pt-3 pb-1">
+                <div className="w-10 h-1 rounded-full bg-border" />
+              </div>
+
               {/* Panel header */}
               <div className="sticky top-0 z-10 flex items-center justify-between px-5 py-4 bg-background border-b border-border">
                 <div>
