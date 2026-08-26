@@ -1,7 +1,7 @@
 'use client'
 
 import {
-  useState, useTransition, useRef, useEffect, useCallback, useMemo, useId,
+  useState, useTransition, useRef, useEffect, useMemo, useId,
 } from 'react'
 import { useRouter } from 'next/navigation'
 import { StatusPill, fmt, PageHeader, StatCard } from '../_components/shared'
@@ -359,7 +359,7 @@ interface DetailItem {
 }
 
 export function SalesmanDashboard({ orders, userName, embedded }: Props) {
-  const [view, setView] = useState<'list' | 'new' | 'detail'>('list')
+  const [view, setView] = useState<'list' | 'new' | 'detail' | 'print'>('list')
   const router = useRouter()
 
   // ── Detail view state ──
@@ -408,6 +408,14 @@ export function SalesmanDashboard({ orders, userName, embedded }: Props) {
 
   // ── Editing an existing order (vs creating new) ──
   const [editingOrderId, setEditingOrderId] = useState<number | null>(null)
+
+  // ── Print Orders state ──
+  const [printSelectedIds, setPrintSelectedIds] = useState<Set<number>>(new Set())
+  const [printItemsMap, setPrintItemsMap] = useState<Record<number, DetailItem[]>>({})
+  const [printLoadingIds, setPrintLoadingIds] = useState<Set<number>>(new Set())
+  const [printConfigOpen, setPrintConfigOpen] = useState(false)
+  const [printPageSize, setPrintPageSize] = useState<'A4' | 'Letter'>('A4')
+  const [printOrientation, setPrintOrientation] = useState<'portrait' | 'landscape'>('portrait')
 
   // ── Cancel order confirm (existing orders list) ──
   const [cancelOrderId, setCancelOrderId] = useState<number | null>(null)
@@ -747,6 +755,200 @@ export function SalesmanDashboard({ orders, userName, embedded }: Props) {
     })
   }
 
+  // ── Toggle selection of an order for printing ──
+  async function handleTogglePrintOrder(order: ExistingOrder) {
+    const id = order.id
+    setPrintSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) {
+        next.delete(id)
+      } else {
+        next.add(id)
+      }
+      return next
+    })
+    // Lazily load items if not yet loaded
+    if (!printItemsMap[id]) {
+      setPrintLoadingIds(prev => new Set(prev).add(id))
+      try {
+        const { items } = await getSalesmanOrderWithItems(id)
+        setPrintItemsMap(prev => ({ ...prev, [id]: items as DetailItem[] }))
+      } finally {
+        setPrintLoadingIds(prev => { const s = new Set(prev); s.delete(id); return s })
+      }
+    }
+  }
+
+  // ── Build a Pick List bill HTML fragment for one order ──
+  function buildBillFragment(
+    order: ExistingOrder,
+    items: DetailItem[],
+    salesman: string,
+  ): string {
+    const artMap = new Map<string, Map<string, Record<string, number>>>()
+    for (const item of items) {
+      const art = item.artNumber
+      const col = item.colorNumber ?? ''
+      if (!artMap.has(art)) artMap.set(art, new Map())
+      const colMap = artMap.get(art)!
+      if (!colMap.has(col)) colMap.set(col, {})
+      const sz = item.sizeNumber ?? '?'
+      colMap.get(col)![sz] = (colMap.get(col)![sz] ?? 0) + item.quantityOrdered
+    }
+    const grandTotal = items.reduce((s, i) => s + i.quantityOrdered, 0)
+    const dateStr = new Date(order.orderedAt).toLocaleDateString('en-IN', {
+      day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',
+    })
+    let rows = ''
+    artMap.forEach((colMap, artNumber) => {
+      rows += `<div class="art-block"><div class="art-number">${artNumber}</div>`
+      colMap.forEach((sizes, color) => {
+        const sorted = Object.entries(sizes).sort(([a], [b]) => Number(a) - Number(b) || a.localeCompare(b))
+        const sizesStr = sorted.map(([sz, qty]) => `${sz}/${qty}`).join(', ')
+        rows += `<div class="color-row"><span class="col-color">${color || '—'}</span><span class="col-sizes">${sizesStr}</span><span class="col-bracket">[&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;]</span></div>`
+      })
+      rows += `</div>`
+    })
+    return `<div class="bill">
+  <div class="bill-title">PICK LIST</div>
+  <div class="bill-meta">Order #${order.orderNumber}&nbsp;&nbsp;·&nbsp;&nbsp;${dateStr}</div>
+  <div class="rule"></div>
+  <div class="bill-parties"><span class="shop-name">${order.shopkeeperName}</span><span class="salesman-name">Salesman: ${salesman}</span></div>
+  <div class="rule"></div>
+  ${rows}
+  <div class="rule"></div>
+  <div class="total-row"><span>Total</span><span>${grandTotal} pairs</span></div>
+  <div class="rule"></div>
+  <div class="picker-row"><span>Picked by:&nbsp;<span class="blank-line"></span></span><span>Time:&nbsp;<span class="blank-line short"></span></span></div>
+</div>`
+  }
+
+  // ── Estimate the relative "height" of a bill (in logical line units) ──
+  function estimateBillHeight(items: DetailItem[]): number {
+    // Fixed overhead: title(1) + meta(1) + rule(1) + parties(1) + rule(1) + rule(1) + total(1) + rule(1) + picker(1) = 9
+    const FIXED_LINES = 9
+    // Per article: article-number row (1) + one color row per unique color
+    const artMap = new Map<string, Set<string>>()
+    for (const item of items) {
+      if (!artMap.has(item.artNumber)) artMap.set(item.artNumber, new Set())
+      artMap.get(item.artNumber)!.add(item.colorNumber ?? '')
+    }
+    let artLines = 0
+    artMap.forEach((colors, _) => { artLines += 1 + colors.size })  // 1 art-number + N color rows
+    return FIXED_LINES + artLines
+  }
+
+  // ── Open a new window with bills packed tightly and trigger print ──
+  function handlePrintOrders(
+    selectedOrders: ExistingOrder[],
+    pageSize: 'A4' | 'Letter',
+    orientation: 'portrait' | 'landscape',
+  ) {
+    // Page dimensions in mm
+    const pageDims = {
+      A4:     { w: 210, h: 297 },
+      Letter: { w: 216, h: 279 },
+    }
+    const { w: pw, h: ph } = pageDims[pageSize]
+    const [pageW, pageH] = orientation === 'landscape' ? [ph, pw] : [pw, ph]
+
+    // Usable area after margins (12mm each side)
+    const marginMm = 12
+    const usableW = pageW - marginMm * 2   // mm
+
+    // Bill width: try to fit 2 per row in landscape, 1 in portrait
+    // 1mm ≈ 3.7795px at 96dpi; bill inner width chosen so two fit with a gap
+    const gapMm = 6
+    const cols = orientation === 'landscape' ? 2 : 1
+    const billWidthMm = (usableW - gapMm * (cols - 1)) / cols
+    const billWidthPx = Math.floor(billWidthMm * 3.7795)
+
+    // ── Sort by height descending so same-sized bills land on the same row ──
+    // flex-wrap places bills left→right; sorting descending means the two
+    // tallest bills fill row 1, the next two fill row 2, etc.
+    // For portrait (1 col) the row concept doesn't apply — keep original order.
+    let orderedOrders: ExistingOrder[]
+    if (cols === 1) {
+      orderedOrders = [...selectedOrders]
+    } else {
+      orderedOrders = [...selectedOrders].sort(
+        (a, b) =>
+          estimateBillHeight(printItemsMap[b.id] ?? []) -
+          estimateBillHeight(printItemsMap[a.id] ?? []),
+      )
+    }
+
+    const bills = orderedOrders
+      .map(o => buildBillFragment(o, printItemsMap[o.id] ?? [], userName))
+      .join('\n')
+
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<title>Pick List</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 12px;
+    background: #fff;
+    color: #000;
+    /* flex-wrap so bills fill columns naturally */
+    display: flex;
+    flex-wrap: wrap;
+    align-content: flex-start;
+    gap: ${gapMm}mm;
+    padding: ${marginMm}mm;
+    width: ${pageW}mm;
+  }
+  .bill {
+    width: ${billWidthPx}px;
+    border: 1px solid #ccc;
+    padding: 10px 12px 8px;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .bill-title    { text-align: center; font-size: 15px; font-weight: bold; letter-spacing: 2px; margin-bottom: 3px; }
+  .bill-meta     { text-align: center; font-size: 10px; color: #555; margin-bottom: 6px; }
+  .rule          { border-top: 1px dashed #aaa; margin: 5px 0; }
+  .bill-parties  { display: flex; justify-content: space-between; align-items: baseline; padding: 3px 0; }
+  .shop-name     { font-weight: bold; font-size: 12px; }
+  .salesman-name { font-size: 11px; }
+  .art-block     { margin: 6px 0 2px; }
+  .art-number    { font-weight: bold; font-size: 12px; margin-bottom: 1px; }
+  .color-row     { display: flex; align-items: baseline; gap: 6px; padding: 1px 0; font-size: 11px; }
+  .col-color     { width: 64px; flex-shrink: 0; }
+  .col-sizes     { flex: 1; }
+  .col-bracket   { white-space: nowrap; }
+  .total-row     { display: flex; justify-content: space-between; font-weight: bold; font-size: 13px; padding: 4px 0; }
+  .picker-row    { display: flex; justify-content: space-between; font-size: 10px; color: #555; padding: 3px 0; }
+  .blank-line    { display: inline-block; border-bottom: 1px solid #000; width: 80px; margin-bottom: -1px; }
+  .blank-line.short { width: 50px; }
+  @media print {
+    @page {
+      size: ${pageSize} ${orientation};
+      margin: ${marginMm}mm;
+    }
+    body { padding: 0; width: 100%; }
+  }
+</style>
+</head>
+<body>
+${bills}
+<script>window.onload = function(){ window.print(); }</` + `script>
+</body>
+</html>`
+
+    const winW = Math.round(pageW * 3.7795) + 40
+    const winH = Math.min(Math.round(pageH * 3.7795) + 80, screen.availHeight - 60)
+    const w = window.open('', '_blank', `width=${winW},height=${winH}`)
+    if (w) {
+      w.document.write(html)
+      w.document.close()
+    }
+  }
+
   // ── Open detail view for an order ──
   async function handleViewOrder(order: ExistingOrder) {
     setDetailOrder(order)
@@ -804,13 +1006,17 @@ export function SalesmanDashboard({ orders, userName, embedded }: Props) {
 
         {/* Tab bar */}
         <div className="flex gap-1 border-b border-border mb-6">
-          {(['list', 'new'] as const).map(t => (
+          {(['list', 'new', 'print'] as const).map(t => (
             <button key={t} type="button"
-              onClick={() => { setView(t); if (t === 'list') resetForm() }}
+              onClick={() => {
+                setView(t)
+                if (t === 'list') resetForm()
+                if (t === 'print') { setPrintSelectedIds(new Set()); setPrintItemsMap({}) }
+              }}
               className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px ${
                 (view === t || (view === 'detail' && t === 'list')) ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'
               }`}>
-              {t === 'list' ? 'All Orders' : '+ New Order'}
+              {t === 'list' ? 'All Orders' : t === 'new' ? 'New Order' : 'Print Orders'}
             </button>
           ))}
         </div>
@@ -1369,6 +1575,166 @@ export function SalesmanDashboard({ orders, userName, embedded }: Props) {
             )}
           </form>
         )}
+
+        {/* ═══════════════════════════════════════════════════════════════
+            PRINT ORDERS
+        ════════════════════════════════════════════════════════════════ */}
+        {view === 'print' && (() => {
+          const assignedOrders = orders.filter(o => o.status === 'assigned')
+          const selectedOrders = assignedOrders.filter(o => printSelectedIds.has(o.id))
+          const allLoaded = selectedOrders.every(o => !!printItemsMap[o.id])
+          const allSelected = assignedOrders.length > 0 && assignedOrders.every(o => printSelectedIds.has(o.id))
+          const totalSelectedPairs = selectedOrders.reduce(
+            (s, o) => s + (printItemsMap[o.id] ?? []).reduce((ss, i) => ss + i.quantityOrdered, 0), 0
+          )
+
+          function toggleAll() {
+            if (allSelected) {
+              setPrintSelectedIds(new Set())
+              setPrintItemsMap({})
+            } else {
+              assignedOrders.forEach(o => { if (!printSelectedIds.has(o.id)) handleTogglePrintOrder(o) })
+            }
+          }
+
+          return (
+            <div className="space-y-3">
+
+              {/* ── Empty state ── */}
+              {assignedOrders.length === 0 && (
+                <div className="flex flex-col items-center justify-center py-16 gap-3 text-muted-foreground">
+                  <svg className="w-10 h-10 opacity-30" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+                  </svg>
+                  <div className="text-center">
+                    <p className="text-sm font-medium">No assigned orders</p>
+                    <p className="text-xs mt-0.5">Orders must be in <span className="font-semibold text-foreground">assigned</span> status to appear here.</p>
+                  </div>
+                </div>
+              )}
+
+              {/* ── Selection card ── */}
+              {assignedOrders.length > 0 && (
+                <div className="rounded-xl border border-border bg-card overflow-hidden">
+
+                  {/* Card header */}
+                  <div className="px-3 py-3 sm:px-4 sm:py-3.5 bg-muted/30 border-b border-border">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <svg className="w-4 h-4 text-muted-foreground shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                        </svg>
+                        <h2 className="text-sm font-semibold text-foreground">Select Orders to Print</h2>
+                        {printSelectedIds.size > 0 && (
+                          <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-[10px] font-bold text-primary-foreground">
+                            {printSelectedIds.size}
+                          </span>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={toggleAll}
+                        className="text-xs font-medium text-primary hover:underline shrink-0"
+                      >
+                        {allSelected ? 'Clear all' : 'Select all'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Rows */}
+                  <div className="divide-y divide-border">
+                    {assignedOrders.map(order => {
+                      const checked = printSelectedIds.has(order.id)
+                      const loading = printLoadingIds.has(order.id)
+                      const pairs = printItemsMap[order.id]?.reduce((s, i) => s + i.quantityOrdered, 0) ?? null
+
+                      return (
+                        <label
+                          key={order.id}
+                          className={`flex items-center gap-3 px-3 py-3 sm:px-4 cursor-pointer select-none transition-colors ${
+                            checked ? 'bg-primary/5' : 'hover:bg-muted/30 active:bg-muted/50'
+                          }`}
+                        >
+                          {/* Custom checkbox */}
+                          <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border transition-colors ${
+                            checked ? 'border-primary bg-primary' : 'border-border bg-background'
+                          }`}>
+                            {checked && (
+                              <svg className="w-3 h-3 text-primary-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                              </svg>
+                            )}
+                          </span>
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => handleTogglePrintOrder(order)}
+                            className="sr-only"
+                          />
+
+                          {/* Text */}
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-foreground truncate leading-snug">{order.shopkeeperName}</p>
+                            <div className="flex items-center gap-2 mt-0.5">
+                              <span className="font-mono text-[11px] text-muted-foreground">{order.orderNumber}</span>
+                              <span className="text-[11px] text-muted-foreground">·</span>
+                              <span className="text-[11px] text-muted-foreground">{fmt(order.orderedAt)}</span>
+                            </div>
+                          </div>
+
+                          {/* Right side */}
+                          <div className="flex items-center gap-2 shrink-0">
+                            {loading && (
+                              <svg className="w-3.5 h-3.5 text-muted-foreground animate-spin" fill="none" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+                              </svg>
+                            )}
+                            {checked && !loading && pairs !== null && (
+                              <span className="inline-flex items-center rounded-full bg-green-100 dark:bg-green-900/30 px-2 py-0.5 text-[10px] font-semibold text-green-700 dark:text-green-400">
+                                {pairs} pairs
+                              </span>
+                            )}
+                            <StatusPill status={order.status} />
+                          </div>
+                        </label>
+                      )
+                    })}
+                  </div>
+
+                  {/* Summary strip — shown when at least one selected */}
+                  {selectedOrders.length > 0 && (
+                    <div className="border-t border-border px-3 py-2.5 sm:px-4 bg-muted/20 flex items-center gap-4 flex-wrap">
+                      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                        </svg>
+                        <span><span className="font-semibold text-foreground">{selectedOrders.length}</span> order{selectedOrders.length !== 1 ? 's' : ''} selected</span>
+                      </div>
+                      {allLoaded && totalSelectedPairs > 0 && (
+                        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A2 2 0 013 12V7a2 2 0 014-4z" />
+                          </svg>
+                          <span><span className="font-semibold text-foreground">{totalSelectedPairs}</span> pairs total</span>
+                        </div>
+                      )}
+                      {!allLoaded && (
+                        <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                          <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+                          </svg>
+                          Loading items…
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )
+        })()}
       </div>
 
       {/* ── Sticky bottom actions (new order only) ── */}
@@ -1392,6 +1758,185 @@ export function SalesmanDashboard({ orders, userName, embedded }: Props) {
           </div>
         </div>
       )}
+
+      {/* ── Sticky bottom bar — Print Orders ── */}
+      {view === 'print' && (() => {
+        const assignedOrders = orders.filter(o => o.status === 'assigned')
+        const selectedOrders = assignedOrders.filter(o => printSelectedIds.has(o.id))
+        const allLoaded = selectedOrders.every(o => !!printItemsMap[o.id])
+        const canPrint = selectedOrders.length > 0 && allLoaded
+        const totalPairsSelected = selectedOrders.reduce(
+          (s, o) => s + (printItemsMap[o.id] ?? []).reduce((ss, i) => ss + i.quantityOrdered, 0), 0
+        )
+        return (
+          <div className="fixed bottom-0 left-0 right-0 z-20 bg-background/95 backdrop-blur-sm border-t border-border">
+            <div className="max-w-4xl mx-auto px-3 sm:px-4 py-2.5 flex items-center gap-3">
+              {/* Left stat pills — only shown when something is selected */}
+              {selectedOrders.length > 0 && (
+                <div className="flex items-center gap-2 mr-auto flex-wrap">
+                  <span className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/60 px-2.5 py-1 text-xs font-medium text-foreground">
+                    <svg className="w-3 h-3 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                    </svg>
+                    {selectedOrders.length} order{selectedOrders.length !== 1 ? 's' : ''}
+                  </span>
+                  {allLoaded && totalPairsSelected > 0 && (
+                    <span className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/60 px-2.5 py-1 text-xs font-medium text-foreground">
+                      <svg className="w-3 h-3 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A2 2 0 013 12V7a2 2 0 014-4z" />
+                      </svg>
+                      {totalPairsSelected} pairs
+                    </span>
+                  )}
+                  {!allLoaded && (
+                    <svg className="w-3.5 h-3.5 text-muted-foreground animate-spin" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+                    </svg>
+                  )}
+                </div>
+              )}
+              <button
+                type="button"
+                disabled={!canPrint}
+                onClick={() => setPrintConfigOpen(true)}
+                className={`flex items-center justify-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                  selectedOrders.length === 0 ? 'w-full sm:w-auto sm:ml-auto' : 'shrink-0'
+                }`}
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+                </svg>
+                {canPrint ? 'Print' : selectedOrders.length === 0 ? 'Select orders to print' : 'Loading…'}
+              </button>
+            </div>
+          </div>
+        )
+      })()}
+
+      {/* ── Print config modal ── */}
+      {printConfigOpen && (() => {
+        const assignedOrders = orders.filter(o => o.status === 'assigned')
+        const selectedOrders = assignedOrders.filter(o => printSelectedIds.has(o.id))
+        return (
+          <div
+            className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm"
+            onClick={e => { if (e.target === e.currentTarget) setPrintConfigOpen(false) }}
+          >
+            <div className="w-full sm:max-w-sm bg-card rounded-t-2xl sm:rounded-2xl border border-border shadow-2xl overflow-hidden">
+
+              {/* Modal header */}
+              <div className="flex items-center justify-between px-4 py-4 border-b border-border">
+                <div className="flex items-center gap-2">
+                  <svg className="w-4 h-4 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+                  </svg>
+                  <h2 className="text-sm font-semibold text-foreground">Print Settings</h2>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPrintConfigOpen(false)}
+                  className="flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+                  aria-label="Close"
+                >
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+
+              <div className="px-4 py-4 space-y-4">
+
+                {/* Page size */}
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Page Size</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {([
+                      { value: 'A4',     label: 'A4',     sub: '210 × 297 mm' },
+                      { value: 'Letter', label: 'Letter', sub: '216 × 279 mm' },
+                    ] as const).map(({ value, label, sub }) => (
+                      <button key={value} type="button"
+                        onClick={() => setPrintPageSize(value)}
+                        className={`flex items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                          printPageSize === value
+                            ? 'border-primary bg-primary/8 ring-1 ring-primary'
+                            : 'border-border bg-background hover:bg-muted'
+                        }`}>
+                        {/* Paper icon */}
+                        <span className={`flex h-8 w-6 shrink-0 items-center justify-center rounded-sm border-2 ${
+                          printPageSize === value ? 'border-primary bg-primary/10' : 'border-muted-foreground/40 bg-muted/40'
+                        }`}>
+                          <svg className={`w-2.5 h-3 ${printPageSize === value ? 'text-primary' : 'text-muted-foreground'}`} fill="currentColor" viewBox="0 0 8 10">
+                            <rect x="1" y="1" width="6" height="8" rx="0.5"/>
+                          </svg>
+                        </span>
+                        <div>
+                          <p className={`text-sm font-semibold leading-tight ${printPageSize === value ? 'text-foreground' : 'text-muted-foreground'}`}>{label}</p>
+                          <p className="text-[10px] text-muted-foreground mt-0.5">{sub}</p>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Orientation */}
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Orientation</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {([
+                      { value: 'portrait',  label: 'Portrait',  sub: '1 bill / row',  w: 24, h: 32 },
+                      { value: 'landscape', label: 'Landscape', sub: '2 bills / row', w: 32, h: 24 },
+                    ] as const).map(({ value, label, sub, w, h }) => (
+                      <button key={value} type="button"
+                        onClick={() => setPrintOrientation(value)}
+                        className={`flex items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                          printOrientation === value
+                            ? 'border-primary bg-primary/8 ring-1 ring-primary'
+                            : 'border-border bg-background hover:bg-muted'
+                        }`}>
+                        {/* Page shape icon */}
+                        <span className={`shrink-0 rounded-sm border-2 ${
+                          printOrientation === value ? 'border-primary bg-primary/10' : 'border-muted-foreground/40 bg-muted/40'
+                        }`} style={{ width: w, height: h }} />
+                        <div>
+                          <p className={`text-sm font-semibold leading-tight ${printOrientation === value ? 'text-foreground' : 'text-muted-foreground'}`}>{label}</p>
+                          <p className="text-[10px] text-muted-foreground mt-0.5">{sub}</p>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Selected orders summary */}
+                <div className="rounded-lg bg-muted/40 border border-border px-3 py-2.5 flex items-center justify-between text-xs text-muted-foreground">
+                  <span><span className="font-semibold text-foreground">{selectedOrders.length}</span> order{selectedOrders.length !== 1 ? 's' : ''} will be printed</span>
+                  <span className="font-mono text-[11px]">{printPageSize} · {printOrientation === 'portrait' ? '↕' : '↔'}</span>
+                </div>
+              </div>
+
+              {/* Modal footer */}
+              <div className="flex gap-2 px-4 pb-4 pt-0">
+                <button type="button"
+                  onClick={() => setPrintConfigOpen(false)}
+                  className="flex-1 rounded-xl border border-border px-4 py-2.5 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                  Cancel
+                </button>
+                <button type="button"
+                  onClick={() => {
+                    setPrintConfigOpen(false)
+                    handlePrintOrders(selectedOrders, printPageSize, printOrientation)
+                  }}
+                  className="flex-1 flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+                  </svg>
+                  Print
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* ── Set confirmation dialog ── */}
       {setConfirm && (
