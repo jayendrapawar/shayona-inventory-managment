@@ -1,13 +1,43 @@
 'use client'
 
-import { useState, useMemo, useTransition } from 'react'
-import { saveVendor } from '@/app/actions/vendors'
+import { useState, useMemo, useTransition, useRef } from 'react'
+import { saveVendor, importVendors } from '@/app/actions/vendors'
 import type { Vendor } from '@/app/actions/vendors'
 
 export type { Vendor }
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'] as const
 type Day = typeof DAYS[number]
+
+// ── CSV parser ────────────────────────────────────────────────────────────────
+// Expected columns (case-insensitive, order flexible):
+// partyName, partyOwner, phone, address, city, area, day, salesman, status
+function parseCsv(text: string): Omit<Vendor, 'id' | 'createdAt' | 'updatedAt'>[] {
+  const lines = text.split(/\r?\n/).filter(l => l.trim())
+  if (lines.length < 2) return []
+
+  const headers = lines[0].split(',').map(h => h.trim().toLowerCase().replace(/[^a-z]/g, ''))
+  const idx = (name: string) => headers.indexOf(name.toLowerCase())
+
+  return lines.slice(1).flatMap(line => {
+    const cols = line.split(',').map(c => c.trim().replace(/^"|"$/g, ''))
+    const get = (name: string) => cols[idx(name)] ?? ''
+    const partyName = get('partyname') || get('party')
+    if (!partyName) return []
+    const status = (get('status') || 'active').toLowerCase() === 'inactive' ? 'inactive' : 'active'
+    return [{
+      partyName,
+      partyOwner: get('partyowner') || get('owner') || '',
+      phone:      get('phone') || '',
+      address:    get('address') || '',
+      city:       get('city') || '',
+      area:       get('area') || '',
+      day:        get('day') || '',
+      salesman:   get('salesman') || '',
+      status,
+    }] as Omit<Vendor, 'id' | 'createdAt' | 'updatedAt'>[]
+  })
+}
 
 type VendorForm = {
   partyName: string
@@ -77,8 +107,42 @@ export function VendorsTab({ initialVendors, onListChange }: Props) {
   const [formError, setFormError] = useState('')
   const [isSaving, startSave] = useTransition()
 
-  // ── Copy JSON state ──
-  const [copied, setCopied] = useState(false)
+  // ── CSV import state ──
+  const csvInputRef = useRef<HTMLInputElement>(null)
+  const [isImporting, startImport] = useTransition()
+  const [importMsg, setImportMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null)
+
+  function handleCsvFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!e.target.files) return
+    e.target.value = ''          // reset so same file can be re-selected
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      const text = ev.target?.result as string
+      const rows = parseCsv(text)
+      if (rows.length === 0) {
+        setImportMsg({ type: 'err', text: 'No valid rows found in CSV.' })
+        return
+      }
+      startImport(async () => {
+        try {
+          const { imported, skipped, list } = await importVendors(rows)
+          updateVendors(list)
+          const msg = imported === 0
+            ? `All ${skipped} row${skipped !== 1 ? 's' : ''} already exist — nothing imported.`
+            : skipped > 0
+              ? `Imported ${imported} vendor${imported !== 1 ? 's' : ''}. Skipped ${skipped} duplicate${skipped !== 1 ? 's' : ''}.`
+              : `Imported ${imported} vendor${imported !== 1 ? 's' : ''}.`
+          setImportMsg({ type: imported === 0 ? 'err' : 'ok', text: msg })
+          setTimeout(() => setImportMsg(null), 4000)
+        } catch {
+          setImportMsg({ type: 'err', text: 'Import failed. Please try again.' })
+        }
+      })
+    }
+    reader.readAsText(file)
+  }
 
   const filtered = useMemo(() => {
     let list = vendors
@@ -123,16 +187,19 @@ export function VendorsTab({ initialVendors, onListChange }: Props) {
     })
   }
 
-  function handleCopyJson() {
-    navigator.clipboard.writeText(JSON.stringify(vendors, null, 2))
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
-  }
-
   const inputCls = 'w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring'
 
   return (
     <div>
+      {/* ── Hidden CSV file input ── */}
+      <input
+        ref={csvInputRef}
+        type="file"
+        accept=".csv,text/csv"
+        className="hidden"
+        onChange={handleCsvFile}
+      />
+
       {/* ── Toolbar ── */}
       {/* Row 1: search (full width on mobile) */}
       <div className="mb-2">
@@ -155,12 +222,13 @@ export function VendorsTab({ initialVendors, onListChange }: Props) {
           <option value="active">Active</option>
           <option value="inactive">Inactive</option>
         </select>
-        {/* Copy JSON — hidden on mobile, visible on desktop */}
+        {/* Import CSV */}
         <button
-          onClick={handleCopyJson}
-          className="hidden sm:inline-flex rounded-lg border border-border bg-background px-3 py-2 text-xs font-medium hover:bg-muted transition-colors"
+          onClick={() => csvInputRef.current?.click()}
+          disabled={isImporting}
+          className="rounded-lg border border-border bg-background px-3 py-2 text-xs font-medium hover:bg-muted transition-colors disabled:opacity-50"
         >
-          {copied ? '✓ Copied!' : 'Copy JSON'}
+          {isImporting ? 'Importing…' : '↑ Import CSV'}
         </button>
         <button
           onClick={openAdd}
@@ -169,6 +237,17 @@ export function VendorsTab({ initialVendors, onListChange }: Props) {
           + Add Vendor
         </button>
       </div>
+
+      {/* Import feedback */}
+      {importMsg && (
+        <div className={`mb-3 rounded-lg px-3 py-2 text-xs font-medium ${
+          importMsg.type === 'ok'
+            ? 'bg-green-50 text-green-700 border border-green-200 dark:bg-green-900/20 dark:text-green-400'
+            : 'bg-red-50 text-red-700 border border-red-200 dark:bg-red-900/20 dark:text-red-400'
+        }`}>
+          {importMsg.text}
+        </div>
+      )}
 
       {filtered.length === 0 && (
         <p className="text-center py-10 text-sm text-muted-foreground">No vendors found</p>

@@ -8,9 +8,9 @@ import type { Order, OrderItem, OrderItemStatus } from '@/lib/db/schema'
 interface QueueItem {
   id: number; orderNumber: string; shopkeeperName: string; status: string; orderedAt: Date; pickerId: string | null
 }
-interface Props { queue: QueueItem[] }
+interface Props { queue: QueueItem[]; embedded?: boolean }
 
-export function PickerDashboard({ queue }: Props) {
+export function PickerDashboard({ queue, embedded }: Props) {
   const [selectedOrder, setSelectedOrder] = useState<{ order: Order; items: OrderItem[] } | null>(null)
   const [isPending, startTransition] = useTransition()
   const [loadingId, setLoadingId] = useState<number | null>(null)
@@ -137,12 +137,14 @@ export function PickerDashboard({ queue }: Props) {
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="max-w-2xl mx-auto px-4 py-6">
+    <div className={embedded ? '' : 'min-h-screen bg-background'}>
+      <div className={embedded ? '' : 'max-w-2xl mx-auto px-4 py-6'}>
+        {!embedded && (
         <div className="flex items-center justify-between mb-6">
           <PageHeader title="Packing Queue" subtitle="Orders awaiting packing" />
           <a href="/home" className="text-sm text-muted-foreground hover:text-foreground">← Home</a>
         </div>
+        )}
 
         <div className="grid grid-cols-3 gap-3 mb-6">
           <StatCard label="Total" value={counts.total} />

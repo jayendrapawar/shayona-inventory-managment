@@ -8,9 +8,9 @@ interface DispatchOrder {
   id: number; orderNumber: string; shopkeeperName: string; shopkeeperPhone: string | null
   shopkeeperAddress: string | null; status: string; packedAt: Date | null
 }
-interface Props { orders: DispatchOrder[] }
+interface Props { orders: DispatchOrder[]; embedded?: boolean }
 
-export function DispatcherDashboard({ orders: initialOrders }: Props) {
+export function DispatcherDashboard({ orders: initialOrders, embedded }: Props) {
   const [orders, setOrders] = useState(initialOrders)
   const [isPending, startTransition] = useTransition()
   const [activeId, setActiveId] = useState<number | null>(null)
@@ -40,12 +40,14 @@ export function DispatcherDashboard({ orders: initialOrders }: Props) {
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="max-w-2xl mx-auto px-4 py-6">
+    <div className={embedded ? '' : 'min-h-screen bg-background'}>
+      <div className={embedded ? '' : 'max-w-2xl mx-auto px-4 py-6'}>
+        {!embedded && (
         <div className="flex items-center justify-between mb-6">
           <PageHeader title="Dispatch Queue" subtitle="Packed orders ready for delivery" />
           <a href="/home" className="text-sm text-muted-foreground hover:text-foreground">← Home</a>
         </div>
+        )}
 
         <div className="grid grid-cols-3 gap-3 mb-6">
           <StatCard label="Total" value={counts.total} />

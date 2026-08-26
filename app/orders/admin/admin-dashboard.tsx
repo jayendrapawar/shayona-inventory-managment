@@ -21,6 +21,7 @@ interface Props {
   stats: { total: number; pending: number; packed: number; dispatched: number; delivered: number; cancelled: number }
   orders: OrderRow[]
   pickers: { id: string; name: string | null; email: string; role: string | null; createdAt: Date }[]
+  embedded?: boolean
 }
 
 interface DetailItem {
@@ -46,7 +47,7 @@ function orderTag(orderedAt: Date, updatedAt: Date): 'new' | 'updated' | null {
 const ORDER_STATUSES: OrderStatus[] = ['pending', 'assigned', 'packed', 'dispatched', 'delivered', 'cancelled']
 const ALL_STATUSES = ORDER_STATUSES as string[]
 
-export function AdminDashboard({ stats, orders, pickers }: Props) {
+export function AdminDashboard({ stats, orders, pickers, embedded }: Props) {
   const [isPending, startTransition] = useTransition()
   const [search, setSearch] = useState('')
 
@@ -97,12 +98,14 @@ export function AdminDashboard({ stats, orders, pickers }: Props) {
   }, [orders, search, filterStatus, sortBy])
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="max-w-6xl mx-auto px-4 py-6">
+    <div className={embedded ? '' : 'min-h-screen bg-background'}>
+      <div className={embedded ? '' : 'max-w-6xl mx-auto px-4 py-6'}>
+        {!embedded && (
         <div className="flex items-center justify-between mb-6">
           <PageHeader title="Orders Dashboard" subtitle="Manage and track all orders" />
           <a href="/home" className="text-sm text-muted-foreground hover:text-foreground transition-colors">← Home</a>
         </div>
+        )}
 
         {/* Stats */}
         <div className="grid grid-cols-3 sm:grid-cols-6 gap-3 mb-6">

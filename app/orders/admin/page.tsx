@@ -13,27 +13,11 @@ import {
   getPackedOrders,
 } from '@/app/actions/orders'
 import { getUsersByRole } from '@/app/actions/users'
-import { AdminDashboard } from './admin-dashboard'
-import { SalesmanDashboard } from '../salesman/salesman-dashboard'
-import { PickerDashboard } from '../picker/picker-dashboard'
-import { DispatcherDashboard } from '../dispatcher/dispatcher-dashboard'
+import { AdminHub } from './admin-hub'
 
 export const metadata = { title: 'Admin Hub | Shayona' }
 
-type Tab = 'overview' | 'salesman' | 'picker' | 'dispatcher'
-
-const TABS: { id: Tab; label: string }[] = [
-  { id: 'overview',    label: 'Overview' },
-  { id: 'salesman',    label: 'Salesman' },
-  { id: 'picker',      label: 'Picker' },
-  { id: 'dispatcher',  label: 'Dispatcher' },
-]
-
-export default async function AdminPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ tab?: string }>
-}) {
+export default async function AdminPage() {
   let adminName = ''
   try {
     const session = await auth.api.getSession({ headers: await headers() })
@@ -46,51 +30,14 @@ export default async function AdminPage({
     redirect('/sign-in')
   }
 
-  const params = await searchParams
-  const rawTab = params?.tab ?? 'overview'
-  const activeTab: Tab = (['overview', 'salesman', 'picker', 'dispatcher'] as const).includes(rawTab as Tab)
-    ? (rawTab as Tab)
-    : 'overview'
-
-  return (
-    <div className="min-h-screen bg-background">
-      {/* Tab bar */}
-      <div className="border-b border-border bg-card">
-        <div className="max-w-6xl mx-auto px-4">
-          <div className="flex gap-1 overflow-x-auto">
-            {TABS.map(tab => (
-              <a
-                key={tab.id}
-                href={`/orders/admin?tab=${tab.id}`}
-                className={`px-4 py-3 text-sm font-medium border-b-2 -mb-px whitespace-nowrap transition-colors ${
-                  activeTab === tab.id
-                    ? 'border-primary text-foreground'
-                    : 'border-transparent text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                {tab.label}
-              </a>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* Tab content */}
-      {activeTab === 'overview' && <OverviewTab />}
-      {activeTab === 'salesman' && <SalesmanTab adminName={adminName} />}
-      {activeTab === 'picker' && <PickerTab />}
-      {activeTab === 'dispatcher' && <DispatcherTab />}
-    </div>
-  )
-}
-
-// ─── Overview tab (existing admin orders dashboard) ───────────────────────────
-
-async function OverviewTab() {
-  const [stats, allOrders, pickerRows] = await Promise.all([
+  const [stats, allOrders, pickerRows, salesmanOrders, pickerQueue, packedOrders, vendorRows] = await Promise.all([
     getOrderStats(),
     getAllOrders(),
     getUsersByRole('picker'),
+    getAllSalesmanOrders(),
+    getPickerQueue(),
+    getPackedOrders(),
+    db.select({ partyName: vendors.partyName, phone: vendors.phone, address: vendors.address, city: vendors.city }).from(vendors),
   ])
 
   const pickers = pickerRows.map(p => ({
@@ -101,31 +48,28 @@ async function OverviewTab() {
     createdAt: new Date(),
   }))
 
-  return <AdminDashboard stats={stats} orders={allOrders} pickers={pickers} />
-}
+  const vendorMap = new Map(vendorRows.map(v => [
+    v.partyName,
+    {
+      phone: v.phone || null,
+      address: [v.address, v.city].filter(Boolean).join(', ') || null,
+    },
+  ]))
 
-// ─── Salesman tab ─────────────────────────────────────────────────────────────
+  const dispatchOrders = packedOrders.map(o => {
+    const v = vendorMap.get(o.shopkeeperName)
+    return { ...o, shopkeeperPhone: v?.phone ?? null, shopkeeperAddress: v?.address ?? null }
+  })
 
-async function SalesmanTab({ adminName }: { adminName: string }) {
-  const salesmanOrders = await getAllSalesmanOrders()
-  return <SalesmanDashboard orders={salesmanOrders} userName={adminName} />
-}
-
-// ─── Picker tab ───────────────────────────────────────────────────────────────
-
-async function PickerTab() {
-  const queue = await getPickerQueue()
-  return <PickerDashboard queue={queue} />
-}
-
-// ─── Dispatcher tab ───────────────────────────────────────────────────────────
-
-async function DispatcherTab() {
-  const [packedOrders, vendorRows] = await Promise.all([
-    getPackedOrders(),
-    db.select({ partyName: vendors.partyName, phone: vendors.phone, address: vendors.address, city: vendors.city }).from(vendors),
-  ])
-  const vendorMap = new Map(vendorRows.map(v => [v.partyName, { phone: v.phone || null, address: [v.address, v.city].filter(Boolean).join(', ') || null }]))
-  const enriched = packedOrders.map(o => { const v = vendorMap.get(o.shopkeeperName); return { ...o, shopkeeperPhone: v?.phone ?? null, shopkeeperAddress: v?.address ?? null } })
-  return <DispatcherDashboard orders={enriched} />
+  return (
+    <AdminHub
+      adminName={adminName}
+      stats={stats}
+      allOrders={allOrders}
+      pickers={pickers}
+      salesmanOrders={salesmanOrders}
+      pickerQueue={pickerQueue}
+      dispatchOrders={dispatchOrders}
+    />
+  )
 }

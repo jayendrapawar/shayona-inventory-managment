@@ -6,6 +6,7 @@ import { updateUserRole } from '@/app/actions/users'
 import type { AppRole } from '@/app/actions/users'
 import { VendorsTab } from './vendors-tab'
 import type { Vendor } from './vendors-tab'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 interface Props {
   users: { id: string; name: string | null; email: string; role: string | null; createdAt: Date }[]
   currentUserId: string
@@ -14,10 +15,7 @@ interface Props {
 
 const ROLES: AppRole[] = ['admin', 'accountant', 'salesman', 'picker', 'dispatcher', 'user']
 
-type Tab = 'users' | 'vendors'
-
 export function MasterDashboard({ users, currentUserId, vendors: initialVendors }: Props) {
-  const [tab, setTab] = useState<Tab>('users')
   const [isPending, startTransition] = useTransition()
   const [search, setSearch] = useState('')
   const [vendorList, setVendorList] = useState<Vendor[]>(initialVendors)
@@ -33,16 +31,6 @@ export function MasterDashboard({ users, currentUserId, vendors: initialVendors 
       await updateUserRole(userId, role as AppRole)
     })
   }
-
-  function handleTabChange(t: Tab) {
-    setTab(t)
-    setSearch('')
-  }
-
-  const TABS: { id: Tab; label: string }[] = [
-    { id: 'users',   label: `Users (${users.length})` },
-    { id: 'vendors', label: `Vendors (${vendorList.length})` },
-  ]
 
   return (
     <div className="min-h-screen bg-background">
@@ -65,26 +53,15 @@ export function MasterDashboard({ users, currentUserId, vendors: initialVendors 
           })}
         </div>
 
-        {/* Tabs */}
-        <div className="flex gap-1 border-b border-border mb-4 overflow-x-auto">
-          {TABS.map(t => (
-            <button
-              key={t.id}
-              onClick={() => handleTabChange(t.id)}
-              className={`px-4 py-2 text-sm font-medium whitespace-nowrap transition-colors border-b-2 -mb-px ${
-                tab === t.id
-                  ? 'border-primary text-foreground'
-                  : 'border-transparent text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
+        {/* Tabs — pill style matching scanner / admin hub */}
+        <Tabs defaultValue="users" className="w-full">
+          <TabsList className="grid w-full grid-cols-2 mb-6">
+            <TabsTrigger value="users"   className="text-xs sm:text-sm">Users ({users.length})</TabsTrigger>
+            <TabsTrigger value="vendors" className="text-xs sm:text-sm">Vendors ({vendorList.length})</TabsTrigger>
+          </TabsList>
 
-        {/* ── Users tab ── */}
-        {tab === 'users' && (
-          <>
+          {/* ── Users tab ── */}
+          <TabsContent value="users">
             <input
               type="search"
               placeholder="Search by name or email…"
@@ -101,7 +78,6 @@ export function MasterDashboard({ users, currentUserId, vendors: initialVendors 
             <div className="sm:hidden space-y-3">
               {filteredUsers.map(u => (
                 <div key={u.id} className="rounded-xl border border-border bg-card p-4 space-y-3">
-                  {/* Name + role pill */}
                   <div className="flex items-start justify-between gap-2">
                     <div>
                       <div className="flex items-center gap-2 flex-wrap">
@@ -114,11 +90,7 @@ export function MasterDashboard({ users, currentUserId, vendors: initialVendors 
                     </div>
                     <RolePill role={u.role} />
                   </div>
-
-                  {/* Joined */}
                   <p className="text-xs text-muted-foreground">Joined {fmt(u.createdAt)}</p>
-
-                  {/* Assign role */}
                   <div className="pt-2 border-t border-border">
                     <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide mb-1.5">Assign Role</p>
                     <select
@@ -179,12 +151,14 @@ export function MasterDashboard({ users, currentUserId, vendors: initialVendors 
                 </table>
               </div>
             </div>
-          </>
-        )}
+          </TabsContent>
 
-        {/* ── Vendors tab ── */}
-        {tab === 'vendors' && <VendorsTab initialVendors={vendorList} onListChange={setVendorList} />}
+          {/* ── Vendors tab ── */}
+          <TabsContent value="vendors">
+            <VendorsTab initialVendors={vendorList} onListChange={setVendorList} />
+          </TabsContent>
 
+        </Tabs>
       </div>
     </div>
   )

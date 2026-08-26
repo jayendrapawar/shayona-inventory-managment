@@ -25,6 +25,40 @@ async function genId(): Promise<string> {
   return `V${String(num + 1).padStart(3, '0')}`
 }
 
+// ── Bulk import vendors from parsed CSV rows ──────────────────────────────────
+export async function importVendors(
+  rows: Omit<Vendor, 'id' | 'createdAt' | 'updatedAt'>[]
+): Promise<{ imported: number; skipped: number; list: Vendor[] }> {
+  await requireAuth()
+
+  // Load existing partyNames (lowercase) to deduplicate
+  const existing = await db.select({ partyName: vendors.partyName }).from(vendors)
+  const existingNames = new Set(existing.map(v => v.partyName.toLowerCase().trim()))
+
+  // Filter out rows whose partyName already exists
+  const newRows = rows.filter(r => !existingNames.has(r.partyName.toLowerCase().trim()))
+  const skipped = rows.length - newRows.length
+
+  if (newRows.length > 0) {
+    // Get current highest ID for sequential assignment
+    const [last] = await db
+      .select({ id: vendors.id })
+      .from(vendors)
+      .orderBy(sql`CAST(SUBSTRING(id, 2) AS INTEGER) DESC`)
+      .limit(1)
+
+    let next = last ? parseInt(last.id.replace('V', ''), 10) + 1 : 1
+
+    for (const row of newRows) {
+      const id = `V${String(next++).padStart(3, '0')}`
+      await db.insert(vendors).values({ ...row, id })
+    }
+  }
+
+  const list = await db.select().from(vendors).orderBy(asc(vendors.partyName))
+  return { imported: newRows.length, skipped, list }
+}
+
 // ── Fetch all vendors ─────────────────────────────────────────────────────────
 export async function getVendors(): Promise<Vendor[]> {
   await requireAuth()

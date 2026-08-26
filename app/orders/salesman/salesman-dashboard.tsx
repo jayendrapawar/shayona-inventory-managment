@@ -29,6 +29,7 @@ const EDITABLE_STATUSES = ['pending', 'assigned']
 interface Props {
   orders: ExistingOrder[]
   userName: string
+  embedded?: boolean
 }
 
 // One line in the current order cart (article + color + per-size quantities)
@@ -357,7 +358,7 @@ interface DetailItem {
   status: string
 }
 
-export function SalesmanDashboard({ orders, userName }: Props) {
+export function SalesmanDashboard({ orders, userName, embedded }: Props) {
   const [view, setView] = useState<'list' | 'new' | 'detail'>('list')
   const router = useRouter()
 
@@ -786,12 +787,14 @@ export function SalesmanDashboard({ orders, userName }: Props) {
   // ─────────────────────────────────────────────────────────────────────────
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="max-w-4xl mx-auto px-4 py-6 pb-32">
+    <div className={embedded ? '' : 'min-h-screen bg-background'}>
+      <div className={embedded ? 'pb-32' : 'max-w-4xl mx-auto px-4 py-6 pb-32'}>
+        {!embedded && (
         <div className="flex items-center justify-between mb-6">
           <PageHeader title="My Orders" subtitle={`Welcome, ${userName}`} />
           <a href="/home" className="text-sm text-muted-foreground hover:text-foreground">← Home</a>
         </div>
+        )}
 
         <div className="grid grid-cols-3 gap-3 mb-6">
           <StatCard label="Total" value={counts.total} />
@@ -1225,7 +1228,7 @@ export function SalesmanDashboard({ orders, userName }: Props) {
                             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                             </svg>
-                            {editingLineId ? 'Save Changes' : '+ Add to Order'}
+                            {editingLineId ? 'Save Changes' : 'Add to Order'}
                           </button>
                         </div>
                       </div>
