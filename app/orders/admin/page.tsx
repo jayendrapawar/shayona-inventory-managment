@@ -2,7 +2,7 @@ import { headers } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
-import { user } from '@/lib/db/schema'
+import { user, vendors } from '@/lib/db/schema'
 import { eq } from 'drizzle-orm'
 import { isRedirectError } from 'next/dist/client/components/redirect-error'
 import {
@@ -121,6 +121,11 @@ async function PickerTab() {
 // ─── Dispatcher tab ───────────────────────────────────────────────────────────
 
 async function DispatcherTab() {
-  const packedOrders = await getPackedOrders()
-  return <DispatcherDashboard orders={packedOrders} />
+  const [packedOrders, vendorRows] = await Promise.all([
+    getPackedOrders(),
+    db.select({ partyName: vendors.partyName, phone: vendors.phone, address: vendors.address, city: vendors.city }).from(vendors),
+  ])
+  const vendorMap = new Map(vendorRows.map(v => [v.partyName, { phone: v.phone || null, address: [v.address, v.city].filter(Boolean).join(', ') || null }]))
+  const enriched = packedOrders.map(o => { const v = vendorMap.get(o.shopkeeperName); return { ...o, shopkeeperPhone: v?.phone ?? null, shopkeeperAddress: v?.address ?? null } })
+  return <DispatcherDashboard orders={enriched} />
 }

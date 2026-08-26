@@ -2,12 +2,14 @@
 
 import { useState, useMemo, useTransition } from 'react'
 import { saveVendor } from '@/app/actions/vendors'
+import type { Vendor } from '@/app/actions/vendors'
+
+export type { Vendor }
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'] as const
 type Day = typeof DAYS[number]
 
-export interface Vendor {
-  id: string
+type VendorForm = {
   partyName: string
   partyOwner: string
   phone: string
@@ -19,7 +21,7 @@ export interface Vendor {
   status: 'active' | 'inactive'
 }
 
-const EMPTY_FORM: Omit<Vendor, 'id'> = {
+const EMPTY_FORM: VendorForm = {
   partyName: '',
   partyOwner: '',
   phone: '',
@@ -29,12 +31,6 @@ const EMPTY_FORM: Omit<Vendor, 'id'> = {
   day: '',
   salesman: '',
   status: 'active',
-}
-
-function genId(existing: Vendor[]): string {
-  const nums = existing.map(v => parseInt(v.id.replace('V', ''), 10)).filter(n => !isNaN(n))
-  const next = nums.length ? Math.max(...nums) + 1 : 1
-  return `V${String(next).padStart(3, '0')}`
 }
 
 function StatusBadge({ status }: { status: string }) {
@@ -70,13 +66,14 @@ export function VendorsTab({ initialVendors, onListChange }: Props) {
     setVendors(next)
     onListChange?.(next)
   }
+
   const [search, setSearch] = useState('')
   const [filterStatus, setFilterStatus] = useState<'all' | 'active' | 'inactive'>('all')
 
   // ── Modal state ──
   const [modalMode, setModalMode] = useState<'add' | 'edit' | null>(null)
   const [editTarget, setEditTarget] = useState<Vendor | null>(null)
-  const [form, setForm] = useState<Omit<Vendor, 'id'>>(EMPTY_FORM)
+  const [form, setForm] = useState<VendorForm>(EMPTY_FORM)
   const [formError, setFormError] = useState('')
   const [isSaving, startSave] = useTransition()
 
@@ -104,8 +101,8 @@ export function VendorsTab({ initialVendors, onListChange }: Props) {
   }
 
   function openEdit(v: Vendor) {
-    const { id: _id, ...rest } = v
-    setForm(rest)
+    const { id: _id, createdAt: _c, updatedAt: _u, ...rest } = v
+    setForm(rest as VendorForm)
     setFormError('')
     setEditTarget(v)
     setModalMode('edit')
@@ -115,11 +112,12 @@ export function VendorsTab({ initialVendors, onListChange }: Props) {
     if (!form.partyName.trim()) { setFormError('Party name is required.'); return }
     if (!form.phone.trim()) { setFormError('Phone is required.'); return }
     setFormError('')
-    const vendor: Vendor = modalMode === 'add'
-      ? { id: genId(vendors), ...form }
-      : { ...editTarget!, ...form }
+    // For add: omit id so the server generates it. For edit: pass the existing id.
+    const payload = modalMode === 'edit' && editTarget
+      ? { ...form, id: editTarget.id }
+      : { ...form }
     startSave(async () => {
-      const updated = await saveVendor(vendor)
+      const updated = await saveVendor(payload)
       updateVendors(updated)
       setModalMode(null)
     })

@@ -59,6 +59,23 @@ export const verification = pgTable('verification', {
 
 // --- Master data tables ---
 
+export const vendors = pgTable('vendors', {
+  id:         text('id').primaryKey(),
+  partyName:  text('partyName').notNull(),
+  partyOwner: text('partyOwner').notNull().default(''),
+  phone:      text('phone').notNull().default(''),
+  address:    text('address').notNull().default(''),
+  city:       text('city').notNull().default(''),
+  area:       text('area').notNull().default(''),
+  day:        text('day').notNull().default(''),
+  salesman:   text('salesman').notNull().default(''),
+  status:     text('status').notNull().default('active'),
+  createdAt:  timestamp('createdAt').notNull().defaultNow(),
+  updatedAt:  timestamp('updatedAt').notNull().defaultNow(),
+}, (t) => [
+  index('vendors_party_name_idx').on(t.partyName),
+])
+
 export const shopkeepers = pgTable('shopkeepers', {
   id:        serial('id').primaryKey(),
   name:      text('name').notNull(),

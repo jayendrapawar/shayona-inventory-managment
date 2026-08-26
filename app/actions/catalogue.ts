@@ -5,6 +5,7 @@ import { db } from '@/lib/db'
 import { articles, articleColors, articleSizes } from '@/lib/db/schema'
 import { ilike, asc, eq, sql } from 'drizzle-orm'
 import { headers } from 'next/headers'
+import { searchVendors } from '@/app/actions/vendors'
 
 async function requireAuth() {
   const session = await auth.api.getSession({ headers: await headers() })
@@ -12,7 +13,7 @@ async function requireAuth() {
   return session.user
 }
 
-// ── Shopkeeper search ─────────────────────────────────────────────────────────
+// ── Shopkeeper search (backed by vendors DB table) ────────────────────────────
 
 export interface ShopkeeperResult {
   id: number
@@ -24,39 +25,14 @@ export interface ShopkeeperResult {
 
 export async function searchShopkeepers(query: string): Promise<ShopkeeperResult[]> {
   await requireAuth()
-  const q = query.trim().toLowerCase()
-
-  let vendors: { id: string; partyName: string; phone: string; address: string; city: string; area: string }[] = []
-  try {
-    const { readFile } = await import('fs/promises')
-    const path = await import('path')
-    const raw = await readFile(path.join(process.cwd(), 'data/vendors.json'), 'utf-8')
-    vendors = JSON.parse(raw)
-  } catch {
-    return []
-  }
-
-  const active = vendors.filter((v: any) => v.status !== 'inactive')
-  const matched = q
-    ? active.filter((v: any) =>
-        v.partyName?.toLowerCase().includes(q) ||
-        v.area?.toLowerCase().includes(q) ||
-        v.city?.toLowerCase().includes(q) ||
-        v.phone?.includes(q)
-      )
-    : active
-
-  return rankResults(
-    matched.slice(0, 20).map((v: any) => ({
-      id: v.id as unknown as number,
-      name: v.partyName,
-      code: v.area || null,
-      phone: v.phone || null,
-      address: [v.address, v.city].filter(Boolean).join(', ') || null,
-    })),
-    q,
-    r => r.name,
-  )
+  const rows = await searchVendors(query)
+  return rows.map(v => ({
+    id: 0,                         // unused — orders store shopkeeperName as text
+    name: v.partyName,
+    code: v.area || null,
+    phone: v.phone || null,
+    address: [v.address, v.city].filter(Boolean).join(', ') || null,
+  }))
 }
 
 // ── Article search ────────────────────────────────────────────────────────────
