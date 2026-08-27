@@ -1,6 +1,6 @@
 'use client'
-import { useState, useTransition, useMemo } from 'react'
-import { StatusPill, fmt, PageHeader, StatCard } from '../_components/shared'
+import { useState, useTransition, useMemo, useEffect } from 'react'
+import { StatusPill, fmt } from '../_components/shared'
 import {
   getOrderWithItems,
   updateItemPacked,
@@ -30,16 +30,21 @@ type SubTab = 'all' | 'mine'
 
 export function PickerDashboard({ queue: initialQueue, currentPickerId, embedded }: Props) {
   const [queue, setQueue] = useState<QueueItem[]>(initialQueue)
-  const [selectedOrder, setSelectedOrder] = useState<{ order: Order; items: OrderItem[] } | null>(null)
+  const [selectedOrder, setSelectedOrder] = useState<{ order: Order; items: OrderItem[]; readOnly: boolean } | null>(null)
   const [isPending, startTransition] = useTransition()
   const [loadingId, setLoadingId] = useState<number | null>(null)
   const [claimingId, setClaimingId] = useState<number | null>(null)
   const [unassigningId, setUnassigningId] = useState<number | null>(null)
   const [subTab, setSubTab] = useState<SubTab>('all')
   const [claimError, setClaimError] = useState<string | null>(null)
+  // touched: itemId → confirmed qty
+  const [touched, setTouched] = useState<Record<number, number>>({})
+  // pending: itemId → staged (selected but not yet confirmed) qty
+  const [pending, setPending] = useState<Record<number, number | undefined>>({})
+  // customDraft: staged value in the "other" input before the user confirms
+  const [customDraft, setCustomDraft] = useState<Record<number, string>>({})
 
   // ── Split lists ──────────────────────────────────────────────────────────────
-  // "All" = only pending + unassigned (available to claim)
   const availableOrders = useMemo(() => queue.filter(o => !o.pickerId && o.status === 'pending'), [queue])
   const myOrders        = useMemo(() => queue.filter(o => o.pickerId === currentPickerId), [queue, currentPickerId])
 
@@ -51,10 +56,11 @@ export function PickerDashboard({ queue: initialQueue, currentPickerId, embedded
   // ── Open order detail ────────────────────────────────────────────────────────
   function openOrder(orderId: number) {
     setLoadingId(orderId)
+    const readOnly = subTab === 'all'
     startTransition(async () => {
       try {
         const data = await getOrderWithItems(orderId)
-        setSelectedOrder(data)
+        setSelectedOrder({ ...data, readOnly })
       } finally {
         setLoadingId(null)
       }
@@ -69,13 +75,11 @@ export function PickerDashboard({ queue: initialQueue, currentPickerId, embedded
     startTransition(async () => {
       try {
         await selfAssignOrder(orderId)
-        // Optimistic update: mark the order as assigned + set pickerId
         setQueue(prev =>
           prev.map(o =>
             o.id === orderId ? { ...o, status: 'assigned', pickerId: currentPickerId } : o
           )
         )
-        // Switch to "My Orders" so the picker sees their claimed order
         setSubTab('mine')
       } catch (err) {
         setClaimError(err instanceof Error ? err.message : 'Failed to claim order')
@@ -91,7 +95,7 @@ export function PickerDashboard({ queue: initialQueue, currentPickerId, embedded
       await updateItemPacked(itemId, qty)
       if (selectedOrder) {
         const data = await getOrderWithItems(selectedOrder.order.id)
-        setSelectedOrder(data)
+        setSelectedOrder({ ...data, readOnly: selectedOrder.readOnly })
       }
     })
   }
@@ -101,7 +105,7 @@ export function PickerDashboard({ queue: initialQueue, currentPickerId, embedded
       await markItemOutOfStock(itemId)
       if (selectedOrder) {
         const data = await getOrderWithItems(selectedOrder.order.id)
-        setSelectedOrder(data)
+        setSelectedOrder({ ...data, readOnly: selectedOrder.readOnly })
       }
     })
   }
@@ -110,106 +114,228 @@ export function PickerDashboard({ queue: initialQueue, currentPickerId, embedded
     if (!selectedOrder) return
     startTransition(async () => {
       await markOrderPacked(selectedOrder.order.id)
-      // Remove from local queue
       setQueue(prev => prev.filter(o => o.id !== selectedOrder.order.id))
       setSelectedOrder(null)
     })
   }
 
-  const allItemsDone = selectedOrder?.items.every(
-    i => i.status === 'packed' || i.status === 'out_of_stock'
-  ) ?? false
+  // Pre-seed touched/pending/customDraft whenever selectedOrder changes
+  useEffect(() => {
+    if (!selectedOrder) { setTouched({}); setPending({}); setCustomDraft({}); return }
+    const touchedSeed: Record<number, number> = {}
+    const pendingSeed: Record<number, number> = {}
+    const draftSeed: Record<number, string> = {}
+    for (const item of selectedOrder.items) {
+      if (item.status === 'packed' || item.status === 'out_of_stock') {
+        touchedSeed[item.id] = item.quantityPacked
+      } else if (item.quantityOrdered <= 5) {
+        // fits on a chip — pre-select it
+        pendingSeed[item.id] = item.quantityOrdered
+      } else {
+        // exceeds fixed chips — pre-fill the custom input box instead
+        draftSeed[item.id] = String(item.quantityOrdered)
+      }
+    }
+    setTouched(touchedSeed)
+    setPending(pendingSeed)
+    setCustomDraft(draftSeed)
+  }, [selectedOrder?.order.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const allItemsDone = selectedOrder
+    ? selectedOrder.items.every(i => i.status === 'out_of_stock' || i.id in touched)
+    : false
+
+  const doneCount  = selectedOrder ? selectedOrder.items.filter(i => i.status === 'out_of_stock' || i.id in touched).length : 0
+  const totalCount = selectedOrder ? selectedOrder.items.length : 0
 
   // ── Order detail view ────────────────────────────────────────────────────────
   if (selectedOrder) {
     return (
       <div className="min-h-screen bg-background">
-        <div className="max-w-2xl mx-auto px-4 py-6">
-          <PageHeader
-            title={selectedOrder.order.orderNumber}
-            subtitle={selectedOrder.order.shopkeeperName}
-            back="/orders/picker"
-          />
-          <button
-            onClick={() => setSelectedOrder(null)}
-            className="mb-4 text-sm text-muted-foreground hover:text-foreground"
-          >
-            ← Back to queue
-          </button>
-
-          <div className="rounded-xl border border-border bg-card p-4 mb-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="font-medium">{selectedOrder.order.shopkeeperName}</p>
-                <p className="text-xs text-muted-foreground font-mono">{selectedOrder.order.orderNumber}</p>
-              </div>
-              <StatusPill status={selectedOrder.order.status} />
-            </div>
-          </div>
-
-          <div className="rounded-xl border border-border overflow-hidden mb-4">
-            <div className="bg-muted/50 px-4 py-2.5 text-xs font-medium text-muted-foreground grid grid-cols-12 gap-2">
-              <span className="col-span-4">Article</span>
-              <span className="col-span-2">Color</span>
-              <span className="col-span-2">Size</span>
-              <span className="col-span-2">Ordered</span>
-              <span className="col-span-2">Action</span>
-            </div>
-            {selectedOrder.items.map(item => (
-              <div
-                key={item.id}
-                className={`grid grid-cols-12 gap-2 items-center px-4 py-3 border-t border-border text-sm ${item.status === 'out_of_stock' ? 'opacity-50' : ''}`}
-              >
-                <span className="col-span-4 font-mono text-xs font-medium">{item.artNumber}</span>
-                <span className="col-span-2 text-muted-foreground text-xs">{item.colorNumber ?? '—'}</span>
-                <span className="col-span-2 text-muted-foreground text-xs">{item.sizeNumber ?? '—'}</span>
-                <span className="col-span-2 text-center">
-                  {(item.status as OrderItemStatus) === 'out_of_stock'
-                    ? <span className="text-xs text-red-500 font-medium">OOS</span>
-                    : (
-                      <input
-                        type="number"
-                        min={0}
-                        max={item.quantityOrdered}
-                        defaultValue={item.quantityPacked}
-                        disabled={isPending || (item.status as OrderItemStatus) === 'out_of_stock'}
-                        onBlur={e => handleQtyChange(item.id, parseInt(e.target.value) || 0)}
-                        className="w-14 rounded-md border border-border bg-background px-2 py-1 text-xs text-center focus:outline-none focus:ring-2 focus:ring-ring"
-                      />
-                    )
-                  }
-                  <span className="text-xs text-muted-foreground ml-1">/{item.quantityOrdered}</span>
-                </span>
-                <span className="col-span-2">
-                  {item.status === 'packed'
-                    ? <span className="text-xs text-green-600 font-medium">✓ Packed</span>
-                    : (item.status as OrderItemStatus) === 'out_of_stock'
-                      ? <span className="text-xs text-red-500 font-medium">OOS</span>
-                      : (
-                        <button
-                          onClick={() => handleOutOfStock(item.id)}
-                          disabled={isPending}
-                          className="text-xs text-red-500 hover:underline disabled:opacity-50"
-                        >
-                          OOS
-                        </button>
-                      )
-                  }
-                </span>
-              </div>
-            ))}
-          </div>
-
-          {subTab === 'mine' && (
+        {/* Sticky top bar */}
+        <div className="sticky top-0 z-10 bg-background/95 backdrop-blur border-b border-border px-4 py-3">
+          <div className="max-w-2xl mx-auto flex items-center gap-3">
             <button
-              onClick={handleMarkPacked}
-              disabled={!allItemsDone || isPending}
-              className="w-full rounded-lg bg-purple-600 px-4 py-3 text-sm font-medium text-white hover:bg-purple-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              onClick={() => setSelectedOrder(null)}
+              className="shrink-0 flex items-center justify-center w-8 h-8 rounded-lg border border-border bg-card hover:bg-muted transition-colors"
+              aria-label="Back"
             >
-              {isPending ? 'Saving…' : allItemsDone ? '✓ Pack Order' : 'Pack all items first'}
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><polyline points="15 18 9 12 15 6"/></svg>
             </button>
-          )}
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-foreground truncate">{selectedOrder.order.shopkeeperName}</p>
+              <p className="text-[11px] text-muted-foreground font-mono">{selectedOrder.order.orderNumber}</p>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <StatusPill status={selectedOrder.order.status} />
+              {!selectedOrder.readOnly && (
+                <span className="text-[11px] font-medium tabular-nums text-muted-foreground">
+                  {doneCount}/{totalCount}
+                </span>
+              )}
+            </div>
+          </div>
         </div>
+
+        <div className="max-w-2xl mx-auto px-4 py-4 pb-28">
+          {/* Items */}
+          <div className="space-y-2.5">
+            {selectedOrder.items.map(item => {
+              const isOOS     = (item.status as OrderItemStatus) === 'out_of_stock'
+              const isPacked  = item.status === 'packed'
+              const isDone    = isOOS || item.id in touched
+              const chips     = [1, 2, 3, 4, 5]
+              const staged    = pending[item.id]
+              const confirmed = touched[item.id]
+              const selected  = staged
+
+              function stageQty(qty: number) {
+                setPending(prev => ({ ...prev, [item.id]: prev[item.id] === qty ? undefined : qty }))
+                setCustomDraft(prev => { const n = { ...prev }; delete n[item.id]; return n })
+              }
+
+              function confirmQty() {
+                const draftVal = customDraft[item.id] !== undefined && customDraft[item.id] !== ''
+                  ? parseInt(customDraft[item.id]!)
+                  : NaN
+                const qty = !isNaN(draftVal) && draftVal >= 0 ? draftVal : staged
+                if (qty === undefined || qty === null) return
+                setTouched(prev => ({ ...prev, [item.id]: qty as number }))
+                setPending(prev => { const n = { ...prev }; delete n[item.id]; return n })
+                setCustomDraft(prev => { const n = { ...prev }; delete n[item.id]; return n })
+                if (qty === 0) {
+                  handleOutOfStock(item.id)
+                } else {
+                  handleQtyChange(item.id, qty as number)
+                }
+              }
+
+              const hasSelection = staged !== undefined || (customDraft[item.id] !== undefined && customDraft[item.id] !== '')
+
+              return (
+                <div
+                  key={item.id}
+                  className={`rounded-xl border bg-card transition-colors ${
+                    isDone
+                      ? 'border-green-200 dark:border-green-800'
+                      : 'border-border'
+                  }`}
+                >
+                  {/* Item header */}
+                  <div className="flex items-start justify-between gap-3 px-3.5 pt-3 pb-2">
+                    <div className="flex items-start gap-2.5 min-w-0">
+                      {/* Done indicator dot */}
+                      <div className={`mt-0.5 shrink-0 w-2 h-2 rounded-full ${isDone ? 'bg-green-500' : 'bg-border'}`} />
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold font-mono text-foreground">{item.artNumber}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {[item.colorNumber, item.sizeNumber].filter(Boolean).join(' · ') || '—'}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="shrink-0 text-right space-y-0.5">
+                      <span className="block text-xs text-muted-foreground">
+                        Ordered: <span className="font-semibold text-foreground">{item.quantityOrdered}</span>
+                      </span>
+                      {isDone && !selectedOrder.readOnly && (
+                        confirmed === 0 || isOOS ? (
+                          <span className="inline-flex items-center gap-1 text-xs font-medium text-red-500">
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3 h-3"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                            Out of stock
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-xs font-medium text-green-600 dark:text-green-400">
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5"><polyline points="20 6 9 17 4 12"/></svg>
+                            {`${confirmed} packed`}
+                          </span>
+                        )
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Action area — collapse as soon as locally confirmed (isDone) */}
+                  {selectedOrder.readOnly || isDone ? null : (
+                    <div className="border-t border-border px-3.5 py-2.5 space-y-2">
+                      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Packed qty</p>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {/* 0 chip */}
+                        <button
+                          key={0}
+                          type="button"
+                          onClick={() => stageQty(0)}
+                          disabled={isPending}
+                          className={`min-w-[2.25rem] h-8 rounded-lg border px-2 text-sm font-semibold transition-colors disabled:opacity-40 ${
+                            selected === 0
+                              ? 'border-red-400 bg-red-400 text-white shadow-sm'
+                              : 'border-red-200 dark:border-red-800 bg-background text-red-500 hover:border-red-400 hover:bg-red-50 dark:hover:bg-red-950/20'
+                          }`}
+                        >
+                          0
+                        </button>
+                        {chips.map(n => (
+                          <button
+                            key={n}
+                            type="button"
+                            onClick={() => stageQty(n)}
+                            disabled={isPending}
+                            className={`min-w-[2.25rem] h-8 rounded-lg border px-2 text-sm font-semibold transition-colors disabled:opacity-40 ${
+                              selected === n
+                                ? 'border-orange-400 bg-orange-400 text-white shadow-sm'
+                                : 'border-border bg-background text-foreground hover:border-orange-300 hover:bg-orange-50 dark:hover:bg-orange-950/20'
+                            }`}
+                          >
+                            {n}
+                          </button>
+                        ))}
+                        <input
+                          key={`custom-${item.id}`}
+                          type="number"
+                          min={0}
+                          placeholder="…"
+                          value={customDraft[item.id] ?? ''}
+                          onChange={e => {
+                            setCustomDraft(prev => ({ ...prev, [item.id]: e.target.value }))
+                            setPending(prev => { const n = { ...prev }; delete n[item.id]; return n })
+                          }}
+                          onKeyDown={e => { if (e.key === 'Enter') confirmQty() }}
+                          disabled={isPending}
+                          className="w-14 h-8 rounded-lg border border-border bg-background px-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-orange-400 placeholder:text-muted-foreground disabled:opacity-40"
+                        />
+                        <button
+                          type="button"
+                          onClick={confirmQty}
+                          disabled={isPending || !hasSelection}
+                          className="h-8 ml-auto rounded-lg bg-blue-600 hover:bg-blue-700 text-white px-4 text-xs font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed shadow-sm"
+                        >
+                          {isPending ? '…' : 'Confirm'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+
+        {/* Sticky bottom CTA — only for mine tab */}
+        {!selectedOrder.readOnly && (
+          <div className="fixed bottom-0 inset-x-0 bg-background/95 backdrop-blur border-t border-border px-4 py-3 safe-area-inset-bottom">
+            <div className="max-w-2xl mx-auto">
+              <button
+                onClick={handleMarkPacked}
+                disabled={!allItemsDone || isPending}
+                className={`w-full rounded-xl py-3.5 text-sm font-semibold transition-colors shadow-sm ${
+                  allItemsDone
+                    ? 'bg-purple-600 hover:bg-purple-700 text-white'
+                    : 'bg-muted text-muted-foreground cursor-not-allowed'
+                }`}
+              >
+                {isPending ? 'Saving…' : allItemsDone ? '✓ Pack Order' : `Confirm all items first (${doneCount}/${totalCount} done)`}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     )
   }
@@ -234,122 +360,149 @@ export function PickerDashboard({ queue: initialQueue, currentPickerId, embedded
       }
     })
   }
- 
+
   // ── Queue view ───────────────────────────────────────────────────────────────
   const displayList = subTab === 'all' ? availableOrders : myOrders
 
   return (
     <div className={embedded ? '' : 'min-h-screen bg-background'}>
-      <div className={embedded ? '' : 'max-w-2xl mx-auto px-4 py-6'}>
+      <div className={embedded ? '' : 'max-w-2xl mx-auto px-4 py-4 sm:py-6'}>
+
+        {/* Header */}
         {!embedded && (
-          <div className="flex items-center justify-between mb-6">
-            <PageHeader title="Packing Queue" subtitle="Orders awaiting packing" />
-            <a href="/home" className="text-sm text-muted-foreground hover:text-foreground">← Home</a>
+          <div className="flex items-center justify-between mb-5">
+            <div>
+              <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground">Packing Queue</h1>
+              <p className="text-xs text-muted-foreground mt-0.5">Orders awaiting packing</p>
+            </div>
+            <a
+              href="/home"
+              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground border border-border rounded-lg px-2.5 py-1.5 bg-card hover:bg-muted transition-colors"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5"><polyline points="15 18 9 12 15 6"/></svg>
+              Home
+            </a>
           </div>
         )}
 
-        {/* ── Stat cards ── */}
-        <div className="grid grid-cols-2 gap-3 mb-5">
-          <StatCard label="Available to claim" value={counts.available} color="text-yellow-600" />
-          <StatCard label="My picked orders"   value={counts.mine}      color="text-blue-600"   />
+        {/* Stat cards */}
+        <div className="grid grid-cols-2 gap-3 mb-4">
+          <div className="rounded-xl border border-border bg-card px-4 py-3">
+            <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Available</p>
+            <p className="text-2xl font-bold text-yellow-600 tabular-nums mt-0.5">{counts.available}</p>
+          </div>
+          <div className="rounded-xl border border-border bg-card px-4 py-3">
+            <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">My Orders</p>
+            <p className="text-2xl font-bold text-blue-600 tabular-nums mt-0.5">{counts.mine}</p>
+          </div>
         </div>
 
-        {/* ── Sub-tabs ── */}
-        <div className="flex rounded-lg border border-border bg-muted/40 p-1 mb-4 gap-1">
-          <button
-            type="button"
-            onClick={() => setSubTab('all')}
-            className={`flex-1 rounded-md py-1.5 text-xs font-medium transition-colors ${
-              subTab === 'all'
-                ? 'bg-background text-foreground shadow-sm'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            All Orders
-            <span className="ml-1.5 tabular-nums text-muted-foreground">({counts.available})</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setSubTab('mine')}
-            className={`flex-1 rounded-md py-1.5 text-xs font-medium transition-colors ${
-              subTab === 'mine'
-                ? 'bg-background text-foreground shadow-sm'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            My Picked Orders
-            <span className="ml-1.5 tabular-nums text-muted-foreground">({counts.mine})</span>
-          </button>
+        {/* Sub-tabs */}
+        <div className="flex rounded-xl border border-border bg-muted/40 p-1 mb-4 gap-1">
+          {(['all', 'mine'] as SubTab[]).map(tab => (
+            <button
+              key={tab}
+              type="button"
+              onClick={() => setSubTab(tab)}
+              className={`flex-1 flex items-center justify-center gap-1.5 rounded-lg py-2 text-xs font-semibold transition-colors ${
+                subTab === tab
+                  ? 'bg-background text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              {tab === 'all' ? 'All Orders' : 'My Orders'}
+              <span className={`inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full px-1 text-[10px] font-bold tabular-nums ${
+                subTab === tab ? 'bg-foreground text-background' : 'bg-muted-foreground/20 text-muted-foreground'
+              }`}>
+                {tab === 'all' ? counts.available : counts.mine}
+              </span>
+            </button>
+          ))}
         </div>
 
-        {/* ── Error banner ── */}
+        {/* Error banner */}
         {claimError && (
-          <div className="mb-3 rounded-lg bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 px-3 py-2 text-xs text-red-700 dark:text-red-400 flex items-center justify-between gap-2">
+          <div className="mb-3 flex items-center justify-between gap-2 rounded-xl border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950/30 px-3.5 py-2.5 text-xs text-red-700 dark:text-red-400">
             <span>{claimError}</span>
-            <button type="button" onClick={() => setClaimError(null)} className="shrink-0 text-red-400 hover:text-red-600">✕</button>
+            <button type="button" onClick={() => setClaimError(null)} className="shrink-0 text-red-400 hover:text-red-600">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
           </div>
         )}
 
-        {/* ── Order list ── */}
-        <div className="space-y-3">
+        {/* Order list */}
+        <div className="space-y-2">
           {displayList.length === 0 && (
-            <div className="text-center py-12 text-muted-foreground text-sm">
-              {subTab === 'mine'
-                ? 'No orders assigned to you yet — claim one from All Orders.'
-                : 'No available orders right now 🎉'}
+            <div className="flex flex-col items-center justify-center py-16 text-muted-foreground gap-2">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="w-8 h-8 opacity-40">
+                <path d="M20 7H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z"/><polyline points="16 3 12 7 8 3"/>
+              </svg>
+              <p className="text-sm">
+                {subTab === 'mine'
+                  ? 'No orders assigned to you yet'
+                  : 'No available orders right now 🎉'}
+              </p>
+              {subTab === 'mine' && (
+                <button type="button" onClick={() => setSubTab('all')} className="text-xs text-blue-600 hover:underline">
+                  Browse All Orders →
+                </button>
+              )}
             </div>
           )}
 
           {displayList.map(order => {
-            const isClaiming = claimingId === order.id
+            const isClaiming   = claimingId === order.id
+            const isLoading    = loadingId === order.id
+            const isUnassigning = unassigningId === order.id
 
             return (
               <div
                 key={order.id}
-                className={`rounded-xl border bg-card flex items-center gap-3 px-3 py-2.5 transition-all ${
+                className={`rounded-xl border bg-card transition-all ${
                   subTab === 'mine'
-                    ? 'border-blue-200 dark:border-blue-800 bg-blue-50/30 dark:bg-blue-950/20'
+                    ? 'border-blue-200 dark:border-blue-800'
                     : 'border-border'
                 }`}
               >
-                {/* Info — click to open */}
                 <button
                   type="button"
                   onClick={() => openOrder(order.id)}
-                  disabled={loadingId === order.id}
-                  className="flex-1 min-w-0 text-left disabled:opacity-60"
+                  disabled={isLoading}
+                  className="w-full flex items-center gap-3 px-3.5 py-3 text-left disabled:opacity-60"
                 >
-                  <p className="text-sm font-medium text-foreground truncate">{order.shopkeeperName}</p>
-                  <p className="text-[11px] text-muted-foreground font-mono">{order.orderNumber} · {fmt(order.orderedAt)}</p>
+                  {/* Leading color dot */}
+                  <div className={`shrink-0 w-2 h-2 rounded-full ${subTab === 'mine' ? 'bg-blue-500' : 'bg-yellow-500'}`} />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-foreground truncate">{order.shopkeeperName}</p>
+                    <p className="text-[11px] text-muted-foreground font-mono">{order.orderNumber} · {fmt(order.orderedAt)}</p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <StatusPill status={order.status} />
+                    {isLoading && <span className="text-[11px] text-muted-foreground">Loading…</span>}
+                  </div>
                 </button>
 
-                {/* Status + action */}
-                <div className="flex items-center gap-2 shrink-0">
-                  <StatusPill status={order.status} />
-                  {loadingId === order.id
-                    ? <span className="text-xs text-muted-foreground">Loading…</span>
-                    : subTab === 'all'
-                      ? (
-                        <button
-                          type="button"
-                          onClick={e => handleClaim(e, order.id)}
-                          disabled={isPending || isClaiming}
-                          className="rounded-lg border border-blue-300 dark:border-blue-700 bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 px-2.5 py-1 text-xs font-medium hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap"
-                        >
-                          {isClaiming ? 'Claiming…' : 'Claim'}
-                        </button>
-                      )
-                      : (
-                        <button
-                          type="button"
-                          onClick={e => { e.stopPropagation(); doUnassign(order.id) }}
-                          disabled={isPending || unassigningId === order.id}
-                          className="rounded-lg border border-border text-muted-foreground px-2.5 py-1 text-xs font-medium hover:border-red-300 hover:text-red-600 dark:hover:border-red-700 dark:hover:text-red-400 transition-colors disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap"
-                        >
-                          {unassigningId === order.id ? 'Releasing…' : 'Release'}
-                        </button>
-                      )
-                  }
+                {/* Action strip */}
+                <div className="border-t border-border px-3.5 py-2 flex items-center justify-end gap-2">
+                  {subTab === 'all' ? (
+                    <button
+                      type="button"
+                      onClick={e => handleClaim(e, order.id)}
+                      disabled={isPending || isClaiming}
+                      className="rounded-lg bg-blue-600 hover:bg-blue-700 text-white px-3.5 py-1.5 text-xs font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      {isClaiming ? 'Claiming…' : 'Claim →'}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={e => { e.stopPropagation(); doUnassign(order.id) }}
+                      disabled={isPending || isUnassigning}
+                      className="rounded-lg border border-border text-muted-foreground px-3 py-1.5 text-xs font-medium hover:border-red-300 hover:text-red-600 dark:hover:border-red-700 dark:hover:text-red-400 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      {isUnassigning ? 'Releasing…' : 'Release'}
+                    </button>
+                  )}
                 </div>
               </div>
             )
