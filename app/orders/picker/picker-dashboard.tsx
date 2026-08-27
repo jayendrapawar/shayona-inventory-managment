@@ -235,42 +235,19 @@ export function PickerDashboard({ queue: initialQueue, currentPickerId, embedded
                   <div className="flex items-center justify-between px-3.5 pt-3 pb-2 gap-2">
                     <div className="flex items-center gap-2 min-w-0">
                       <div className={`shrink-0 w-2 h-2 rounded-full ${allDone ? 'bg-green-500' : 'bg-border'}`} />
-                      <p className="text-sm font-bold font-mono text-foreground">{artNumber}</p>
-                    </div>
-                    {/* Per-DISTINCT-color packed summary badges */}
-                    <div className="flex flex-wrap gap-1 justify-end">
-                      {colorGroups.map(cg => {
-                        const cgAllDone = cg.items.every(i => i.status === 'out_of_stock' || i.id in touched)
-                        const cgAllOOS  = cg.items.every(i => i.status === 'out_of_stock' || touched[i.id] === 0)
-                        const cgPacked  = cg.items.reduce((s, i) => s + (touched[i.id] ?? 0), 0)
-                        return (
-                          <span
-                            key={cg.color}
-                            className={`inline-flex items-center gap-0.5 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                              cgAllDone
-                                ? cgAllOOS
-                                  ? 'bg-red-100 text-red-600 dark:bg-red-950/40 dark:text-red-400'
-                                  : 'bg-green-100 text-green-700 dark:bg-green-950/40 dark:text-green-400'
-                                : 'bg-muted text-muted-foreground'
-                            }`}
-                          >
-                            {cg.color}
-                            {cgAllDone && !cgAllOOS && cgPacked > 0 && (
-                              <span className="ml-0.5 tabular-nums">·{cgPacked}</span>
-                            )}
-                            {cgAllDone && cgAllOOS && (
-                              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-2.5 h-2.5 ml-0.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                            )}
-                          </span>
-                        )
-                      })}
+                      <p className="text-sm font-bold font-mono text-foreground">
+                        {artNumber}
+                        <span className="ml-1.5 text-xs font-normal text-muted-foreground tabular-nums">
+                          ({allItems.reduce((s, i) => s + i.quantityOrdered, 0)} pairs)
+                        </span>
+                      </p>
                     </div>
                   </div>
 
                   {/* Color tabs — one per DISTINCT color */}
-                  {colorGroups.length > 1 && (
-                    <div className="flex gap-1 px-3.5 pb-2 overflow-x-auto">
+                  <div className="flex gap-1 px-3.5 pb-2 overflow-x-auto">
                       {colorGroups.map(cg => {
+                        const cgTotal   = cg.items.reduce((s, i) => s + i.quantityOrdered, 0)
                         const cgAllDone = cg.items.every(i => i.status === 'out_of_stock' || i.id in touched)
                         const isActive  = cg.color === activeColor
                         return (
@@ -286,12 +263,11 @@ export function PickerDashboard({ queue: initialQueue, currentPickerId, embedded
                                   : 'border-border text-muted-foreground bg-background hover:border-foreground hover:text-foreground'
                             }`}
                           >
-                            {cg.color}
+                            {cg.color} <span className="opacity-60 font-normal">({cgTotal})</span>
                           </button>
                         )
                       })}
-                    </div>
-                  )}
+                  </div>
 
                   {/* Active color — list all size rows */}
                   <div className="border-t border-border divide-y divide-border">
@@ -331,7 +307,7 @@ export function PickerDashboard({ queue: initialQueue, currentPickerId, embedded
                           {/* Size / ordered row */}
                           <div className="flex items-center justify-between mb-2">
                             <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-                              {item.sizeNumber ?? activeColorGroup.color}
+                              {item.sizeNumber ? `Size: ${item.sizeNumber}` : activeColorGroup.color}
                             </span>
                             <span className="text-xs text-muted-foreground">
                               Ordered: <span className="font-semibold text-foreground tabular-nums">{item.quantityOrdered}</span>
