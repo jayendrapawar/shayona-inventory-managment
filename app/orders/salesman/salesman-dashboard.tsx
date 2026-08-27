@@ -414,7 +414,7 @@ export function SalesmanDashboard({ orders, userName, embedded }: Props) {
   const [printItemsMap, setPrintItemsMap] = useState<Record<number, DetailItem[]>>({})
   const [printLoadingIds, setPrintLoadingIds] = useState<Set<number>>(new Set())
   const [printConfigOpen, setPrintConfigOpen] = useState(false)
-  const [printPageSize, setPrintPageSize] = useState<'A5' | 'Letter'>('A5')
+  const [printPageSize, setPrintPageSize] = useState<'A4' | 'A5'>('A5')
   const [printOrientation, setPrintOrientation] = useState<'portrait' | 'landscape'>('portrait')
 
   // ── Cancel order confirm (existing orders list) ──
@@ -839,13 +839,13 @@ export function SalesmanDashboard({ orders, userName, embedded }: Props) {
   // ── Open a new window with bills packed tightly and trigger print ──
   function handlePrintOrders(
     selectedOrders: ExistingOrder[],
-    pageSize: 'A5' | 'Letter',
+    pageSize: 'A4' | 'A5',
     orientation: 'portrait' | 'landscape',
   ) {
     // Page dimensions in mm
     const pageDims = {
+      A4:     { w: 210, h: 297 },
       A5:     { w: 148, h: 210 },
-      Letter: { w: 216, h: 279 },
     }
     const { w: pw, h: ph } = pageDims[pageSize]
     const [pageW, pageH] = orientation === 'landscape' ? [ph, pw] : [pw, ph]
@@ -1851,8 +1851,8 @@ ${bills}
                   <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Page Size</p>
                   <div className="grid grid-cols-2 gap-2">
                     {([
+                      { value: 'A4',     label: 'A4',     sub: '210 × 297 mm' },
                       { value: 'A5',     label: 'A5',     sub: '148 × 210 mm' },
-                      { value: 'Letter', label: 'Letter', sub: '216 × 279 mm' },
                     ] as const).map(({ value, label, sub }) => (
                       <button key={value} type="button"
                         onClick={() => setPrintPageSize(value)}
