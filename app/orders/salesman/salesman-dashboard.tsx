@@ -810,16 +810,14 @@ export function SalesmanDashboard({ orders, userName, embedded }: Props) {
       rows += `</div>`
     })
     return `<div class="bill">
-  <div class="bill-title">PICK LIST</div>
-  <div class="bill-meta">Order #${order.orderNumber}&nbsp;&nbsp;·&nbsp;&nbsp;${dateStr}</div>
-  <div class="rule"></div>
-  <div class="bill-parties"><span class="shop-name">${order.shopkeeperName}</span><span class="salesman-name">Salesman: ${salesman}</span></div>
+  <div class="bill-title">${order.shopkeeperName}</div>
+  <div class="bill-meta"><span class="meta-order">Order #${order.orderNumber}</span><span class="meta-sep">&nbsp;·&nbsp;</span><span class="meta-date">${dateStr}</span></div>
   <div class="rule"></div>
   ${rows}
   <div class="rule"></div>
   <div class="total-row"><span>Total</span><span>${grandTotal} pairs</span></div>
   <div class="rule"></div>
-  <div class="picker-row"><span>Picked by:&nbsp;<span class="blank-line"></span></span><span>Time:&nbsp;<span class="blank-line short"></span></span></div>
+  <div class="picker-row"><span>Picked by:&nbsp;<span class="blank-line"></span></span><span>Salesman: ${salesman}</span></div>
 </div>`
   }
 
@@ -909,8 +907,9 @@ export function SalesmanDashboard({ orders, userName, embedded }: Props) {
     break-inside: avoid;
     page-break-inside: avoid;
   }
-  .bill-title    { text-align: center; font-size: 15px; font-weight: bold; letter-spacing: 2px; margin-bottom: 3px; }
-  .bill-meta     { text-align: center; font-size: 10px; color: #555; margin-bottom: 6px; }
+  .bill-title    { text-align: center; font-size: 13px; font-weight: bold; letter-spacing: 0; margin-bottom: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .bill-meta     { text-align: center; font-size: 9px; color: #555; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .bill-meta-sm  { font-size: 8.5px; margin-bottom: 6px; }
   .rule          { border-top: 1px dashed #aaa; margin: 5px 0; }
   .bill-parties  { display: flex; justify-content: space-between; align-items: baseline; padding: 3px 0; }
   .shop-name     { font-weight: bold; font-size: 12px; }
