@@ -784,6 +784,7 @@ export function SalesmanDashboard({ orders, userName, embedded }: Props) {
     order: ExistingOrder,
     items: DetailItem[],
     salesman: string,
+    orientation: 'portrait' | 'landscape',
   ): string {
     const artMap = new Map<string, Map<string, Record<string, number>>>()
     for (const item of items) {
@@ -805,11 +806,14 @@ export function SalesmanDashboard({ orders, userName, embedded }: Props) {
       colMap.forEach((sizes, color) => {
         const sorted = Object.entries(sizes).sort(([a], [b]) => Number(a) - Number(b) || a.localeCompare(b))
         const sizesStr = sorted.map(([sz, qty]) => `${sz}/${qty}`).join(', ')
-        rows += `<div class="color-row"><span class="col-color">${color || '—'}</span><span class="col-sizes">${sizesStr}</span><span class="col-bracket">[&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;]</span></div>`
+        const bracket = orientation === 'portrait'
+          ? '[&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;]'
+          : '[&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;]'
+        rows += `<div class="color-row"><span class="col-color">${color || '—'}</span><span class="col-sizes">${sizesStr}</span><span class="col-bracket">${bracket}</span></div>`
       })
       rows += `</div>`
     })
-    return `<div class="bill">
+    return `<div class="bill${orientation === 'portrait' ? ' bill-portrait' : ''}">
   <div class="bill-title">${order.shopkeeperName}</div>
   <div class="bill-meta"><span class="meta-order">Order #${order.orderNumber}</span><span class="meta-sep">&nbsp;·&nbsp;</span><span class="meta-date">${dateStr}</span></div>
   <div class="rule"></div>
@@ -877,14 +881,14 @@ export function SalesmanDashboard({ orders, userName, embedded }: Props) {
     }
 
     const bills = orderedOrders
-      .map(o => buildBillFragment(o, printItemsMap[o.id] ?? [], userName))
+      .map(o => buildBillFragment(o, printItemsMap[o.id] ?? [], userName, orientation))
       .join('\n')
 
     const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8"/>
-<title>Pick List</title>
+<title>Bills</title>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -919,6 +923,7 @@ export function SalesmanDashboard({ orders, userName, embedded }: Props) {
   .color-row     { display: flex; align-items: baseline; gap: 6px; padding: 1px 0; font-size: 11px; }
   .col-color     { width: 64px; flex-shrink: 0; }
   .col-sizes     { flex: 1; font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden; min-width: 0; }
+  .bill-portrait .color-row { gap: 12px; }
   .col-bracket   { white-space: nowrap; }
   .total-row     { display: flex; justify-content: space-between; font-weight: bold; font-size: 13px; padding: 4px 0; }
   .picker-row    { display: flex; justify-content: space-between; font-size: 10px; color: #555; padding: 3px 0; }
