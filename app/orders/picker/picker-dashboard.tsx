@@ -557,33 +557,28 @@ export function PickerDashboard({ queue: initialQueue, currentPickerId, embedded
                     <p className="text-[11px] text-muted-foreground font-mono">{order.orderNumber} · {fmt(order.orderedAt)}</p>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
-                    <StatusPill status={order.status} />
                     {isLoading && <span className="text-[11px] text-muted-foreground">Loading…</span>}
+                    {subTab === 'all' ? (
+                      <button
+                        type="button"
+                        onClick={e => handleClaim(e, order.id)}
+                        disabled={isPending || isClaiming}
+                        className="rounded-lg bg-blue-600 hover:bg-blue-700 text-white px-3.5 py-1.5 text-xs font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        {isClaiming ? 'Claiming…' : 'Claim →'}
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={e => { e.stopPropagation(); doUnassign(order.id) }}
+                        disabled={isPending || isUnassigning}
+                        className="rounded-lg border border-border text-muted-foreground px-3 py-1.5 text-xs font-medium hover:border-red-300 hover:text-red-600 dark:hover:border-red-700 dark:hover:text-red-400 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        {isUnassigning ? 'Releasing…' : 'Release'}
+                      </button>
+                    )}
                   </div>
                 </button>
-
-                {/* Action strip */}
-                <div className="border-t border-border px-3.5 py-2 flex items-center justify-end gap-2">
-                  {subTab === 'all' ? (
-                    <button
-                      type="button"
-                      onClick={e => handleClaim(e, order.id)}
-                      disabled={isPending || isClaiming}
-                      className="rounded-lg bg-blue-600 hover:bg-blue-700 text-white px-3.5 py-1.5 text-xs font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                    >
-                      {isClaiming ? 'Claiming…' : 'Claim →'}
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={e => { e.stopPropagation(); doUnassign(order.id) }}
-                      disabled={isPending || isUnassigning}
-                      className="rounded-lg border border-border text-muted-foreground px-3 py-1.5 text-xs font-medium hover:border-red-300 hover:text-red-600 dark:hover:border-red-700 dark:hover:text-red-400 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                    >
-                      {isUnassigning ? 'Releasing…' : 'Release'}
-                    </button>
-                  )}
-                </div>
               </div>
             )
           })}
