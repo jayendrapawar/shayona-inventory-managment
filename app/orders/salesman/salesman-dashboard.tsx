@@ -805,7 +805,7 @@ export function SalesmanDashboard({ orders, userName, embedded }: Props) {
       colMap.forEach((sizes, color) => {
         const sorted = Object.entries(sizes).sort(([a], [b]) => Number(a) - Number(b) || a.localeCompare(b))
         const sizesStr = sorted.map(([sz, qty]) => `${sz}/${qty}`).join(', ')
-        rows += `<div class="color-row"><span class="col-color">${color || '—'}</span><span class="col-sizes">${sizesStr}</span><span class="col-bracket">[&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;]</span></div>`
+        rows += `<div class="color-row"><span class="col-color">${color || '—'}</span><span class="col-sizes">${sizesStr}</span><span class="col-bracket">[&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;]</span></div>`
       })
       rows += `</div>`
     })
@@ -918,7 +918,7 @@ export function SalesmanDashboard({ orders, userName, embedded }: Props) {
   .art-number    { font-weight: bold; font-size: 12px; margin-bottom: 1px; }
   .color-row     { display: flex; align-items: baseline; gap: 6px; padding: 1px 0; font-size: 11px; }
   .col-color     { width: 64px; flex-shrink: 0; }
-  .col-sizes     { flex: 1; }
+  .col-sizes     { flex: 1; font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden; min-width: 0; }
   .col-bracket   { white-space: nowrap; }
   .total-row     { display: flex; justify-content: space-between; font-weight: bold; font-size: 13px; padding: 4px 0; }
   .picker-row    { display: flex; justify-content: space-between; font-size: 10px; color: #555; padding: 3px 0; }
