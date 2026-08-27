@@ -74,9 +74,10 @@ const MENU_ITEMS: MenuItem[] = [
   },
 ]
 
-export function HomeMenuPage({ role }: { role: AppRole }) {
+export function HomeMenuPage({ role }: { role: string }) {
   const router = useRouter()
-  const visible = MENU_ITEMS.filter(item => item.roles.includes(role))
+  const userRoles = role.split(',').map(r => r.trim())
+  const visible = MENU_ITEMS.filter(item => item.roles.some(r => userRoles.includes(r)))
 
   return (
     <div className="min-h-screen bg-background flex flex-col items-center justify-center px-4 pt-4 pb-12">

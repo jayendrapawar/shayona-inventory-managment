@@ -31,11 +31,36 @@ export function StatusPill({ status }: { status: string }) {
 }
 
 export function RolePill({ role }: { role: string | null | undefined }) {
-  const r = ROLE_BADGE[role ?? 'user'] ?? ROLE_BADGE.user
+  if (!role) {
+    const r = ROLE_BADGE.user
+    return (
+      <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${r.color}`}>
+        {r.label}
+      </span>
+    )
+  }
+
+  const roles = role.split(',').map(r => r.trim()).filter(Boolean)
+  if (roles.length === 0) {
+    const r = ROLE_BADGE.user
+    return (
+      <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${r.color}`}>
+        {r.label}
+      </span>
+    )
+  }
+
   return (
-    <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${r.color}`}>
-      {r.label}
-    </span>
+    <div className="flex flex-wrap gap-1">
+      {roles.map(r => {
+        const badge = ROLE_BADGE[r] ?? ROLE_BADGE.user
+        return (
+          <span key={r} className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${badge.color}`}>
+            {badge.label}
+          </span>
+        )
+      })}
+    </div>
   )
 }
 

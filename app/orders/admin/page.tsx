@@ -25,7 +25,8 @@ export default async function AdminPage() {
     const session = await auth.api.getSession({ headers: await headers() })
     if (!session?.user) redirect('/sign-in')
     const [u] = await db.select({ role: user.role, name: user.name, id: user.id }).from(user).where(eq(user.id, session.user.id)).limit(1)
-    if (u?.role !== 'admin') redirect('/orders')
+    const roles = (u?.role ?? 'user').split(',').map(r => r.trim())
+    if (!roles.includes('admin')) redirect('/orders')
     adminName = u?.name ?? session.user.email ?? ''
     adminId   = u?.id   ?? session.user.id    ?? ''
   } catch (err) {
@@ -33,10 +34,11 @@ export default async function AdminPage() {
     redirect('/sign-in')
   }
 
-  const [stats, allOrders, pickerRows, salesmanOrders, pickerQueue, packedOrders, vendorRows, procurementRows] = await Promise.all([
+  const [stats, allOrders, pickerRows, adminRows, salesmanOrders, pickerQueue, packedOrders, vendorRows, procurementRows] = await Promise.all([
     getOrderStats(),
     getAllOrders(),
     getUsersByRole('picker'),
+    getUsersByRole('admin'),
     getAllSalesmanOrders(),
     getPickerQueue(),
     getPackedOrders(),
@@ -44,7 +46,9 @@ export default async function AdminPage() {
     getProcurementSummary({ status: 'pending' }),
   ])
 
-  const pickers = pickerRows.map(p => ({
+  // Merge pickers + admins (admins can also act as pickers); deduplicate by id
+  const pickerSet = new Map([...adminRows, ...pickerRows].map(p => [p.id, p]))
+  const pickers = Array.from(pickerSet.values()).map(p => ({
     id: p.id,
     name: p.name,
     email: p.email,

@@ -16,7 +16,8 @@ export default async function PickerPage() {
     const session = await auth.api.getSession({ headers: await headers() })
     if (!session?.user) redirect('/sign-in')
     const [u] = await db.select({ role: user.role, id: user.id }).from(user).where(eq(user.id, session.user.id)).limit(1)
-    if (u?.role !== 'picker' && u?.role !== 'admin') redirect('/orders')
+    const roles = (u?.role ?? 'user').split(',').map(r => r.trim())
+    if (!roles.includes('picker') && !roles.includes('admin')) redirect('/orders')
     currentPickerId = u?.id ?? session.user.id
   } catch (err) {
     if (isRedirectError(err)) throw err

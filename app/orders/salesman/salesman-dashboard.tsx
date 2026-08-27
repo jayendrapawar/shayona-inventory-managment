@@ -21,6 +21,7 @@ interface ExistingOrder {
   notes: string | null
   orderedAt: Date
   updatedAt: Date
+  salesmanName?: string | null
 }
 
 // Statuses the salesman can still edit or cancel
@@ -370,6 +371,7 @@ export function SalesmanDashboard({ orders, userName, embedded }: Props) {
 
   // ── Filter + sort state ──
   const [filterStatus, setFilterStatus] = useState<string>('all')
+  const [filterSalesman, setFilterSalesman] = useState<string>(userName || 'all')
   const [sortBy, setSortBy] = useState<'date-desc' | 'date-asc' | 'order'>('date-desc')
 
   // ── SizeMatrix reset key — increment to force SizeMatrix remount after Add to Order ──
@@ -977,14 +979,34 @@ ${bills}
     delivered: orders.filter(o => o.status === 'delivered').length,
   }
 
+  // ── Unique salesmen list for filter dropdown ──
+  const uniqueSalesmen = useMemo(() => {
+    const list = new Set<string>()
+    if (userName) {
+      list.add(userName)
+    }
+    orders.forEach(o => {
+      if (o.salesmanName) {
+        list.add(o.salesmanName)
+      }
+    })
+    return Array.from(list).sort()
+  }, [orders, userName])
+
   // ── Filtered + sorted orders ──
   const displayedOrders = useMemo(() => {
-    let list = filterStatus === 'all' ? orders : orders.filter(o => o.status === filterStatus)
+    let list = orders
+    if (filterStatus !== 'all') {
+      list = list.filter(o => o.status === filterStatus)
+    }
+    if (filterSalesman !== 'all') {
+      list = list.filter(o => o.salesmanName === filterSalesman)
+    }
     if (sortBy === 'date-desc') list = [...list].sort((a, b) => new Date(b.orderedAt).getTime() - new Date(a.orderedAt).getTime())
     if (sortBy === 'date-asc')  list = [...list].sort((a, b) => new Date(a.orderedAt).getTime() - new Date(b.orderedAt).getTime())
     if (sortBy === 'order')     list = [...list].sort((a, b) => a.orderNumber.localeCompare(b.orderNumber))
     return list
-  }, [orders, filterStatus, sortBy])
+  }, [orders, filterStatus, filterSalesman, sortBy])
 
   const ALL_STATUSES = ['pending', 'assigned', 'packed', 'dispatched', 'delivered', 'cancelled']
 
@@ -1034,30 +1056,55 @@ ${bills}
               <p className="text-sm text-red-600 bg-red-50 dark:bg-red-900/20 rounded-xl px-3 py-2">{orderActionError}</p>
             )}
 
-            {/* Filter + Sort bar */}
+            {/* Filter + Sort bar (Compact & Sleek) */}
             {orders.length > 0 && (
-              <div className="flex items-center gap-2 pb-1">
-                <span className="text-xs text-muted-foreground">Filter:</span>
-                <select
-                  value={filterStatus}
-                  onChange={e => setFilterStatus(e.target.value)}
-                  className="rounded-lg border border-border bg-background px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
-                >
-                  <option value="all">All</option>
-                  {ALL_STATUSES.map(s => (
-                    <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>
-                  ))}
-                </select>
-                <span className="text-xs text-muted-foreground ml-auto">Sort:</span>
-                <select
-                  value={sortBy}
-                  onChange={e => setSortBy(e.target.value as typeof sortBy)}
-                  className="rounded-lg border border-border bg-background px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
-                >
-                  <option value="date-desc">Newest first</option>
-                  <option value="date-asc">Oldest first</option>
-                  <option value="order">Order number</option>
-                </select>
+              <div className="bg-card border border-border rounded-xl p-2.5 space-y-2 mb-3 text-xs shadow-sm">
+                {/* 1st Line: Salesman Selector (Compact & Full-width) */}
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold text-muted-foreground uppercase tracking-wide flex-shrink-0">Salesman:</span>
+                  <select
+                    value={filterSalesman}
+                    onChange={e => setFilterSalesman(e.target.value)}
+                    className="flex-1 rounded-md border border-border bg-background px-2 py-1 text-xs font-medium text-foreground focus:outline-none focus:ring-1 focus:ring-ring cursor-pointer min-w-0"
+                  >
+                    <option value="all">All Salesmen</option>
+                    {uniqueSalesmen.map(name => (
+                      <option key={name} value={name}>{name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* 2nd Line: Status (left) & Sort (right) (Compact) */}
+                <div className="flex items-center justify-between gap-4">
+                  {/* Status Filter */}
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-semibold text-muted-foreground uppercase tracking-wide flex-shrink-0">Status:</span>
+                    <select
+                      value={filterStatus}
+                      onChange={e => setFilterStatus(e.target.value)}
+                      className="rounded-md border border-border bg-background px-2 py-1 text-xs font-medium text-foreground focus:outline-none focus:ring-1 focus:ring-ring cursor-pointer w-32 sm:w-36"
+                    >
+                      <option value="all">All Statuses</option>
+                      {ALL_STATUSES.map(s => (
+                        <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Sort Filter */}
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-semibold text-muted-foreground uppercase tracking-wide flex-shrink-0">Sort:</span>
+                    <select
+                      value={sortBy}
+                      onChange={e => setSortBy(e.target.value as typeof sortBy)}
+                      className="rounded-md border border-border bg-background px-2 py-1 text-xs font-medium text-foreground focus:outline-none focus:ring-1 focus:ring-ring cursor-pointer w-32 sm:w-36"
+                    >
+                      <option value="date-desc">Newest first</option>
+                      <option value="date-asc">Oldest first</option>
+                      <option value="order">Order number</option>
+                    </select>
+                  </div>
+                </div>
               </div>
             )}
 
@@ -1088,6 +1135,9 @@ ${bills}
                   </div>
                   <div className="mt-2 flex items-center gap-2 flex-wrap">
                     <span className="font-mono text-xs text-muted-foreground">{order.orderNumber}</span>
+                    {order.salesmanName && (
+                      <span className="text-xs text-muted-foreground">• Created by: <span className="font-medium text-foreground">{order.salesmanName}</span></span>
+                    )}
                     {tag === 'new' && (
                       <span className="inline-flex items-center border-l-2 border-green-500 pl-1.5 pr-1 py-px text-[10px] font-medium text-green-600 dark:text-green-400 tracking-wide">NEW</span>
                     )}
@@ -1127,6 +1177,12 @@ ${bills}
                 <StatusPill status={detailOrder.status} />
               </div>
               <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                {detailOrder.salesmanName && (
+                  <>
+                    <span className="text-muted-foreground">Created by</span>
+                    <span className="text-foreground font-medium">{detailOrder.salesmanName}</span>
+                  </>
+                )}
                 <span className="text-muted-foreground">Ordered</span>
                 <span className="text-foreground">{fmt(detailOrder.orderedAt)}</span>
                 {Math.abs(new Date(detailOrder.updatedAt).getTime() - new Date(detailOrder.orderedAt).getTime()) > 5000 && (

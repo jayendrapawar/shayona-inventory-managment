@@ -21,8 +21,8 @@ export default async function MasterPage() {
     if (!session?.user) redirect('/sign-in')
     currentUserId = session.user.id
     const [u] = await db.select({ role: user.role }).from(user).where(eq(user.id, session.user.id)).limit(1)
-    const role = u?.role ?? 'user'
-    if (role !== 'admin' && role !== 'accountant') redirect('/home')
+    const roles = (u?.role ?? 'user').split(',').map(r => r.trim())
+    if (!roles.includes('admin') && !roles.includes('accountant')) redirect('/home')
   } catch (err) {
     if (isRedirectError(err)) throw err
     redirect('/sign-in')

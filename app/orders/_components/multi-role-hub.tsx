@@ -1,0 +1,82 @@
+'use client'
+
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
+import { SalesmanDashboard } from '../salesman/salesman-dashboard'
+import { PickerDashboard } from '../picker/picker-dashboard'
+import { DispatcherDashboard } from '../dispatcher/dispatcher-dashboard'
+
+interface Props {
+  roles: string[]
+  salesmanOrders: any[]
+  userName: string
+  pickerQueue: any[]
+  currentPickerId: string
+  dispatcherOrders: any[]
+}
+
+export function MultiRoleOrdersHub({
+  roles,
+  salesmanOrders,
+  userName,
+  pickerQueue,
+  currentPickerId,
+  dispatcherOrders,
+}: Props) {
+  const hasSalesman = roles.includes('salesman')
+  const hasPicker = roles.includes('picker')
+  const hasDispatcher = roles.includes('dispatcher')
+
+  const availableTabs = [
+    hasSalesman && { value: 'salesman', label: 'Salesman' },
+    hasPicker && { value: 'picker', label: 'Picker' },
+    hasDispatcher && { value: 'dispatcher', label: 'Dispatcher' },
+  ].filter(Boolean) as { value: string; label: string }[]
+
+  const defaultTab = availableTabs[0]?.value || 'salesman'
+
+  return (
+    <div className="min-h-screen bg-background">
+      <div className="max-w-4xl mx-auto px-4 py-6">
+        {/* Page header */}
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h1 className="text-xl font-bold tracking-tight text-foreground">Order Hub</h1>
+            <p className="text-sm text-muted-foreground mt-0.5">Switch between your order roles</p>
+          </div>
+          <a href="/home" className="text-sm text-muted-foreground hover:text-foreground transition-colors">← Home</a>
+        </div>
+
+        <Tabs defaultValue={defaultTab} className="w-full">
+          <TabsList 
+            className="grid w-full mb-6" 
+            style={{ gridTemplateColumns: `repeat(${availableTabs.length}, minmax(0, 1fr))` }}
+          >
+            {availableTabs.map(tab => (
+              <TabsTrigger key={tab.value} value={tab.value} className="text-xs sm:text-sm">
+                {tab.label}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+
+          {hasSalesman && (
+            <TabsContent value="salesman">
+              <SalesmanDashboard orders={salesmanOrders} userName={userName} embedded />
+            </TabsContent>
+          )}
+
+          {hasPicker && (
+            <TabsContent value="picker">
+              <PickerDashboard queue={pickerQueue} currentPickerId={currentPickerId} embedded />
+            </TabsContent>
+          )}
+
+          {hasDispatcher && (
+            <TabsContent value="dispatcher">
+              <DispatcherDashboard orders={dispatcherOrders} embedded />
+            </TabsContent>
+          )}
+        </Tabs>
+      </div>
+    </div>
+  )
+}

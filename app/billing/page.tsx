@@ -16,8 +16,8 @@ export default async function BillingPage() {
     const session = await auth.api.getSession({ headers: await headers() })
     if (!session?.user) redirect('/sign-in')
     const [u] = await db.select({ role: user.role }).from(user).where(eq(user.id, session.user.id)).limit(1)
-    const role = u?.role ?? 'user'
-    if (role !== 'admin' && role !== 'accountant') redirect('/home')
+    const roles = (u?.role ?? 'user').split(',').map(r => r.trim())
+    if (!roles.includes('admin') && !roles.includes('accountant')) redirect('/home')
   } catch (err) {
     if (isRedirectError(err)) throw err
     redirect('/sign-in')

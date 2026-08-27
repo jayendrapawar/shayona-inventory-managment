@@ -20,7 +20,8 @@ async function requireRole(...roles: string[]) {
   const u = await getSession()
   const dbUser = await db.select({ role: user.role }).from(user).where(eq(user.id, u.id)).limit(1)
   const role = dbUser[0]?.role ?? 'user'
-  if (!roles.includes(role)) throw new Error('Forbidden')
+  const userRoles = role.split(',').map(r => r.trim())
+  if (!roles.some(r => userRoles.includes(r))) throw new Error('Forbidden')
   return { ...u, role }
 }
 
@@ -84,7 +85,8 @@ export async function updateOrder(orderId: number, input: CreateOrderInput) {
   const [order] = await db.select({ salesmanId: orders.salesmanId, status: orders.status })
     .from(orders).where(eq(orders.id, orderId)).limit(1)
   if (!order) throw new Error('Order not found')
-  if (order.salesmanId !== u.id && u.role !== 'admin') throw new Error('Forbidden')
+  const userRoles = u.role.split(',').map(r => r.trim())
+  if (order.salesmanId !== u.id && !userRoles.includes('admin')) throw new Error('Forbidden')
   if (!['pending', 'assigned'].includes(order.status)) throw new Error('Only pending or assigned orders can be edited')
 
   // Replace shopkeeper name + notes
@@ -110,7 +112,7 @@ export async function updateOrder(orderId: number, input: CreateOrderInput) {
 }
 
 export async function getSalesmanOrders() {
-  const u = await requireRole('salesman', 'admin')
+  await requireRole('salesman', 'admin', 'picker', 'dispatcher', 'accountant')
   return db
     .select({
       id: orders.id,
@@ -120,9 +122,10 @@ export async function getSalesmanOrders() {
       notes: orders.notes,
       orderedAt: orders.orderedAt,
       updatedAt: orders.updatedAt,
+      salesmanName: user.name,
     })
     .from(orders)
-    .where(eq(orders.salesmanId, u.id))
+    .leftJoin(user, eq(orders.salesmanId, user.id))
     .orderBy(desc(orders.orderedAt))
 }
 
@@ -138,17 +141,18 @@ export async function getAllSalesmanOrders() {
       notes: orders.notes,
       orderedAt: orders.orderedAt,
       updatedAt: orders.updatedAt,
+      salesmanName: user.name,
     })
     .from(orders)
+    .leftJoin(user, eq(orders.salesmanId, user.id))
     .orderBy(desc(orders.orderedAt))
 }
 
 export async function getSalesmanOrderWithItems(orderId: number) {
-  const u = await requireRole('salesman', 'admin')
+  await requireRole('salesman', 'admin', 'picker', 'dispatcher', 'accountant')
   const [order] = await db.select().from(orders)
     .where(eq(orders.id, orderId)).limit(1)
   if (!order) throw new Error('Order not found')
-  if (order.salesmanId !== u.id && u.role !== 'admin') throw new Error('Forbidden')
   const items = await db.select().from(orderItems).where(eq(orderItems.orderId, orderId))
   return { order, items }
 }
@@ -158,7 +162,8 @@ export async function cancelOrder(orderId: number) {
   const [order] = await db.select({ salesmanId: orders.salesmanId, status: orders.status })
     .from(orders).where(eq(orders.id, orderId)).limit(1)
   if (!order) throw new Error('Order not found')
-  if (order.salesmanId !== u.id && u.role !== 'admin') throw new Error('Forbidden')
+  const userRoles = u.role.split(',').map(r => r.trim())
+  if (order.salesmanId !== u.id && !userRoles.includes('admin')) throw new Error('Forbidden')
   if (!['pending', 'assigned'].includes(order.status)) throw new Error('Only pending or assigned orders can be cancelled')
   await db.update(orders)
     .set({ status: 'cancelled', updatedAt: sql`now()` })
@@ -212,7 +217,8 @@ export async function unassignOrder(orderId: number): Promise<{ orderId: number 
     .from(orders).where(eq(orders.id, orderId)).limit(1)
   if (!order) throw new Error('Order not found')
   if (order.status !== 'assigned') throw new Error('Only assigned orders can be released')
-  if (order.pickerId !== u.id && u.role !== 'admin') throw new Error('You can only release orders assigned to you')
+  const userRoles = u.role.split(',').map(r => r.trim())
+  if (order.pickerId !== u.id && !userRoles.includes('admin')) throw new Error('You can only release orders assigned to you')
   await db.update(orders)
     .set({ pickerId: null, status: 'pending', updatedAt: sql`now()` })
     .where(eq(orders.id, orderId))
@@ -338,20 +344,33 @@ export async function adminUpdateOrderStatus(orderId: number, status: OrderStatu
 
 export async function adminAssignPicker(orderId: number, pickerId: string) {
   await requireRole('admin')
-  await db.update(orders)
-    .set({ pickerId, status: 'assigned', updatedAt: sql`now()` })
-    .where(eq(orders.id, orderId))
+  // Fetch current status so we only advance to 'assigned' from 'pending'.
+  // If already 'packed', 'dispatched', etc., just update the pickerId without
+  // changing status — the order is already progressing through the pipeline.
+  const [order] = await db.select({ status: orders.status })
+    .from(orders).where(eq(orders.id, orderId)).limit(1)
+  if (!order) throw new Error('Order not found')
+  const patch: Record<string, unknown> = { pickerId, updatedAt: sql`now()` }
+  if (order.status === 'pending') patch.status = 'assigned'
+  await db.update(orders).set(patch).where(eq(orders.id, orderId))
   revalidatePath('/orders')
   revalidatePath('/orders/admin')
+  revalidatePath('/orders/picker')
 }
 
 export async function adminUnassignPicker(orderId: number) {
   await requireRole('admin')
-  await db.update(orders)
-    .set({ pickerId: null, status: 'pending', updatedAt: sql`now()` })
-    .where(eq(orders.id, orderId))
+  // Only revert to pending if still in picker hands (pending/assigned).
+  // A packed/dispatched/delivered order keeps its status when unassigning.
+  const [order] = await db.select({ status: orders.status })
+    .from(orders).where(eq(orders.id, orderId)).limit(1)
+  if (!order) throw new Error('Order not found')
+  const patch: Record<string, unknown> = { pickerId: null, updatedAt: sql`now()` }
+  if (order.status === 'assigned') patch.status = 'pending'
+  await db.update(orders).set(patch).where(eq(orders.id, orderId))
   revalidatePath('/orders')
   revalidatePath('/orders/admin')
+  revalidatePath('/orders/picker')
 }
 
 /** Returns orderId → pickerId map for all non-null picker assignments. */

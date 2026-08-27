@@ -3,7 +3,7 @@
 import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
 import { user } from '@/lib/db/schema'
-import { eq } from 'drizzle-orm'
+import { eq, like } from 'drizzle-orm'
 import { headers } from 'next/headers'
 import { revalidatePath } from 'next/cache'
 
@@ -13,7 +13,8 @@ async function requireAdmin() {
   const session = await auth.api.getSession({ headers: await headers() })
   if (!session?.user) throw new Error('Unauthorized')
   const [u] = await db.select({ role: user.role }).from(user).where(eq(user.id, session.user.id)).limit(1)
-  if (u?.role !== 'admin') throw new Error('Forbidden')
+  const roles = (u?.role ?? '').split(',').map(r => r.trim())
+  if (!roles.includes('admin')) throw new Error('Forbidden')
   return session.user
 }
 
@@ -30,10 +31,10 @@ export async function getUsersByRole(role: AppRole) {
   return db
     .select({ id: user.id, name: user.name, email: user.email })
     .from(user)
-    .where(eq(user.role, role))
+    .where(like(user.role, `%${role}%`))
 }
 
-export async function updateUserRole(userId: string, role: AppRole) {
+export async function updateUserRole(userId: string, role: string) {
   await requireAdmin()
   await db.update(user).set({ role }).where(eq(user.id, userId))
   revalidatePath('/master')
@@ -47,12 +48,12 @@ export async function getPickersList() {
   return db
     .select({ id: user.id, name: user.name })
     .from(user)
-    .where(eq(user.role, 'picker'))
+    .where(like(user.role, '%picker%'))
 }
 
-export async function getCurrentUserRole(): Promise<AppRole> {
+export async function getCurrentUserRole(): Promise<string> {
   const session = await auth.api.getSession({ headers: await headers() })
   if (!session?.user) return 'user'
   const [u] = await db.select({ role: user.role }).from(user).where(eq(user.id, session.user.id)).limit(1)
-  return (u?.role as AppRole) ?? 'user'
+  return u?.role ?? 'user'
 }

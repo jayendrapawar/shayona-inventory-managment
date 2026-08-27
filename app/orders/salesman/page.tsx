@@ -17,7 +17,8 @@ export default async function SalesmanPage() {
     if (!session?.user) redirect('/sign-in')
     sessionUser = session.user
     const [u] = await db.select({ role: user.role }).from(user).where(eq(user.id, session.user.id)).limit(1)
-    if (u?.role !== 'salesman' && u?.role !== 'admin') redirect('/orders')
+    const roles = (u?.role ?? 'user').split(',').map(r => r.trim())
+    if (!roles.includes('salesman') && !roles.includes('admin')) redirect('/orders')
   } catch (err) {
     if (isRedirectError(err)) throw err
     redirect('/sign-in')
