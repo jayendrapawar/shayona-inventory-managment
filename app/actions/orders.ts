@@ -186,6 +186,38 @@ export async function getPickerQueue() {
     .orderBy(desc(orders.orderedAt))
 }
 
+/** Picker self-assigns a pending (unassigned) order to themselves. */
+export async function selfAssignOrder(orderId: number) {
+  const u = await requireRole('picker', 'admin')
+  const [order] = await db.select({ status: orders.status, pickerId: orders.pickerId })
+    .from(orders).where(eq(orders.id, orderId)).limit(1)
+  if (!order) throw new Error('Order not found')
+  if (order.status !== 'pending') throw new Error('Only pending orders can be claimed')
+  if (order.pickerId) throw new Error('Order is already assigned to a picker')
+  await db.update(orders)
+    .set({ pickerId: u.id, status: 'assigned', updatedAt: sql`now()` })
+    .where(eq(orders.id, orderId))
+  revalidatePath('/orders')
+  revalidatePath('/orders/picker')
+  revalidatePath('/orders/admin')
+}
+
+/** Picker releases an order they previously claimed back to unassigned/pending. */
+export async function unassignOrder(orderId: number) {
+  const u = await requireRole('picker', 'admin')
+  const [order] = await db.select({ status: orders.status, pickerId: orders.pickerId })
+    .from(orders).where(eq(orders.id, orderId)).limit(1)
+  if (!order) throw new Error('Order not found')
+  if (order.status !== 'assigned') throw new Error('Only assigned orders can be released')
+  if (order.pickerId !== u.id && u.role !== 'admin') throw new Error('You can only release orders assigned to you')
+  await db.update(orders)
+    .set({ pickerId: null, status: 'pending', updatedAt: sql`now()` })
+    .where(eq(orders.id, orderId))
+  revalidatePath('/orders')
+  revalidatePath('/orders/picker')
+  revalidatePath('/orders/admin')
+}
+
 export async function getOrderWithItems(orderId: number) {
   await requireRole('picker', 'dispatcher', 'admin', 'salesman')
   const [order] = await db.select().from(orders).where(eq(orders.id, orderId)).limit(1)

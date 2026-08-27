@@ -20,12 +20,14 @@ export const metadata = { title: 'Admin Hub | Shayona' }
 
 export default async function AdminPage() {
   let adminName = ''
+  let adminId   = ''
   try {
     const session = await auth.api.getSession({ headers: await headers() })
     if (!session?.user) redirect('/sign-in')
-    const [u] = await db.select({ role: user.role, name: user.name }).from(user).where(eq(user.id, session.user.id)).limit(1)
+    const [u] = await db.select({ role: user.role, name: user.name, id: user.id }).from(user).where(eq(user.id, session.user.id)).limit(1)
     if (u?.role !== 'admin') redirect('/orders')
     adminName = u?.name ?? session.user.email ?? ''
+    adminId   = u?.id   ?? session.user.id    ?? ''
   } catch (err) {
     if (isRedirectError(err)) throw err
     redirect('/sign-in')
@@ -66,6 +68,7 @@ export default async function AdminPage() {
   return (
     <AdminHub
       adminName={adminName}
+      adminId={adminId}
       stats={stats}
       allOrders={allOrders}
       pickers={pickers}

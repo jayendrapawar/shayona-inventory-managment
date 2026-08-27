@@ -11,16 +11,18 @@ import { PickerDashboard } from './picker-dashboard'
 export const metadata = { title: 'Picker — Orders | Shayona' }
 
 export default async function PickerPage() {
+  let currentPickerId = ''
   try {
     const session = await auth.api.getSession({ headers: await headers() })
     if (!session?.user) redirect('/sign-in')
-    const [u] = await db.select({ role: user.role }).from(user).where(eq(user.id, session.user.id)).limit(1)
+    const [u] = await db.select({ role: user.role, id: user.id }).from(user).where(eq(user.id, session.user.id)).limit(1)
     if (u?.role !== 'picker' && u?.role !== 'admin') redirect('/orders')
+    currentPickerId = u?.id ?? session.user.id
   } catch (err) {
     if (isRedirectError(err)) throw err
     redirect('/sign-in')
   }
 
   const queue = await getPickerQueue()
-  return <PickerDashboard queue={queue} />
+  return <PickerDashboard queue={queue} currentPickerId={currentPickerId} />
 }

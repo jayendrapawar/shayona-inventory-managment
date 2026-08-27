@@ -61,6 +61,7 @@ interface Picker {
 
 interface Props {
   adminName: string
+  adminId: string
   stats: { total: number; pending: number; packed: number; dispatched: number; delivered: number; cancelled: number }
   allOrders: OrderRow[]
   pickers: Picker[]
@@ -72,6 +73,7 @@ interface Props {
 
 export function AdminHub({
   adminName,
+  adminId,
   stats,
   allOrders,
   pickers,
@@ -113,7 +115,7 @@ export function AdminHub({
           </TabsContent>
 
           <TabsContent value="picker">
-            <PickerDashboard queue={pickerQueue} embedded />
+            <PickerDashboard queue={pickerQueue} currentPickerId={adminId} embedded />
           </TabsContent>
 
           <TabsContent value="dispatcher">
