@@ -25,11 +25,13 @@ interface Props {
   queue: QueueItem[]
   currentPickerId: string
   embedded?: boolean
+  /** Called when a picker claims (pickerId set) or releases (pickerId null) an order */
+  onPickerChange?: (orderId: number, pickerId: string | null) => void
 }
 
 type SubTab = 'all' | 'mine'
 
-export function PickerDashboard({ queue: initialQueue, currentPickerId, embedded }: Props) {
+export function PickerDashboard({ queue: initialQueue, currentPickerId, embedded, onPickerChange }: Props) {
   const [queue, setQueue] = useState<QueueItem[]>(initialQueue)
   const [selectedOrder, setSelectedOrder] = useState<{ order: Order; items: OrderItem[]; readOnly: boolean } | null>(null)
   const [isPending, startTransition] = useTransition()
@@ -75,12 +77,13 @@ export function PickerDashboard({ queue: initialQueue, currentPickerId, embedded
     setClaimingId(orderId)
     startTransition(async () => {
       try {
-        await selfAssignOrder(orderId)
+        const result = await selfAssignOrder(orderId)
         setQueue(prev =>
           prev.map(o =>
             o.id === orderId ? { ...o, status: 'assigned', pickerId: currentPickerId } : o
           )
         )
+        onPickerChange?.(result.orderId, result.pickerId)
         setSubTab('mine')
       } catch (err) {
         setClaimError(err instanceof Error ? err.message : 'Failed to claim order')
@@ -423,12 +426,13 @@ export function PickerDashboard({ queue: initialQueue, currentPickerId, embedded
     setUnassigningId(orderId)
     startTransition(async () => {
       try {
-        await unassignOrder(orderId)
+        const result = await unassignOrder(orderId)
         setQueue(prev =>
           prev.map(o =>
             o.id === orderId ? { ...o, status: 'pending', pickerId: null } : o
           )
         )
+        onPickerChange?.(result.orderId, null)
         setSubTab('all')
       } catch (err) {
         setClaimError(err instanceof Error ? err.message : 'Failed to release order')
@@ -541,11 +545,13 @@ export function PickerDashboard({ queue: initialQueue, currentPickerId, embedded
                     : 'border-border'
                 }`}
               >
-                <button
-                  type="button"
-                  onClick={() => openOrder(order.id)}
-                  disabled={isLoading}
-                  className="w-full flex items-center gap-3 px-3.5 py-3 text-left disabled:opacity-60"
+                {/* Clickable row — using div to avoid nested <button> hydration error */}
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => !isLoading && openOrder(order.id)}
+                  onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') openOrder(order.id) }}
+                  className={`w-full flex items-center gap-3 px-3.5 py-3 text-left cursor-pointer select-none ${isLoading ? 'opacity-60 pointer-events-none' : ''}`}
                 >
                   {/* Leading color dot */}
                   <div className={`shrink-0 w-2 h-2 rounded-full ${subTab === 'mine' ? 'bg-blue-500' : 'bg-yellow-500'}`} />
@@ -561,7 +567,7 @@ export function PickerDashboard({ queue: initialQueue, currentPickerId, embedded
                     {subTab === 'all' ? (
                       <button
                         type="button"
-                        onClick={e => handleClaim(e, order.id)}
+                        onClick={e => { e.stopPropagation(); handleClaim(e, order.id) }}
                         disabled={isPending || isClaiming}
                         className="rounded-lg bg-blue-600 hover:bg-blue-700 text-white px-3.5 py-1.5 text-xs font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                       >
@@ -578,7 +584,7 @@ export function PickerDashboard({ queue: initialQueue, currentPickerId, embedded
                       </button>
                     )}
                   </div>
-                </button>
+                </div>
               </div>
             )
           })}

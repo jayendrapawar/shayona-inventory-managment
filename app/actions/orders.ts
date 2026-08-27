@@ -190,23 +190,23 @@ export async function getPickerQueue() {
 }
 
 /** Picker self-assigns a pending (unassigned) order to themselves. */
-export async function selfAssignOrder(orderId: number) {
+export async function selfAssignOrder(orderId: number): Promise<{ orderId: number; pickerId: string }> {
   const u = await requireRole('picker', 'admin')
-  const [order] = await db.select({ status: orders.status, pickerId: orders.pickerId })
-    .from(orders).where(eq(orders.id, orderId)).limit(1)
-  if (!order) throw new Error('Order not found')
-  if (order.status !== 'pending') throw new Error('Only pending orders can be claimed')
-  if (order.pickerId) throw new Error('Order is already assigned to a picker')
-  await db.update(orders)
+  // Use a conditional UPDATE (WHERE pickerId IS NULL AND status = 'pending') to prevent
+  // a race condition where two pickers claim the same order simultaneously.
+  const result = await db.update(orders)
     .set({ pickerId: u.id, status: 'assigned', updatedAt: sql`now()` })
-    .where(eq(orders.id, orderId))
+    .where(and(eq(orders.id, orderId), eq(orders.status, 'pending'), sql`${orders.pickerId} is null`))
+    .returning({ id: orders.id })
+  if (result.length === 0) throw new Error('Order is no longer available')
   revalidatePath('/orders')
   revalidatePath('/orders/picker')
   revalidatePath('/orders/admin')
+  return { orderId, pickerId: u.id }
 }
 
 /** Picker releases an order they previously claimed back to unassigned/pending. */
-export async function unassignOrder(orderId: number) {
+export async function unassignOrder(orderId: number): Promise<{ orderId: number }> {
   const u = await requireRole('picker', 'admin')
   const [order] = await db.select({ status: orders.status, pickerId: orders.pickerId })
     .from(orders).where(eq(orders.id, orderId)).limit(1)
@@ -219,6 +219,7 @@ export async function unassignOrder(orderId: number) {
   revalidatePath('/orders')
   revalidatePath('/orders/picker')
   revalidatePath('/orders/admin')
+  return { orderId }
 }
 
 export async function getOrderWithItems(orderId: number) {
@@ -234,17 +235,14 @@ export async function updateItemPacked(itemId: number, quantityPacked: number) {
   const [item] = await db.select().from(orderItems).where(eq(orderItems.id, itemId)).limit(1)
   if (!item) throw new Error('Item not found')
 
-  const newStatus = quantityPacked === 0
-    ? 'pending'
-    : quantityPacked >= item.quantityOrdered
-      ? 'packed'
-      : 'pending'
+  const newStatus = quantityPacked >= item.quantityOrdered ? 'packed' : 'pending'
 
   await db.update(orderItems)
     .set({ quantityPacked, status: newStatus, updatedAt: sql`now()` })
     .where(eq(orderItems.id, itemId))
 
   revalidatePath('/orders')
+  revalidatePath('/orders/admin')
 }
 
 export async function markItemOutOfStock(itemId: number) {
@@ -253,6 +251,7 @@ export async function markItemOutOfStock(itemId: number) {
     .set({ status: 'out_of_stock', updatedAt: sql`now()` })
     .where(eq(orderItems.id, itemId))
   revalidatePath('/orders')
+  revalidatePath('/orders/admin')
 }
 
 export async function markOrderPacked(orderId: number) {
@@ -261,6 +260,8 @@ export async function markOrderPacked(orderId: number) {
     .set({ status: 'packed', packedAt: sql`now()`, updatedAt: sql`now()` })
     .where(eq(orders.id, orderId))
   revalidatePath('/orders')
+  revalidatePath('/orders/admin')
+  revalidatePath('/orders/picker')
 }
 
 // ── Dispatcher actions ────────────────────────────────────────────────────────
@@ -286,6 +287,7 @@ export async function markDispatched(orderId: number) {
     .set({ status: 'dispatched', dispatcherId: u.id, dispatchedAt: sql`now()`, updatedAt: sql`now()` })
     .where(eq(orders.id, orderId))
   revalidatePath('/orders')
+  revalidatePath('/orders/admin')
 }
 
 export async function markDelivered(orderId: number) {
@@ -294,6 +296,7 @@ export async function markDelivered(orderId: number) {
     .set({ status: 'delivered', deliveredAt: sql`now()`, updatedAt: sql`now()` })
     .where(eq(orders.id, orderId))
   revalidatePath('/orders')
+  revalidatePath('/orders/admin')
 }
 
 // ── Admin actions ─────────────────────────────────────────────────────────────
@@ -325,8 +328,12 @@ export async function adminUpdateOrderStatus(orderId: number, status: OrderStatu
   if (status === 'packed') patch.packedAt = sql`now()`
   if (status === 'dispatched') patch.dispatchedAt = sql`now()`
   if (status === 'delivered') patch.deliveredAt = sql`now()`
+  // Clear picker assignment when manually reverting to pending
+  if (status === 'pending') patch.pickerId = null
   await db.update(orders).set(patch).where(eq(orders.id, orderId))
   revalidatePath('/orders')
+  revalidatePath('/orders/admin')
+  revalidatePath('/orders/picker')
 }
 
 export async function adminAssignPicker(orderId: number, pickerId: string) {
@@ -335,6 +342,26 @@ export async function adminAssignPicker(orderId: number, pickerId: string) {
     .set({ pickerId, status: 'assigned', updatedAt: sql`now()` })
     .where(eq(orders.id, orderId))
   revalidatePath('/orders')
+  revalidatePath('/orders/admin')
+}
+
+export async function adminUnassignPicker(orderId: number) {
+  await requireRole('admin')
+  await db.update(orders)
+    .set({ pickerId: null, status: 'pending', updatedAt: sql`now()` })
+    .where(eq(orders.id, orderId))
+  revalidatePath('/orders')
+  revalidatePath('/orders/admin')
+}
+
+/** Returns orderId → pickerId map for all non-null picker assignments. */
+export async function getPickerAssignments(): Promise<Record<number, string>> {
+  await requireRole('admin')
+  const rows = await db
+    .select({ id: orders.id, pickerId: orders.pickerId })
+    .from(orders)
+    .where(sql`${orders.pickerId} is not null`)
+  return Object.fromEntries(rows.map(r => [r.id, r.pickerId!]))
 }
 
 export async function getOrderStats() {

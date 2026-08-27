@@ -1,8 +1,8 @@
 'use client'
 
-import { useState, useTransition, useMemo } from 'react'
+import { useState, useTransition, useMemo, useEffect, useCallback } from 'react'
 import { StatusPill, fmt, PageHeader, StatCard } from '../_components/shared'
-import { adminUpdateOrderStatus, adminAssignPicker, getOrderWithItems } from '@/app/actions/orders'
+import { adminUpdateOrderStatus, adminAssignPicker, adminUnassignPicker, getOrderWithItems, getPickerAssignments } from '@/app/actions/orders'
 import type { OrderStatus } from '@/lib/db/schema'
 
 interface OrderRow {
@@ -22,6 +22,9 @@ interface Props {
   orders: OrderRow[]
   pickers: { id: string; name: string | null; email: string; role: string | null; createdAt: Date }[]
   embedded?: boolean
+  /** Externally controlled picker map — when provided, overrides local state */
+  pickerMapOverride?: Record<number, string>
+  onPickerChange?: (orderId: number, pickerId: string | null) => void
 }
 
 interface DetailItem {
@@ -47,13 +50,48 @@ function orderTag(orderedAt: Date, updatedAt: Date): 'new' | 'updated' | null {
 const ORDER_STATUSES: OrderStatus[] = ['pending', 'assigned', 'packed', 'dispatched', 'delivered', 'cancelled']
 const ALL_STATUSES = ORDER_STATUSES as string[]
 
-export function AdminDashboard({ stats, orders, pickers, embedded }: Props) {
+export function AdminDashboard({ stats, orders, pickers, embedded, pickerMapOverride, onPickerChange }: Props) {
   const [isPending, startTransition] = useTransition()
   const [search, setSearch] = useState('')
 
   // ── Filter + sort ──
   const [filterStatus, setFilterStatus] = useState<string>('all')
   const [sortBy, setSortBy] = useState<'date-desc' | 'date-asc' | 'order'>('date-desc')
+
+  // ── Picker assignments: orderId → pickerId ────────────────────────────────────
+  // When pickerMapOverride is provided (AdminHub context), use it as the source of truth.
+  // Otherwise fall back to local state (standalone page).
+  const [localPickerMap, setLocalPickerMap] = useState<Record<number, string>>(() =>
+    Object.fromEntries(orders.filter(o => o.pickerId).map(o => [o.id, o.pickerId!]))
+  )
+  const pickerMap = pickerMapOverride ?? localPickerMap
+
+  // Sync local map whenever server re-renders with fresh orders prop (standalone page only)
+  useEffect(() => {
+    if (pickerMapOverride) return // AdminHub owns the map; don't clobber it
+    setLocalPickerMap(prev => {
+      const next = { ...prev }
+      for (const o of orders) {
+        if (o.pickerId) next[o.id] = o.pickerId
+        else delete next[o.id]
+      }
+      return next
+    })
+  }, [orders, pickerMapOverride])
+
+  // Poll every 15 s (standalone page) so picker self-assigns appear without reload
+  const refreshPickerMap = useCallback(() => {
+    if (pickerMapOverride) return // AdminHub handles sync via onPickerChange
+    startTransition(async () => {
+      const fresh = await getPickerAssignments()
+      setLocalPickerMap(fresh)
+    })
+  }, [pickerMapOverride]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const id = setInterval(refreshPickerMap, 15_000)
+    return () => clearInterval(id)
+  }, [refreshPickerMap])
 
   // ── Detail panel ──
   const [detailOrder, setDetailOrder] = useState<OrderRow | null>(null)
@@ -80,8 +118,27 @@ export function AdminDashboard({ stats, orders, pickers, embedded }: Props) {
     startTransition(async () => { await adminUpdateOrderStatus(orderId, status as OrderStatus) })
   }
 
-  function handleAssignPicker(orderId: number, pickerId: string) {
-    startTransition(async () => { await adminAssignPicker(orderId, pickerId) })
+  function handlePickerSelect(orderId: number, pickerId: string) {
+    if (pickerId) {
+      // Optimistic assign
+      setLocalPickerMap(prev => ({ ...prev, [orderId]: pickerId }))
+      onPickerChange?.(orderId, pickerId)
+      startTransition(async () => {
+        await adminAssignPicker(orderId, pickerId)
+        // Refresh local map to authoritative state (standalone page only)
+        if (!pickerMapOverride) {
+          const fresh = await getPickerAssignments()
+          setLocalPickerMap(fresh)
+        }
+      })
+    } else {
+      // Optimistic unassign
+      setLocalPickerMap(prev => { const n = { ...prev }; delete n[orderId]; return n })
+      onPickerChange?.(orderId, null)
+      startTransition(async () => {
+        await adminUnassignPicker(orderId)
+      })
+    }
   }
 
   const filteredOrders = useMemo(() => {
@@ -180,8 +237,8 @@ export function AdminDashboard({ stats, orders, pickers, embedded }: Props) {
                       <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide mb-1">Assign Picker</p>
                       <select
                         disabled={isPending}
-                        defaultValue={detailOrder.pickerId ?? ''}
-                        onChange={e => e.target.value && handleAssignPicker(detailOrder.id, e.target.value)}
+                        value={pickerMap[detailOrder.id] ?? ''}
+                        onChange={e => handlePickerSelect(detailOrder.id, e.target.value)}
                         className="w-full rounded-lg border border-border bg-background px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
                       >
                         <option value="">Select picker</option>
@@ -372,8 +429,8 @@ export function AdminDashboard({ stats, orders, pickers, embedded }: Props) {
                       <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
                         <select
                           disabled={isPending}
-                          defaultValue={order.pickerId ?? ''}
-                          onChange={e => e.target.value && handleAssignPicker(order.id, e.target.value)}
+                          value={pickerMap[order.id] ?? ''}
+                          onChange={e => handlePickerSelect(order.id, e.target.value)}
                           className="rounded-md border border-border bg-background px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
                         >
                           <option value="">Select picker</option>

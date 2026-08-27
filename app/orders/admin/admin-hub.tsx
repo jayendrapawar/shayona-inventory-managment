@@ -1,5 +1,6 @@
 'use client'
 
+import { useState, useCallback } from 'react'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { AdminDashboard } from './admin-dashboard'
 import { SalesmanDashboard } from '../salesman/salesman-dashboard'
@@ -83,6 +84,20 @@ export function AdminHub({
   dispatchOrders,
   procurementRows,
 }: Props) {
+  // Shared picker assignment map — owned here so Overview + Picker tab stay in sync
+  const [sharedPickerMap, setSharedPickerMap] = useState<Record<number, string>>(() =>
+    Object.fromEntries(allOrders.filter(o => o.pickerId).map(o => [o.id, o.pickerId!]))
+  )
+
+  const handlePickerChange = useCallback((orderId: number, pickerId: string | null) => {
+    setSharedPickerMap(prev => {
+      const next = { ...prev }
+      if (pickerId) next[orderId] = pickerId
+      else delete next[orderId]
+      return next
+    })
+  }, [])
+
   return (
     <div className="min-h-screen bg-background">
       <div className="max-w-6xl mx-auto px-4 py-6">
@@ -108,7 +123,14 @@ export function AdminHub({
 
           {/* ── Overview ── */}
           <TabsContent value="overview">
-            <AdminDashboard stats={stats} orders={allOrders} pickers={pickers} embedded />
+            <AdminDashboard
+              stats={stats}
+              orders={allOrders}
+              pickers={pickers}
+              embedded
+              pickerMapOverride={sharedPickerMap}
+              onPickerChange={handlePickerChange}
+            />
           </TabsContent>
 
           <TabsContent value="salesman">
@@ -116,7 +138,12 @@ export function AdminHub({
           </TabsContent>
 
           <TabsContent value="picker">
-            <PickerDashboard queue={pickerQueue} currentPickerId={adminId} embedded />
+            <PickerDashboard
+              queue={pickerQueue}
+              currentPickerId={adminId}
+              embedded
+              onPickerChange={handlePickerChange}
+            />
           </TabsContent>
 
           <TabsContent value="dispatcher">
