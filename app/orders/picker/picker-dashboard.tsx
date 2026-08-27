@@ -18,6 +18,7 @@ interface QueueItem {
   status: string
   orderedAt: Date
   pickerId: string | null
+  totalPairs: number
 }
 
 interface Props {
@@ -549,7 +550,10 @@ export function PickerDashboard({ queue: initialQueue, currentPickerId, embedded
                   {/* Leading color dot */}
                   <div className={`shrink-0 w-2 h-2 rounded-full ${subTab === 'mine' ? 'bg-blue-500' : 'bg-yellow-500'}`} />
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-foreground truncate">{order.shopkeeperName}</p>
+                    <p className="text-sm font-semibold text-foreground truncate">
+                      {order.shopkeeperName}
+                      <span className="ml-1.5 text-xs font-normal text-muted-foreground tabular-nums">({order.totalPairs} pairs)</span>
+                    </p>
                     <p className="text-[11px] text-muted-foreground font-mono">{order.orderNumber} · {fmt(order.orderedAt)}</p>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">

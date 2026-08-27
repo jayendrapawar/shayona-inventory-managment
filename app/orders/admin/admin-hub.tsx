@@ -33,6 +33,7 @@ interface SalesmanOrder {
 }
 
 interface QueueItem {
+  totalPairs: number
   id: number
   orderNumber: string
   shopkeeperName: string

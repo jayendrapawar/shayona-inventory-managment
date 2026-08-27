@@ -180,9 +180,12 @@ export async function getPickerQueue() {
       status: orders.status,
       orderedAt: orders.orderedAt,
       pickerId: orders.pickerId,
+      totalPairs: sql<number>`cast(coalesce(sum(${orderItems.quantityOrdered}), 0) as int)`,
     })
     .from(orders)
+    .leftJoin(orderItems, eq(orderItems.orderId, orders.id))
     .where(inArray(orders.status, ['pending', 'assigned']))
+    .groupBy(orders.id)
     .orderBy(desc(orders.orderedAt))
 }
 
