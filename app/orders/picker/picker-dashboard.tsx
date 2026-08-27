@@ -148,6 +148,44 @@ export function PickerDashboard({ queue: initialQueue, currentPickerId, embedded
   const doneCount  = selectedOrder ? selectedOrder.items.filter(i => i.status === 'out_of_stock' || i.id in touched).length : 0
   const totalCount = selectedOrder ? selectedOrder.items.length : 0
 
+  // ── Grouped article view (article → distinct colors → sizes) ─────────────────
+  const articleGroups = useMemo(() => {
+    if (!selectedOrder) return []
+    // level 1: artNumber
+    const artMap = new Map<string, OrderItem[]>()
+    for (const item of selectedOrder.items) {
+      if (!artMap.has(item.artNumber)) artMap.set(item.artNumber, [])
+      artMap.get(item.artNumber)!.push(item)
+    }
+    return Array.from(artMap.entries()).map(([artNumber, items]) => {
+      // level 2: colorNumber (deduplicated)
+      const colorMap = new Map<string, OrderItem[]>()
+      for (const item of items) {
+        const color = item.colorNumber ?? '—'
+        if (!colorMap.has(color)) colorMap.set(color, [])
+        colorMap.get(color)!.push(item)
+      }
+      const colorGroups = Array.from(colorMap.entries()).map(([color, colorItems]) => ({
+        color,
+        items: colorItems,
+      }))
+      return { artNumber, colorGroups }
+    })
+  }, [selectedOrder])
+
+  // active color tab per article: artNumber → color string
+  const [activeColorTab, setActiveColorTab] = useState<Record<string, string>>({})
+
+  // whenever selectedOrder changes, reset color tabs to first color of each article
+  useEffect(() => {
+    if (!selectedOrder) { setActiveColorTab({}); return }
+    const init: Record<string, string> = {}
+    for (const { artNumber, colorGroups } of articleGroups) {
+      init[artNumber] = colorGroups[0].color
+    }
+    setActiveColorTab(init)
+  }, [selectedOrder?.order.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Order detail view ────────────────────────────────────────────────────────
   if (selectedOrder) {
     return (
@@ -178,140 +216,202 @@ export function PickerDashboard({ queue: initialQueue, currentPickerId, embedded
         </div>
 
         <div className="max-w-2xl mx-auto px-4 py-4 pb-28">
-          {/* Items */}
-          <div className="space-y-2.5">
-            {selectedOrder.items.map(item => {
-              const isOOS     = (item.status as OrderItemStatus) === 'out_of_stock'
-              const isPacked  = item.status === 'packed'
-              const isDone    = isOOS || item.id in touched
-              const chips     = [1, 2, 3, 4, 5]
-              const staged    = pending[item.id]
-              const confirmed = touched[item.id]
-              const selected  = staged
-
-              function stageQty(qty: number) {
-                setPending(prev => ({ ...prev, [item.id]: prev[item.id] === qty ? undefined : qty }))
-                setCustomDraft(prev => { const n = { ...prev }; delete n[item.id]; return n })
-              }
-
-              function confirmQty() {
-                const draftVal = customDraft[item.id] !== undefined && customDraft[item.id] !== ''
-                  ? parseInt(customDraft[item.id]!)
-                  : NaN
-                const qty = !isNaN(draftVal) && draftVal >= 0 ? draftVal : staged
-                if (qty === undefined || qty === null) return
-                setTouched(prev => ({ ...prev, [item.id]: qty as number }))
-                setPending(prev => { const n = { ...prev }; delete n[item.id]; return n })
-                setCustomDraft(prev => { const n = { ...prev }; delete n[item.id]; return n })
-                if (qty === 0) {
-                  handleOutOfStock(item.id)
-                } else {
-                  handleQtyChange(item.id, qty as number)
-                }
-              }
-
-              const hasSelection = staged !== undefined || (customDraft[item.id] !== undefined && customDraft[item.id] !== '')
+          {/* Consolidated Article Groups */}
+          <div className="space-y-3">
+            {articleGroups.map(({ artNumber, colorGroups }) => {
+              const allItems = colorGroups.flatMap(cg => cg.items)
+              const allDone  = allItems.every(i => i.status === 'out_of_stock' || i.id in touched)
+              const activeColor = activeColorTab[artNumber] ?? colorGroups[0].color
+              const activeColorGroup = colorGroups.find(cg => cg.color === activeColor) ?? colorGroups[0]
 
               return (
                 <div
-                  key={item.id}
+                  key={artNumber}
                   className={`rounded-xl border bg-card transition-colors ${
-                    isDone
-                      ? 'border-green-200 dark:border-green-800'
-                      : 'border-border'
+                    allDone ? 'border-green-200 dark:border-green-800' : 'border-border'
                   }`}
                 >
-                  {/* Item header */}
-                  <div className="flex items-start justify-between gap-3 px-3.5 pt-3 pb-2">
-                    <div className="flex items-start gap-2.5 min-w-0">
-                      {/* Done indicator dot */}
-                      <div className={`mt-0.5 shrink-0 w-2 h-2 rounded-full ${isDone ? 'bg-green-500' : 'bg-border'}`} />
-                      <div className="min-w-0">
-                        <p className="text-sm font-semibold font-mono text-foreground">{item.artNumber}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {[item.colorNumber, item.sizeNumber].filter(Boolean).join(' · ') || '—'}
-                        </p>
-                      </div>
+                  {/* Article header row */}
+                  <div className="flex items-center justify-between px-3.5 pt-3 pb-2 gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className={`shrink-0 w-2 h-2 rounded-full ${allDone ? 'bg-green-500' : 'bg-border'}`} />
+                      <p className="text-sm font-bold font-mono text-foreground">{artNumber}</p>
                     </div>
-                    <div className="shrink-0 text-right space-y-0.5">
-                      <span className="block text-xs text-muted-foreground">
-                        Ordered: <span className="font-semibold text-foreground">{item.quantityOrdered}</span>
-                      </span>
-                      {isDone && !selectedOrder.readOnly && (
-                        confirmed === 0 || isOOS ? (
-                          <span className="inline-flex items-center gap-1 text-xs font-medium text-red-500">
-                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3 h-3"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                            Out of stock
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 text-xs font-medium text-green-600 dark:text-green-400">
-                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5"><polyline points="20 6 9 17 4 12"/></svg>
-                            {`${confirmed} packed`}
+                    {/* Per-DISTINCT-color packed summary badges */}
+                    <div className="flex flex-wrap gap-1 justify-end">
+                      {colorGroups.map(cg => {
+                        const cgAllDone = cg.items.every(i => i.status === 'out_of_stock' || i.id in touched)
+                        const cgAllOOS  = cg.items.every(i => i.status === 'out_of_stock' || touched[i.id] === 0)
+                        const cgPacked  = cg.items.reduce((s, i) => s + (touched[i.id] ?? 0), 0)
+                        return (
+                          <span
+                            key={cg.color}
+                            className={`inline-flex items-center gap-0.5 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                              cgAllDone
+                                ? cgAllOOS
+                                  ? 'bg-red-100 text-red-600 dark:bg-red-950/40 dark:text-red-400'
+                                  : 'bg-green-100 text-green-700 dark:bg-green-950/40 dark:text-green-400'
+                                : 'bg-muted text-muted-foreground'
+                            }`}
+                          >
+                            {cg.color}
+                            {cgAllDone && !cgAllOOS && cgPacked > 0 && (
+                              <span className="ml-0.5 tabular-nums">·{cgPacked}</span>
+                            )}
+                            {cgAllDone && cgAllOOS && (
+                              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-2.5 h-2.5 ml-0.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                            )}
                           </span>
                         )
-                      )}
+                      })}
                     </div>
                   </div>
 
-                  {/* Action area — collapse as soon as locally confirmed (isDone) */}
-                  {selectedOrder.readOnly || isDone ? null : (
-                    <div className="border-t border-border px-3.5 py-2.5 space-y-2">
-                      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Packed qty</p>
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        {/* 0 chip */}
-                        <button
-                          key={0}
-                          type="button"
-                          onClick={() => stageQty(0)}
-                          disabled={isPending}
-                          className={`min-w-[2.25rem] h-8 rounded-lg border px-2 text-sm font-semibold transition-colors disabled:opacity-40 ${
-                            selected === 0
-                              ? 'border-red-400 bg-red-400 text-white shadow-sm'
-                              : 'border-red-200 dark:border-red-800 bg-background text-red-500 hover:border-red-400 hover:bg-red-50 dark:hover:bg-red-950/20'
-                          }`}
-                        >
-                          0
-                        </button>
-                        {chips.map(n => (
+                  {/* Color tabs — one per DISTINCT color */}
+                  {colorGroups.length > 1 && (
+                    <div className="flex gap-1 px-3.5 pb-2 overflow-x-auto">
+                      {colorGroups.map(cg => {
+                        const cgAllDone = cg.items.every(i => i.status === 'out_of_stock' || i.id in touched)
+                        const isActive  = cg.color === activeColor
+                        return (
                           <button
-                            key={n}
+                            key={cg.color}
                             type="button"
-                            onClick={() => stageQty(n)}
-                            disabled={isPending}
-                            className={`min-w-[2.25rem] h-8 rounded-lg border px-2 text-sm font-semibold transition-colors disabled:opacity-40 ${
-                              selected === n
-                                ? 'border-orange-400 bg-orange-400 text-white shadow-sm'
-                                : 'border-border bg-background text-foreground hover:border-orange-300 hover:bg-orange-50 dark:hover:bg-orange-950/20'
+                            onClick={() => setActiveColorTab(prev => ({ ...prev, [artNumber]: cg.color }))}
+                            className={`shrink-0 rounded-lg border px-3 py-1 text-xs font-semibold transition-colors ${
+                              isActive
+                                ? 'bg-foreground text-background border-foreground'
+                                : cgAllDone
+                                  ? 'border-green-300 dark:border-green-700 text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-950/20'
+                                  : 'border-border text-muted-foreground bg-background hover:border-foreground hover:text-foreground'
                             }`}
                           >
-                            {n}
+                            {cg.color}
                           </button>
-                        ))}
-                        <input
-                          key={`custom-${item.id}`}
-                          type="number"
-                          min={0}
-                          placeholder="…"
-                          value={customDraft[item.id] ?? ''}
-                          onChange={e => {
-                            setCustomDraft(prev => ({ ...prev, [item.id]: e.target.value }))
-                            setPending(prev => { const n = { ...prev }; delete n[item.id]; return n })
-                          }}
-                          onKeyDown={e => { if (e.key === 'Enter') confirmQty() }}
-                          disabled={isPending}
-                          className="w-14 h-8 rounded-lg border border-border bg-background px-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-orange-400 placeholder:text-muted-foreground disabled:opacity-40"
-                        />
-                        <button
-                          type="button"
-                          onClick={confirmQty}
-                          disabled={isPending || !hasSelection}
-                          className="h-8 ml-auto rounded-lg bg-blue-600 hover:bg-blue-700 text-white px-4 text-xs font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed shadow-sm"
-                        >
-                          {isPending ? '…' : 'Confirm'}
-                        </button>
-                      </div>
+                        )
+                      })}
                     </div>
                   )}
+
+                  {/* Active color — list all size rows */}
+                  <div className="border-t border-border divide-y divide-border">
+                    {activeColorGroup.items.map(item => {
+                      const isOOS     = (item.status as OrderItemStatus) === 'out_of_stock'
+                      const isDone    = isOOS || item.id in touched
+                      const chips     = [1, 2, 3, 4, 5]
+                      const staged    = pending[item.id]
+                      const confirmed = touched[item.id]
+                      const selected  = staged
+
+                      function stageQty(qty: number) {
+                        setPending(prev => ({ ...prev, [item.id]: prev[item.id] === qty ? undefined : qty }))
+                        setCustomDraft(prev => { const n = { ...prev }; delete n[item.id]; return n })
+                      }
+
+                      function confirmQty() {
+                        const draftVal = customDraft[item.id] !== undefined && customDraft[item.id] !== ''
+                          ? parseInt(customDraft[item.id]!)
+                          : NaN
+                        const qty = !isNaN(draftVal) && draftVal >= 0 ? draftVal : staged
+                        if (qty === undefined || qty === null) return
+                        setTouched(prev => ({ ...prev, [item.id]: qty as number }))
+                        setPending(prev => { const n = { ...prev }; delete n[item.id]; return n })
+                        setCustomDraft(prev => { const n = { ...prev }; delete n[item.id]; return n })
+                        if (qty === 0) {
+                          handleOutOfStock(item.id)
+                        } else {
+                          handleQtyChange(item.id, qty as number)
+                        }
+                      }
+
+                      const hasSelection = staged !== undefined || (customDraft[item.id] !== undefined && customDraft[item.id] !== '')
+
+                      return (
+                        <div key={item.id} className="px-3.5 pt-2.5 pb-3">
+                          {/* Size / ordered row */}
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+                              {item.sizeNumber ?? activeColorGroup.color}
+                            </span>
+                            <span className="text-xs text-muted-foreground">
+                              Ordered: <span className="font-semibold text-foreground tabular-nums">{item.quantityOrdered}</span>
+                            </span>
+                          </div>
+
+                          {/* Packed qty / action */}
+                          {selectedOrder.readOnly || isDone ? (
+                            isDone && (
+                              confirmed === 0 || isOOS ? (
+                                <div className="flex items-center gap-1 text-xs font-medium text-red-500">
+                                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                                  Out of stock
+                                </div>
+                              ) : (
+                                <div className="flex items-center gap-1 text-xs font-medium text-green-600 dark:text-green-400">
+                                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5"><polyline points="20 6 9 17 4 12"/></svg>
+                                  {confirmed} packed
+                                </div>
+                              )
+                            )
+                          ) : (
+                            <div className="space-y-1.5">
+                              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Packed qty</p>
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => stageQty(0)}
+                                  disabled={isPending}
+                                  className={`min-w-[2.25rem] h-8 rounded-lg border px-2 text-sm font-semibold transition-colors disabled:opacity-40 ${
+                                    selected === 0
+                                      ? 'border-red-400 bg-red-400 text-white shadow-sm'
+                                      : 'border-red-200 dark:border-red-800 bg-background text-red-500 hover:border-red-400 hover:bg-red-50 dark:hover:bg-red-950/20'
+                                  }`}
+                                >
+                                  0
+                                </button>
+                                {chips.map(n => (
+                                  <button
+                                    key={n}
+                                    type="button"
+                                    onClick={() => stageQty(n)}
+                                    disabled={isPending}
+                                    className={`min-w-[2.25rem] h-8 rounded-lg border px-2 text-sm font-semibold transition-colors disabled:opacity-40 ${
+                                      selected === n
+                                        ? 'border-orange-400 bg-orange-400 text-white shadow-sm'
+                                        : 'border-border bg-background text-foreground hover:border-orange-300 hover:bg-orange-50 dark:hover:bg-orange-950/20'
+                                    }`}
+                                  >
+                                    {n}
+                                  </button>
+                                ))}
+                                <input
+                                  type="number"
+                                  min={0}
+                                  placeholder="…"
+                                  value={customDraft[item.id] ?? ''}
+                                  onChange={e => {
+                                    setCustomDraft(prev => ({ ...prev, [item.id]: e.target.value }))
+                                    setPending(prev => { const n = { ...prev }; delete n[item.id]; return n })
+                                  }}
+                                  onKeyDown={e => { if (e.key === 'Enter') confirmQty() }}
+                                  disabled={isPending}
+                                  className="w-14 h-8 rounded-lg border border-border bg-background px-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-orange-400 placeholder:text-muted-foreground disabled:opacity-40"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={confirmQty}
+                                  disabled={isPending || !hasSelection}
+                                  className="h-8 ml-auto rounded-lg bg-blue-600 hover:bg-blue-700 text-white px-4 text-xs font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed shadow-sm"
+                                >
+                                  {isPending ? '…' : 'Confirm'}
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
                 </div>
               )
             })}
