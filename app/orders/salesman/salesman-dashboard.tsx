@@ -854,13 +854,13 @@ export function SalesmanDashboard({ orders, userName, embedded }: Props) {
     const { w: pw, h: ph } = pageDims[pageSize]
     const [pageW, pageH] = orientation === 'landscape' ? [ph, pw] : [pw, ph]
 
-    // Usable area after margins (12mm each side)
-    const marginMm = 12
+    // Usable area after margins (6mm each side)
+    const marginMm = 6
     const usableW = pageW - marginMm * 2   // mm
 
     // Bill width: try to fit 2 per row in landscape, 1 in portrait
     // 1mm ≈ 3.7795px at 96dpi; bill inner width chosen so two fit with a gap
-    const gapMm = 6
+    const gapMm = 4
     const cols = orientation === 'landscape' ? 2 : 1
     const billWidthMm = (usableW - gapMm * (cols - 1)) / cols
     const billWidthPx = Math.floor(billWidthMm * 3.7795)
@@ -907,26 +907,26 @@ export function SalesmanDashboard({ orders, userName, embedded }: Props) {
   .bill {
     width: ${billWidthPx}px;
     border: 1px solid #ccc;
-    padding: 10px 12px 8px;
+    padding: 6px 8px 5px;
     break-inside: avoid;
     page-break-inside: avoid;
   }
-  .bill-title    { text-align: center; font-size: 13px; font-weight: bold; letter-spacing: 0; margin-bottom: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .bill-meta     { text-align: center; font-size: 9px; color: #555; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .bill-meta-sm  { font-size: 8.5px; margin-bottom: 6px; }
-  .rule          { border-top: 1px dashed #aaa; margin: 5px 0; }
-  .bill-parties  { display: flex; justify-content: space-between; align-items: baseline; padding: 3px 0; }
+  .bill-title    { text-align: center; font-size: 13px; font-weight: bold; letter-spacing: 0; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .bill-meta     { text-align: center; font-size: 9px; color: #555; margin-bottom: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .bill-meta-sm  { font-size: 8.5px; margin-bottom: 4px; }
+  .rule          { border-top: 1px dashed #aaa; margin: 3px 0; }
+  .bill-parties  { display: flex; justify-content: space-between; align-items: baseline; padding: 2px 0; }
   .shop-name     { font-weight: bold; font-size: 12px; }
   .salesman-name { font-size: 11px; }
-  .art-block     { margin: 6px 0 2px; }
+  .art-block     { margin: 4px 0 1px; }
   .art-number    { font-weight: bold; font-size: 12px; margin-bottom: 1px; }
   .color-row     { display: flex; align-items: baseline; gap: 6px; padding: 1px 0; font-size: 11px; }
   .col-color     { width: 64px; flex-shrink: 0; }
   .col-sizes     { flex: 1; font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden; min-width: 0; }
   .bill-portrait .color-row { gap: 12px; }
   .col-bracket   { white-space: nowrap; }
-  .total-row     { display: flex; justify-content: space-between; font-weight: bold; font-size: 13px; padding: 4px 0; }
-  .picker-row    { display: flex; justify-content: space-between; font-size: 10px; color: #555; padding: 3px 0; }
+  .total-row     { display: flex; justify-content: space-between; font-weight: bold; font-size: 13px; padding: 2px 0; }
+  .picker-row    { display: flex; justify-content: space-between; font-size: 10px; color: #555; padding: 2px 0; }
   .blank-line    { display: inline-block; border-bottom: 1px solid #000; width: 80px; margin-bottom: -1px; }
   .blank-line.short { width: 50px; }
   @media print {
