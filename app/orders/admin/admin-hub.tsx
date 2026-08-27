@@ -5,6 +5,8 @@ import { AdminDashboard } from './admin-dashboard'
 import { SalesmanDashboard } from '../salesman/salesman-dashboard'
 import { PickerDashboard } from '../picker/picker-dashboard'
 import { DispatcherDashboard } from '../dispatcher/dispatcher-dashboard'
+import { ProcurementSummary } from './procurement-summary'
+import type { ProcurementRow } from '@/app/actions/orders'
 
 // ── Prop types (mirroring what each dashboard expects) ────────────────────────
 
@@ -65,6 +67,7 @@ interface Props {
   salesmanOrders: SalesmanOrder[]
   pickerQueue: QueueItem[]
   dispatchOrders: DispatchOrder[]
+  procurementRows: ProcurementRow[]
 }
 
 export function AdminHub({
@@ -75,6 +78,7 @@ export function AdminHub({
   salesmanOrders,
   pickerQueue,
   dispatchOrders,
+  procurementRows,
 }: Props) {
   return (
     <div className="min-h-screen bg-background">
@@ -91,11 +95,12 @@ export function AdminHub({
 
         {/* Tabs — same pill style as scanner */}
         <Tabs defaultValue="overview" className="w-full">
-          <TabsList className="grid w-full grid-cols-4 mb-6">
-            <TabsTrigger value="overview"   className="text-xs sm:text-sm">Overview</TabsTrigger>
-            <TabsTrigger value="salesman"   className="text-xs sm:text-sm">Salesman</TabsTrigger>
-            <TabsTrigger value="picker"     className="text-xs sm:text-sm">Picker</TabsTrigger>
-            <TabsTrigger value="dispatcher" className="text-xs sm:text-sm">Dispatcher</TabsTrigger>
+          <TabsList className="grid w-full grid-cols-5 mb-6">
+            <TabsTrigger value="overview"    className="text-xs sm:text-sm">Overview</TabsTrigger>
+            <TabsTrigger value="salesman"    className="text-xs sm:text-sm">Salesman</TabsTrigger>
+            <TabsTrigger value="picker"      className="text-xs sm:text-sm">Picker</TabsTrigger>
+            <TabsTrigger value="dispatcher"  className="text-xs sm:text-sm">Dispatcher</TabsTrigger>
+            <TabsTrigger value="procurement" className="text-xs sm:text-sm">Procurement</TabsTrigger>
           </TabsList>
 
           {/* ── Overview ── */}
@@ -113,6 +118,19 @@ export function AdminHub({
 
           <TabsContent value="dispatcher">
             <DispatcherDashboard orders={dispatchOrders} embedded />
+          </TabsContent>
+
+          {/* ── Procurement ── */}
+          <TabsContent value="procurement">
+            <div className="rounded-xl border border-border bg-card p-4">
+              <div className="mb-4">
+                <h2 className="text-sm font-semibold text-foreground">Procurement Requirements</h2>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Total pairs needed per article · colour · vendor — use these numbers to place upstream orders.
+                </p>
+              </div>
+              <ProcurementSummary initialRows={procurementRows} />
+            </div>
           </TabsContent>
         </Tabs>
 

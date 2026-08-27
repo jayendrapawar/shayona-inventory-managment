@@ -4,7 +4,7 @@ import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
 import { orders, orderItems, user } from '@/lib/db/schema'
 import type { OrderStatus } from '@/lib/db/schema'
-import { eq, desc, inArray, sql } from 'drizzle-orm'
+import { eq, desc, inArray, sql, and, ilike } from 'drizzle-orm'
 import { headers } from 'next/headers'
 import { revalidatePath } from 'next/cache'
 
@@ -324,4 +324,57 @@ export async function getOrderStats() {
     delivered:  Number(row?.delivered ?? 0),
     cancelled:  Number(row?.cancelled ?? 0),
   }
+}
+
+// ── Procurement summary ───────────────────────────────────────────────────────
+
+export interface ProcurementRow {
+  artNumber: string
+  colorNumber: string
+  vendorName: string
+  totalPairs: number
+  orderCount: number
+}
+
+/**
+ * Returns one row per (artNumber, colorNumber, vendorName / shopkeeperName)
+ * for orders whose status matches the given filter (default: pending).
+ * Optionally narrow by artNumber or colorNumber prefix.
+ */
+export async function getProcurementSummary(opts?: {
+  status?: string
+  artNumber?: string
+  colorNumber?: string
+}): Promise<ProcurementRow[]> {
+  await requireRole('admin', 'salesman')
+
+  const status      = opts?.status      || 'pending'
+  const artFilter   = opts?.artNumber?.trim().toUpperCase()   || ''
+  const colorFilter = opts?.colorNumber?.trim().toUpperCase() || ''
+
+  const conditions = [eq(orders.status, status as OrderStatus)]
+  if (artFilter)   conditions.push(ilike(orderItems.artNumber,   `${artFilter}%`))
+  if (colorFilter) conditions.push(ilike(orderItems.colorNumber, `${colorFilter}%`))
+
+  const rows = await db
+    .select({
+      artNumber:   orderItems.artNumber,
+      colorNumber: orderItems.colorNumber,
+      vendorName:  orders.shopkeeperName,
+      totalPairs:  sql<number>`cast(sum(${orderItems.quantityOrdered}) as int)`,
+      orderCount:  sql<number>`cast(count(distinct ${orders.id}) as int)`,
+    })
+    .from(orderItems)
+    .innerJoin(orders, eq(orderItems.orderId, orders.id))
+    .where(and(...conditions))
+    .groupBy(orderItems.artNumber, orderItems.colorNumber, orders.shopkeeperName)
+    .orderBy(orderItems.artNumber, orderItems.colorNumber, orders.shopkeeperName)
+
+  return rows.map(r => ({
+    artNumber:   r.artNumber,
+    colorNumber: r.colorNumber ?? '—',
+    vendorName:  r.vendorName,
+    totalPairs:  r.totalPairs,
+    orderCount:  r.orderCount,
+  }))
 }

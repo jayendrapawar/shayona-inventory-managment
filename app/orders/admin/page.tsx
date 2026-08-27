@@ -11,6 +11,7 @@ import {
   getAllSalesmanOrders,
   getPickerQueue,
   getPackedOrders,
+  getProcurementSummary,
 } from '@/app/actions/orders'
 import { getUsersByRole } from '@/app/actions/users'
 import { AdminHub } from './admin-hub'
@@ -30,7 +31,7 @@ export default async function AdminPage() {
     redirect('/sign-in')
   }
 
-  const [stats, allOrders, pickerRows, salesmanOrders, pickerQueue, packedOrders, vendorRows] = await Promise.all([
+  const [stats, allOrders, pickerRows, salesmanOrders, pickerQueue, packedOrders, vendorRows, procurementRows] = await Promise.all([
     getOrderStats(),
     getAllOrders(),
     getUsersByRole('picker'),
@@ -38,6 +39,7 @@ export default async function AdminPage() {
     getPickerQueue(),
     getPackedOrders(),
     db.select({ partyName: vendors.partyName, phone: vendors.phone, address: vendors.address, city: vendors.city }).from(vendors),
+    getProcurementSummary({ status: 'pending' }),
   ])
 
   const pickers = pickerRows.map(p => ({
@@ -70,6 +72,7 @@ export default async function AdminPage() {
       salesmanOrders={salesmanOrders}
       pickerQueue={pickerQueue}
       dispatchOrders={dispatchOrders}
+      procurementRows={procurementRows}
     />
   )
 }
