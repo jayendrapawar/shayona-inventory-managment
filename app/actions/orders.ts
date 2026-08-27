@@ -287,10 +287,17 @@ export async function getPackedOrders() {
     .orderBy(desc(orders.packedAt))
 }
 
-export async function markDispatched(orderId: number) {
+export async function markDispatched(orderId: number, totalBundles: number, deliveryAgentName: string) {
   const u = await requireRole('dispatcher', 'admin')
   await db.update(orders)
-    .set({ status: 'dispatched', dispatcherId: u.id, dispatchedAt: sql`now()`, updatedAt: sql`now()` })
+    .set({
+      status: 'dispatched',
+      dispatcherId: u.id,
+      dispatchedAt: sql`now()`,
+      updatedAt: sql`now()`,
+      totalBundles,
+      deliveryAgentName,
+    })
     .where(eq(orders.id, orderId))
   revalidatePath('/orders')
   revalidatePath('/orders/admin')

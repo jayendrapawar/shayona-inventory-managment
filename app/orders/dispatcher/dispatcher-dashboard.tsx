@@ -10,10 +10,21 @@ interface DispatchOrder {
 }
 interface Props { orders: DispatchOrder[]; embedded?: boolean }
 
+interface PickupModalState {
+  orderId: number
+  orderNumber: string
+  shopkeeperName: string
+}
+
 export function DispatcherDashboard({ orders: initialOrders, embedded }: Props) {
   const [orders, setOrders] = useState(initialOrders)
   const [isPending, startTransition] = useTransition()
   const [activeId, setActiveId] = useState<number | null>(null)
+
+  // Pickup confirmation modal state
+  const [pickupModal, setPickupModal] = useState<PickupModalState | null>(null)
+  const [totalBundles, setTotalBundles] = useState('')
+  const [deliveryAgent, setDeliveryAgent] = useState('')
 
   const counts = {
     total: orders.length,
@@ -21,10 +32,27 @@ export function DispatcherDashboard({ orders: initialOrders, embedded }: Props) 
     dispatched: orders.filter(o => o.status === 'dispatched').length,
   }
 
-  function handleDispatch(orderId: number) {
+  function openPickupModal(order: DispatchOrder) {
+    setTotalBundles('')
+    setDeliveryAgent('')
+    setPickupModal({ orderId: order.id, orderNumber: order.orderNumber, shopkeeperName: order.shopkeeperName })
+  }
+
+  function closePickupModal() {
+    setPickupModal(null)
+  }
+
+  function handleConfirmPickup() {
+    if (!pickupModal) return
+    const bundles = parseInt(totalBundles, 10)
+    if (!bundles || bundles < 1) return
+    if (!deliveryAgent.trim()) return
+
+    const { orderId } = pickupModal
+    setPickupModal(null)
     setActiveId(orderId)
     startTransition(async () => {
-      await markDispatched(orderId)
+      await markDispatched(orderId, bundles, deliveryAgent.trim())
       setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: 'dispatched' } : o))
       setActiveId(null)
     })
@@ -38,6 +66,8 @@ export function DispatcherDashboard({ orders: initialOrders, embedded }: Props) 
       setActiveId(null)
     })
   }
+
+  const canConfirm = totalBundles.trim() !== '' && parseInt(totalBundles, 10) >= 1 && deliveryAgent.trim() !== ''
 
   return (
     <div className={embedded ? '' : 'min-h-screen bg-background'}>
@@ -80,7 +110,7 @@ export function DispatcherDashboard({ orders: initialOrders, embedded }: Props) 
                 <div className="flex gap-2">
                   {order.status === 'packed' && (
                     <button
-                      onClick={() => handleDispatch(order.id)}
+                      onClick={() => openPickupModal(order)}
                       disabled={isPending && activeId === order.id}
                       className="rounded-lg bg-orange-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-orange-600 disabled:opacity-50 transition-colors"
                     >
@@ -102,6 +132,65 @@ export function DispatcherDashboard({ orders: initialOrders, embedded }: Props) 
           ))}
         </div>
       </div>
+
+      {/* Pickup confirmation modal */}
+      {pickupModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+          <div className="w-full max-w-sm rounded-2xl bg-background border border-border p-6 shadow-lg">
+            <h2 className="text-base font-semibold mb-1">Confirm Pick Up</h2>
+            <p className="text-xs text-muted-foreground mb-5">
+              {pickupModal.shopkeeperName}
+            </p>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-medium mb-1.5" htmlFor="totalBundles">
+                  Total No. of Bundles <span className="text-red-500">*</span>
+                </label>
+                <input
+                  id="totalBundles"
+                  type="number"
+                  min="1"
+                  value={totalBundles}
+                  onChange={e => setTotalBundles(e.target.value)}
+                  placeholder="e.g. 5"
+                  className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium mb-1.5" htmlFor="deliveryAgent">
+                  Delivery Agent Name <span className="text-red-500">*</span>
+                </label>
+                <input
+                  id="deliveryAgent"
+                  type="text"
+                  value={deliveryAgent}
+                  onChange={e => setDeliveryAgent(e.target.value)}
+                  placeholder="Agent name"
+                  className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={closePickupModal}
+                className="flex-1 rounded-lg border border-border px-4 py-2 text-sm font-medium hover:bg-muted transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmPickup}
+                disabled={!canConfirm}
+                className="flex-1 rounded-lg bg-orange-500 px-4 py-2 text-sm font-medium text-white hover:bg-orange-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                Confirm Pick Up
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

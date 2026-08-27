@@ -178,6 +178,8 @@ export const orders = pgTable('orders', {
   dispatcherId:      text('dispatcherId').references(() => user.id, { onDelete: 'set null' }),
   status:            orderStatusEnum('status').notNull().default('pending'),
   notes:             text('notes'),
+  totalBundles:      integer('totalBundles'),
+  deliveryAgentName: text('deliveryAgentName'),
   orderedAt:         timestamp('orderedAt').notNull().defaultNow(),
   packedAt:          timestamp('packedAt'),
   dispatchedAt:      timestamp('dispatchedAt'),
