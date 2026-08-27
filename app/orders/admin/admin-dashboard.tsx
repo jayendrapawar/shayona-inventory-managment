@@ -2,8 +2,7 @@
 
 import { useState, useTransition, useMemo, useEffect, useCallback } from 'react'
 import { StatusPill, fmt, PageHeader, StatCard } from '../_components/shared'
-import { adminUpdateOrderStatus, adminAssignPicker, adminUnassignPicker, getOrderWithItems, getPickerAssignments } from '@/app/actions/orders'
-import type { OrderStatus } from '@/lib/db/schema'
+import { adminAssignPicker, adminUnassignPicker, getOrderWithItems, getPickerAssignments } from '@/app/actions/orders'
 
 interface OrderRow {
   id: number
@@ -47,8 +46,7 @@ function orderTag(orderedAt: Date, updatedAt: Date): 'new' | 'updated' | null {
   return null
 }
 
-const ORDER_STATUSES: OrderStatus[] = ['pending', 'assigned', 'packed', 'dispatched', 'delivered', 'cancelled']
-const ALL_STATUSES = ORDER_STATUSES as string[]
+const ALL_STATUSES = ['pending', 'assigned', 'packed', 'dispatched', 'delivered', 'cancelled']
 
 export function AdminDashboard({ stats, orders, pickers, embedded, pickerMapOverride, onPickerChange }: Props) {
   const [isPending, startTransition] = useTransition()
@@ -112,10 +110,6 @@ export function AdminDashboard({ stats, orders, pickers, embedded, pickerMapOver
     } finally {
       setDetailLoading(false)
     }
-  }
-
-  function handleStatusChange(orderId: number, status: string) {
-    startTransition(async () => { await adminUpdateOrderStatus(orderId, status as OrderStatus) })
   }
 
   function handlePickerSelect(orderId: number, pickerId: string) {
@@ -244,19 +238,6 @@ export function AdminDashboard({ stats, orders, pickers, embedded, pickerMapOver
                         <option value="">Select picker</option>
                         {pickers.map(p => (
                           <option key={p.id} value={p.id}>{p.name ?? p.email}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide mb-1">Change Status</p>
-                      <select
-                        disabled={isPending}
-                        defaultValue={detailOrder.status}
-                        onChange={e => handleStatusChange(detailOrder.id, e.target.value)}
-                        className="w-full rounded-lg border border-border bg-background px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
-                      >
-                        {ORDER_STATUSES.map(s => (
-                          <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>
                         ))}
                       </select>
                     </div>
@@ -399,7 +380,6 @@ export function AdminDashboard({ stats, orders, pickers, embedded, pickerMapOver
                   <th className="text-left px-4 py-3 font-medium text-muted-foreground">Status</th>
                   <th className="text-left px-4 py-3 font-medium text-muted-foreground">Date</th>
                   <th className="text-left px-4 py-3 font-medium text-muted-foreground">Assign Picker</th>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Change Status</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -436,18 +416,6 @@ export function AdminDashboard({ stats, orders, pickers, embedded, pickerMapOver
                           <option value="">Select picker</option>
                           {pickers.map(p => (
                             <option key={p.id} value={p.id}>{p.name ?? p.email}</option>
-                          ))}
-                        </select>
-                      </td>
-                      <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
-                        <select
-                          disabled={isPending}
-                          defaultValue={order.status}
-                          onChange={e => handleStatusChange(order.id, e.target.value)}
-                          className="rounded-md border border-border bg-background px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
-                        >
-                          {ORDER_STATUSES.map(s => (
-                            <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>
                           ))}
                         </select>
                       </td>
