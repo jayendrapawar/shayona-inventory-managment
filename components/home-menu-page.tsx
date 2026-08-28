@@ -3,6 +3,7 @@
 import { useRouter } from 'next/navigation'
 import { ScanBarcode, ShoppingCart, Receipt, Package, BookOpen, BarChart2 } from 'lucide-react'
 import type { AppRole } from '@/app/actions/users'
+import { PageNav } from '@/components/page-nav'
 
 interface MenuItem {
   label: string
@@ -81,6 +82,10 @@ export function HomeMenuPage({ role }: { role: string }) {
 
   return (
     <div className="min-h-screen bg-background flex flex-col items-center justify-center px-4 py-12">
+      {/* Top-right nav */}
+      <div className="fixed top-4 right-4 z-50">
+        <PageNav hideHome />
+      </div>
       <div className="w-full max-w-md">
         <div className="mb-8 text-center">
           <h1 className="text-2xl font-bold text-foreground tracking-tight">Shayona Inventory</h1>

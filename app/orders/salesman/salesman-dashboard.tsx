@@ -6,6 +6,7 @@ import {
 import { useRouter } from 'next/navigation'
 import { StatusPill, fmt, PageHeader, StatCard } from '../_components/shared'
 import { createOrder, updateOrder, cancelOrder, getSalesmanOrderWithItems } from '@/app/actions/orders'
+import { PageNav } from '@/components/page-nav'
 import { searchShopkeepers, searchArticles, getArticleDetail, getArticleDetailByNumber } from '@/app/actions/catalogue'
 import type { ShopkeeperResult, ArticleResult, ArticleDetail } from '@/app/actions/catalogue'
 
@@ -1020,7 +1021,7 @@ ${bills}
         {!embedded && (
         <div className="flex items-center justify-between mb-6">
           <PageHeader title="My Orders" subtitle={`Welcome, ${userName}`} />
-          <a href="/home" className="text-sm text-muted-foreground hover:text-foreground">← Home</a>
+          <PageNav />
         </div>
         )}
 

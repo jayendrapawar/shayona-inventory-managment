@@ -9,6 +9,7 @@ import type { Vendor } from './vendors-tab'
 import { ArticlesTab } from './articles-tab'
 import type { Article } from './articles-tab'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
+import { PageNav } from '@/components/page-nav'
 
 interface RoleSelectorProps {
   userId: string
@@ -159,7 +160,7 @@ export function MasterDashboard({ users, currentUserId, vendors: initialVendors,
       <div className="max-w-5xl mx-auto px-4 py-6">
         <div className="flex items-center justify-between mb-6">
           <PageHeader title="Master" subtitle="User management & vendors" />
-          <a href="/home" className="text-sm text-muted-foreground hover:text-foreground transition-colors">← Home</a>
+          <PageNav />
         </div>
 
         {/* Stats row */}

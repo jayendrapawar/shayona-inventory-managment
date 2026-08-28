@@ -1,6 +1,7 @@
 'use client'
 import { useState, useTransition, useMemo, useEffect } from 'react'
 import { StatusPill, fmt } from '../_components/shared'
+import { PageNav } from '@/components/page-nav'
 import {
   getOrderWithItems,
   updateItemPacked,
@@ -456,13 +457,7 @@ export function PickerDashboard({ queue: initialQueue, currentPickerId, embedded
               <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground">Packing Queue</h1>
               <p className="text-xs text-muted-foreground mt-0.5">Orders awaiting packing</p>
             </div>
-            <a
-              href="/home"
-              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground border border-border rounded-lg px-2.5 py-1.5 bg-card hover:bg-muted transition-colors"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5"><polyline points="15 18 9 12 15 6"/></svg>
-              Home
-            </a>
+            <PageNav />
           </div>
         )}
 

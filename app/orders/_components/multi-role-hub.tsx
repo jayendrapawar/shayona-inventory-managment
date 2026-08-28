@@ -1,6 +1,7 @@
 'use client'
 
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
+import { PageNav } from '@/components/page-nav'
 import { SalesmanDashboard } from '../salesman/salesman-dashboard'
 import { PickerDashboard } from '../picker/picker-dashboard'
 import { DispatcherDashboard } from '../dispatcher/dispatcher-dashboard'
@@ -43,7 +44,7 @@ export function MultiRoleOrdersHub({
             <h1 className="text-xl font-bold tracking-tight text-foreground">Order Hub</h1>
             <p className="text-sm text-muted-foreground mt-0.5">Switch between your order roles</p>
           </div>
-          <a href="/home" className="text-sm text-muted-foreground hover:text-foreground transition-colors">← Home</a>
+          <PageNav />
         </div>
 
         <Tabs defaultValue={defaultTab} className="w-full">

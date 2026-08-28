@@ -3,6 +3,7 @@
 import { useState, useTransition } from 'react'
 import { StatusPill, fmt, PageHeader, StatCard } from '../_components/shared'
 import { markDispatched, markDelivered } from '@/app/actions/orders'
+import { PageNav } from '@/components/page-nav'
 
 interface DispatchOrder {
   id: number; orderNumber: string; shopkeeperName: string; shopkeeperPhone: string | null
@@ -75,7 +76,7 @@ export function DispatcherDashboard({ orders: initialOrders, embedded }: Props) 
         {!embedded && (
         <div className="flex items-center justify-between mb-6">
           <PageHeader title="Dispatch Queue" subtitle="Packed orders ready for delivery" />
-          <a href="/home" className="text-sm text-muted-foreground hover:text-foreground">← Home</a>
+          <PageNav />
         </div>
         )}
 

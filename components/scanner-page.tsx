@@ -8,6 +8,7 @@ import { addManualEntry } from '@/app/actions/dashboard'
 import { createFlag } from '@/app/actions/flags'
 import { deleteScan, getCurrentUserName, getRecentScans, recordScan } from '@/app/actions/scan'
 import { LanguageToggle } from '@/components/language-toggle'
+import { DashboardPage } from '@/components/dashboard-page'
 import { DEFAULT_MANUAL_FORM, SCAN_INTERVAL_MS, SCAN_MAX_DIM } from '@/components/scanner/constants'
 import { getCachedUser, getDailyScanCount, getStoredActiveFlag, incrementDailyScanCount, saveStoredActiveFlag, setCachedUser } from '@/components/scanner/storage'
 import type { ManualFormState, RecentScan } from '@/components/scanner/types'
@@ -808,10 +809,10 @@ export function ScannerPage() {
               )}
             </div>
             <div className="flex gap-1.5 sm:gap-2 items-center shrink-0">
-              <LanguageToggle />
-              <Button variant="outline" size="sm" className="text-xs sm:text-sm px-2 sm:px-3" onClick={() => router.push('/dashboard')}>
-                {t('dashboardLink')}
+              <Button variant="outline" size="sm" className="text-xs sm:text-sm px-2 sm:px-3" onClick={() => router.push('/home')}>
+                ← Home
               </Button>
+              <LanguageToggle />
               <Button variant="outline" size="sm" className="text-xs sm:text-sm px-2 sm:px-3" onClick={handleLogout}>
                 {t('signOut')}
               </Button>
@@ -840,10 +841,11 @@ export function ScannerPage() {
             }
           }}
         >
-          <TabsList className={`grid w-full ${totalOffline > 0 ? 'grid-cols-4' : 'grid-cols-3'}`}>
+          <TabsList className={`grid w-full ${totalOffline > 0 ? 'grid-cols-5' : 'grid-cols-4'}`}>
             <TabsTrigger value="camera" className="text-[11px] sm:text-sm truncate">{t('cameraTab')}</TabsTrigger>
             <TabsTrigger value="manual" className="text-[11px] sm:text-sm truncate">{t('manualTab')}</TabsTrigger>
             <TabsTrigger value="recent" className="text-[11px] sm:text-sm truncate">{t('recentScansTab')}</TabsTrigger>
+            <TabsTrigger value="dashboard" className="text-[11px] sm:text-sm truncate">Dashboard</TabsTrigger>
             {totalOffline > 0 && (
               <TabsTrigger value="offline" className="text-xs sm:text-sm px-1 sm:px-3">
                 {/* Mobile: wifi-off icon + badge only; Desktop: full label */}
@@ -1411,6 +1413,12 @@ export function ScannerPage() {
               </Card>
             </TabsContent>
           )}
+
+          {/* ── Dashboard Tab ──────────────────────────────────────────────── */}
+          <TabsContent value="dashboard" className="mt-0">
+            <DashboardPage embedded />
+          </TabsContent>
+
         </Tabs>
 
         {/* ── Delete confirm dialog ─────────────────────────────────────── */}

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useCallback } from 'react'
+import { PageNav } from '@/components/page-nav'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { AdminDashboard } from './admin-dashboard'
 import { SalesmanDashboard } from '../salesman/salesman-dashboard'
@@ -108,7 +109,7 @@ export function AdminHub({
             <h1 className="text-xl font-bold tracking-tight text-foreground">Admin Hub</h1>
             <p className="text-sm text-muted-foreground mt-0.5">Manage all orders across every role</p>
           </div>
-          <a href="/home" className="text-sm text-muted-foreground hover:text-foreground transition-colors">← Home</a>
+          <PageNav />
         </div>
 
         {/* Tabs — same pill style as scanner */}

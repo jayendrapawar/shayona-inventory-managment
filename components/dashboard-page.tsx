@@ -59,7 +59,7 @@ import {
   ResponsiveContainer,
 } from 'recharts'
 
-export function DashboardPage() {
+export function DashboardPage({ embedded }: { embedded?: boolean } = {}) {
   const router = useRouter()
   const { t } = useLanguage()
 
@@ -867,9 +867,10 @@ export function DashboardPage() {
   }
 
   return (
-    <main className="min-h-screen bg-background p-3 sm:p-4 md:p-6">
+    <main className={embedded ? 'bg-background p-3 sm:p-4' : 'min-h-screen bg-background p-3 sm:p-4 md:p-6'}>
       <div className="mx-auto max-w-7xl space-y-3 sm:space-y-5">
 
+        {!embedded && (
         <div className="flex flex-col gap-0.5">
           <div className="flex items-center justify-between gap-2">
             <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold tracking-tight">{t('dashboard')}</h1>
@@ -885,6 +886,7 @@ export function DashboardPage() {
           </div>
           {loggedInUser && <UserPill icon={<User className="h-2.5 w-2.5" />} name={loggedInUser} />}
         </div>
+        )}
 
         {!isOnline && (
           <OfflineBanner>You are offline. Dashboard data requires an internet connection.</OfflineBanner>
