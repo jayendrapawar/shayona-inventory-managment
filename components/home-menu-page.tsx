@@ -80,7 +80,7 @@ export function HomeMenuPage({ role }: { role: string }) {
   const visible = MENU_ITEMS.filter(item => item.roles.some(r => userRoles.includes(r)))
 
   return (
-    <div className="min-h-screen bg-background flex flex-col items-center justify-center px-4 pt-4 pb-12">
+    <div className="min-h-screen bg-background flex flex-col items-center justify-center px-4 py-12">
       <div className="w-full max-w-md">
         <div className="mb-8 text-center">
           <h1 className="text-2xl font-bold text-foreground tracking-tight">Shayona Inventory</h1>

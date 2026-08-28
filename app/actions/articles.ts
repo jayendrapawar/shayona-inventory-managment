@@ -1,7 +1,7 @@
 'use server'
 
 import { db } from '@/lib/db'
-import { articles } from '@/lib/db/schema'
+import { articles, articleSizes, articleColors } from '@/lib/db/schema'
 import { asc, sql, eq } from 'drizzle-orm'
 import { auth } from '@/lib/auth'
 import { headers } from 'next/headers'
@@ -12,6 +12,34 @@ async function requireAuth() {
 }
 
 export type Article = typeof articles.$inferSelect
+
+// ── Sync article_colors for an article based on color + colorCode ─────────────
+async function syncColor(articleId: number, colorName: string, colorHex: string) {
+  await db.delete(articleColors).where(eq(articleColors.articleId, articleId))
+  if (colorName.trim()) {
+    await db.insert(articleColors).values({
+      articleId,
+      colorName: colorName.trim(),
+      colorHex:  colorHex.trim() || null,
+    })
+  }
+}
+
+// ── Sync article_sizes for an article based on minSize..maxSize ───────────────
+async function syncSizes(articleId: number, minSize: string, maxSize: string) {
+  const min = parseInt(minSize, 10)
+  const max = parseInt(maxSize, 10)
+
+  await db.delete(articleSizes).where(eq(articleSizes.articleId, articleId))
+
+  if (!isNaN(min) && !isNaN(max) && min <= max) {
+    const rows = []
+    for (let size = min, order = 1; size <= max; size++, order++) {
+      rows.push({ articleId, sizeLabel: String(size), sortOrder: order })
+    }
+    await db.insert(articleSizes).values(rows)
+  }
+}
 
 // ── Fetch all articles ────────────────────────────────────────────────────────
 export async function getArticles(): Promise<Article[]> {
@@ -25,25 +53,56 @@ export async function saveArticle(
 ): Promise<Article[]> {
   await requireAuth()
 
-  if (input.id) {
-    await db
-      .insert(articles)
-      .values({ ...input, id: input.id })
-      .onConflictDoUpdate({
-        target: articles.id,
-        set: {
-          artName:   input.artName,
-          artCode:   input.artCode,
-          color:     input.color,
-          colorCode: input.colorCode,
-          maxSize:   input.maxSize,
-          minSize:   input.minSize,
-          updatedAt: sql`now()`,
-        },
+  await db.transaction(async (tx) => {
+    let articleId: number
+
+    if (input.id) {
+      await tx
+        .insert(articles)
+        .values({ ...input, id: input.id })
+        .onConflictDoUpdate({
+          target: articles.id,
+          set: {
+            artName:   input.artName,
+            artCode:   input.artCode,
+            color:     input.color,
+            colorCode: input.colorCode,
+            maxSize:   input.maxSize,
+            minSize:   input.minSize,
+            updatedAt: sql`now()`,
+          },
+        })
+      articleId = input.id
+    } else {
+      const [inserted] = await tx
+        .insert(articles)
+        .values({ ...input })
+        .returning({ id: articles.id })
+      articleId = inserted.id
+    }
+
+    // Sync article_colors
+    await tx.delete(articleColors).where(eq(articleColors.articleId, articleId))
+    if (input.color.trim()) {
+      await tx.insert(articleColors).values({
+        articleId,
+        colorName: input.color.trim(),
+        colorHex:  input.colorCode.trim() || null,
       })
-  } else {
-    await db.insert(articles).values({ ...input })
-  }
+    }
+
+    // Sync article_sizes
+    const min = parseInt(input.minSize, 10)
+    const max = parseInt(input.maxSize, 10)
+    await tx.delete(articleSizes).where(eq(articleSizes.articleId, articleId))
+    if (!isNaN(min) && !isNaN(max) && min <= max) {
+      const sizeRows = []
+      for (let size = min, order = 1; size <= max; size++, order++) {
+        sizeRows.push({ articleId, sizeLabel: String(size), sortOrder: order })
+      }
+      await tx.insert(articleSizes).values(sizeRows)
+    }
+  })
 
   return db.select().from(articles).orderBy(asc(articles.artName))
 }
@@ -54,23 +113,46 @@ export async function importArticles(
 ): Promise<{ imported: number; skipped: number; list: Article[] }> {
   await requireAuth()
 
-  // Deduplicate by artCode (non-empty) — skip rows whose artCode already exists
-  const existing = await db.select({ artCode: articles.artCode }).from(articles)
-  const existingCodes = new Set(
-    existing.map(a => a.artCode.toLowerCase().trim()).filter(Boolean)
+  // Deduplicate by artName + color composite key
+  const existing = await db.select({ artName: articles.artName, color: articles.color }).from(articles)
+  const existingKeys = new Set(
+    existing.map(a => `${a.artName.toLowerCase().trim()}||${a.color.toLowerCase().trim()}`)
   )
 
   const newRows = rows.filter(r => {
-    const code = r.artCode.toLowerCase().trim()
-    // If artCode is blank treat each row as new; otherwise skip if already exists
-    return !code || !existingCodes.has(code)
+    const key = `${r.artName.toLowerCase().trim()}||${r.color.toLowerCase().trim()}`
+    return !existingKeys.has(key)
   })
   const skipped = rows.length - newRows.length
 
-  if (newRows.length > 0) {
-    for (const row of newRows) {
-      await db.insert(articles).values({ ...row })
-    }
+  for (const row of newRows) {
+    await db.transaction(async (tx) => {
+      const [inserted] = await tx
+        .insert(articles)
+        .values({ ...row })
+        .returning({ id: articles.id })
+      const articleId = inserted.id
+
+      // Sync article_colors
+      if (row.color.trim()) {
+        await tx.insert(articleColors).values({
+          articleId,
+          colorName: row.color.trim(),
+          colorHex:  row.colorCode.trim() || null,
+        })
+      }
+
+      // Sync article_sizes
+      const min = parseInt(row.minSize, 10)
+      const max = parseInt(row.maxSize, 10)
+      if (!isNaN(min) && !isNaN(max) && min <= max) {
+        const sizeRows = []
+        for (let size = min, order = 1; size <= max; size++, order++) {
+          sizeRows.push({ articleId, sizeLabel: String(size), sortOrder: order })
+        }
+        await tx.insert(articleSizes).values(sizeRows)
+      }
+    })
   }
 
   const list = await db.select().from(articles).orderBy(asc(articles.artName))

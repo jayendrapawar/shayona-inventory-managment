@@ -95,10 +95,10 @@ export function ArticlesTab({ initialArticles, onListChange }: Props) {
           const { imported, skipped, list } = await importArticles(rows)
           updateArticles(list)
           const msg = imported === 0
-            ? `All ${skipped} row${skipped !== 1 ? 's' : ''} already exist — nothing imported.`
+            ? `Nothing imported — all ${skipped} row${skipped !== 1 ? 's' : ''} already exist in the database (matched by Article Name + Color).`
             : skipped > 0
-              ? `Imported ${imported} article${imported !== 1 ? 's' : ''}. Skipped ${skipped} duplicate${skipped !== 1 ? 's' : ''}.`
-              : `Imported ${imported} article${imported !== 1 ? 's' : ''}.`
+              ? `Imported ${imported} new article${imported !== 1 ? 's' : ''}. Skipped ${skipped} already-existing row${skipped !== 1 ? 's' : ''}.`
+              : `Imported ${imported} article${imported !== 1 ? 's' : ''} successfully.`
           setImportMsg({ type: imported === 0 ? 'err' : 'ok', text: msg })
           setTimeout(() => setImportMsg(null), 4000)
         } catch {
