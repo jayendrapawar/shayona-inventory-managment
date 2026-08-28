@@ -35,88 +35,112 @@ export async function searchShopkeepers(query: string): Promise<ShopkeeperResult
   }))
 }
 
-// ── Article search ────────────────────────────────────────────────────────────
+// ── Article search — returns DISTINCT artName only ───────────────────────────
+// Each artName may have multiple rows (one per color). We deduplicate here
+// so the search dropdown shows each article name exactly once.
 
 export interface ArticleResult {
-  id: number
-  artNumber: string
+  artNumber: string  // unique article name (artName column)
 }
 
 export async function searchArticles(query: string): Promise<ArticleResult[]> {
   await requireAuth()
   const q = query.trim()
+
+  // Use DISTINCT ON to return one row per unique artName, ordered for relevance
   if (!q) {
-    return db
-      .select({ id: articles.id, artNumber: articles.artName })
-      .from(articles)
-      .orderBy(asc(articles.artName))
-      .limit(20)
+    const rows = await db.execute(sql`
+      SELECT DISTINCT "artName" AS "artNumber"
+      FROM articles
+      ORDER BY "artName" ASC
+      LIMIT 20
+    `)
+    return (rows.rows as unknown[]).map(r => ({ artNumber: (r as Record<string, unknown>).artNumber as string }))
   }
 
-  return db
-    .select({ id: articles.id, artNumber: articles.artName })
-    .from(articles)
-    .where(ilike(articles.artName, `%${q}%`))
-    .orderBy(
-      sql`CASE
-        WHEN lower("artName") = lower(${q}) THEN 0
-        WHEN lower("artName") LIKE lower(${q}) || '%' THEN 1
-        ELSE 2
-      END`,
-      asc(articles.artName),
-    )
-    .limit(20)
+  const rows = await db.execute(sql`
+    SELECT "artNumber" FROM (
+      SELECT DISTINCT "artName" AS "artNumber",
+        CASE
+          WHEN lower("artName") = lower(${q})           THEN 0
+          WHEN lower("artName") LIKE lower(${q}) || '%' THEN 1
+          ELSE 2
+        END AS rank
+      FROM articles
+      WHERE lower("artName") LIKE ${'%' + q.toLowerCase() + '%'}
+    ) sub
+    ORDER BY rank ASC, "artNumber" ASC
+    LIMIT 20
+  `)
+  return (rows.rows as unknown[]).map(r => ({ artNumber: (r as Record<string, unknown>).artNumber as string }))
 }
 
-// ── Article detail (colors + sizes) ──────────────────────────────────────────
+// ── Article detail — all colors + sizes for a given artName ──────────────────
+// Because artName has N rows (one per color), we fetch all matching article ids
+// then aggregate their colors and sizes into a single detail object.
+// The "id" returned is the first article id (used as a stable key only).
 
 export interface ArticleDetail {
-  id: number
-  artNumber: string
-  colors: { id: number; colorName: string; colorHex: string | null }[]
-  sizes: { id: number; sizeLabel: string; sortOrder: number }[]
+  id: number        // id of first article row for this artName (stable key)
+  artNumber: string // the artName
+  colors: { id: number; articleId: number; colorName: string; colorHex: string | null }[]
+  sizes: { id: number; articleId: number; sizeLabel: string; sortOrder: number }[]
 }
 
-export async function getArticleDetailByNumber(artNumber: string): Promise<ArticleDetail | null> {
+export async function getArticleDetailByName(artName: string): Promise<ArticleDetail | null> {
   await requireAuth()
-  const [article] = await db
-    .select({ id: articles.id, artNumber: articles.artName })
+
+  // All article rows for this artName (one per color)
+  const artRows = await db
+    .select({ id: articles.id })
     .from(articles)
-    .where(eq(articles.artName, artNumber))
-    .limit(1)
-  if (!article) return null
-  const [colors, sizes] = await Promise.all([
-    db.select({ id: articleColors.id, colorName: articleColors.colorName, colorHex: articleColors.colorHex })
-      .from(articleColors).where(eq(articleColors.articleId, article.id)).orderBy(asc(articleColors.id)),
-    db.select({ id: articleSizes.id, sizeLabel: articleSizes.sizeLabel, sortOrder: articleSizes.sortOrder })
-      .from(articleSizes).where(eq(articleSizes.articleId, article.id)).orderBy(asc(articleSizes.sortOrder)),
+    .where(eq(articles.artName, artName))
+    .orderBy(asc(articles.id))
+
+  if (artRows.length === 0) return null
+
+  const ids = artRows.map(r => r.id)
+  const firstId = ids[0]
+
+  // Use raw SQL with explicit int[] cast to avoid type mismatch errors
+  const idList = ids.join(',')
+
+  const [colorsRes, sizesRes] = await Promise.all([
+    db.execute(sql.raw(`
+      SELECT id, "articleId", "colorName", "colorHex"
+      FROM article_colors
+      WHERE "articleId" = ANY(ARRAY[${idList}]::int[])
+      ORDER BY "articleId" ASC, id ASC
+    `)),
+    db.execute(sql.raw(`
+      SELECT id, "articleId", "sizeLabel", "sortOrder"
+      FROM article_sizes
+      WHERE "articleId" = ANY(ARRAY[${idList}]::int[])
+      ORDER BY "articleId" ASC, "sortOrder" ASC
+    `)),
   ])
-  return { ...article, colors, sizes }
+
+  const colors = colorsRes.rows as { id: number; articleId: number; colorName: string; colorHex: string | null }[]
+  const sizes  = sizesRes.rows  as { id: number; articleId: number; sizeLabel: string; sortOrder: number }[]
+
+  return { id: firstId, artNumber: artName, colors, sizes }
 }
 
+// ── Legacy compat — used by edit-order flow (load by artName string) ──────────
+export async function getArticleDetailByNumber(artNumber: string): Promise<ArticleDetail | null> {
+  return getArticleDetailByName(artNumber)
+}
+
+// ── Load detail by a specific article row id (used when editing order lines) ──
 export async function getArticleDetail(articleId: number): Promise<ArticleDetail | null> {
   await requireAuth()
-
-  const [article] = await db
-    .select({ id: articles.id, artNumber: articles.artName })
+  const [row] = await db
+    .select({ artName: articles.artName })
     .from(articles)
     .where(eq(articles.id, articleId))
     .limit(1)
-
-  if (!article) return null
-
-  const [colors, sizes] = await Promise.all([
-    db.select({ id: articleColors.id, colorName: articleColors.colorName, colorHex: articleColors.colorHex })
-      .from(articleColors)
-      .where(eq(articleColors.articleId, articleId))
-      .orderBy(asc(articleColors.id)),
-    db.select({ id: articleSizes.id, sizeLabel: articleSizes.sizeLabel, sortOrder: articleSizes.sortOrder })
-      .from(articleSizes)
-      .where(eq(articleSizes.articleId, articleId))
-      .orderBy(asc(articleSizes.sortOrder)),
-  ])
-
-  return { ...article, colors, sizes }
+  if (!row) return null
+  return getArticleDetailByName(row.artName)
 }
 
 // ── Ranking helper ────────────────────────────────────────────────────────────

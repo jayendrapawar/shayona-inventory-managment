@@ -7,7 +7,7 @@ import { useRouter } from 'next/navigation'
 import { StatusPill, fmt, PageHeader, StatCard } from '../_components/shared'
 import { createOrder, updateOrder, cancelOrder, getSalesmanOrderWithItems } from '@/app/actions/orders'
 import { PageNav } from '@/components/page-nav'
-import { searchShopkeepers, searchArticles, getArticleDetail, getArticleDetailByNumber } from '@/app/actions/catalogue'
+import { searchShopkeepers, searchArticles, getArticleDetailByName, getArticleDetailByNumber } from '@/app/actions/catalogue'
 import type { ShopkeeperResult, ArticleResult, ArticleDetail } from '@/app/actions/catalogue'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -486,7 +486,7 @@ export function SalesmanDashboard({ orders, userName, embedded }: Props) {
     setSelectedArt(null)
     setSelectedColorId(null)
     setColorQuantities({})
-    const detail = await getArticleDetail(art.id)
+    const detail = await getArticleDetailByName(art.artNumber)
     setSelectedArt(detail)
     setArtDetailLoading(false)
   }
@@ -598,7 +598,7 @@ export function SalesmanDashboard({ orders, userName, embedded }: Props) {
       setArtDetailLoading(true)
       setSelectedArt(null)
       setArtQuery(line.artNumber)
-      getArticleDetail(line.articleId).then(detail => {
+      getArticleDetailByName(line.artNumber).then(detail => {
         setSelectedArt(detail)
         setArtDetailLoading(false)
         setSelectedColorId(line.colorId)
@@ -1323,7 +1323,7 @@ ${bills}
                     onClear={() => { setSelectedSk(null); setSkQuery('') }}
                     results={skResults}
                     loading={skLoading}
-                    getKey={r => r.id}
+                    getKey={r => r.name}
                     renderOption={(r, active) => (
                       <div className="flex items-center justify-between gap-4">
                         <span className={`font-medium ${active ? 'text-primary-foreground' : 'text-foreground'}`}>{r.name}</span>
@@ -1372,7 +1372,7 @@ ${bills}
                   onClear={clearArticle}
                   results={artResults}
                   loading={artLoading}
-                  getKey={r => r.id}
+                  getKey={r => r.artNumber}
                   renderOption={(r, active) => (
                     <div className="flex items-center justify-between gap-4">
                       <span className={`font-semibold ${active ? 'text-primary-foreground' : 'text-foreground'}`}>{r.artNumber}</span>
@@ -1435,8 +1435,8 @@ ${bills}
                       <p className="text-sm text-muted-foreground">No colors configured for this article. Add them in Master.</p>
                     )}
 
-                    {/* Size matrix for selected color */}
-                    {selectedColor && selectedArt.sizes.length > 0 && (
+                    {/* Size matrix for selected color — filtered to this color's articleId */}
+                    {selectedColor && selectedArt.sizes.filter(s => s.articleId === selectedColor.articleId).length > 0 && (
                       <div className="rounded-xl border border-border bg-background p-4 space-y-4">
                         {/* Color header */}
                         <div className="flex items-center justify-between flex-wrap gap-2">
@@ -1473,7 +1473,7 @@ ${bills}
                         <div className="overflow-x-auto">
                           <SizeMatrix
                             key={matrixKey}
-                            sizes={selectedArt.sizes}
+                            sizes={selectedArt.sizes.filter(s => s.articleId === selectedColor.articleId)}
                             quantities={currentQties}
                             onChange={setCurrentQties}
                           />
@@ -1520,6 +1520,7 @@ ${bills}
                     const pairs = linePairs(line)
                     const isEditing = editingLineId === line.id
                     const sizeSummary = line.sizes
+                      .filter((sz, i, arr) => arr.findIndex(s => s.sizeLabel === sz.sizeLabel) === i)
                       .filter(sz => (line.quantities[sz.sizeLabel] ?? 0) > 0)
                       .map(sz => `${sz.sizeLabel}/${line.quantities[sz.sizeLabel]}`)
                       .join(', ')
@@ -1566,7 +1567,7 @@ ${bills}
                         <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">#</th>
                         <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Article</th>
                         <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Color</th>
-                        <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Sizes</th>
+                        <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Size/Qty</th>
                         <th className="text-right px-4 py-2.5 text-xs font-medium text-muted-foreground">Pairs</th>
                         <th className="text-center px-4 py-2.5 text-xs font-medium text-muted-foreground">Action</th>
                       </tr>
@@ -1576,6 +1577,7 @@ ${bills}
                         const pairs = linePairs(line)
                         const isEditing = editingLineId === line.id
                         const sizeSummary = line.sizes
+                          .filter((sz, i, arr) => arr.findIndex(s => s.sizeLabel === sz.sizeLabel) === i)
                           .filter(sz => (line.quantities[sz.sizeLabel] ?? 0) > 0)
                           .map(sz => `${sz.sizeLabel}/${line.quantities[sz.sizeLabel]}`)
                           .join(', ')
