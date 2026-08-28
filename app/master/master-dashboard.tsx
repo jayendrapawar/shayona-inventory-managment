@@ -6,6 +6,8 @@ import { updateUserRole } from '@/app/actions/users'
 import type { AppRole } from '@/app/actions/users'
 import { VendorsTab } from './vendors-tab'
 import type { Vendor } from './vendors-tab'
+import { ArticlesTab } from './articles-tab'
+import type { Article } from './articles-tab'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 
 interface RoleSelectorProps {
@@ -129,14 +131,16 @@ interface Props {
   users: { id: string; name: string | null; email: string; role: string | null; createdAt: Date }[]
   currentUserId: string
   vendors: Vendor[]
+  articles: Article[]
 }
 
 const ROLES: AppRole[] = ['admin', 'accountant', 'salesman', 'picker', 'dispatcher', 'user']
 
-export function MasterDashboard({ users, currentUserId, vendors: initialVendors }: Props) {
+export function MasterDashboard({ users, currentUserId, vendors: initialVendors, articles: initialArticles }: Props) {
   const [isPending, startTransition] = useTransition()
   const [search, setSearch] = useState('')
   const [vendorList, setVendorList] = useState<Vendor[]>(initialVendors)
+  const [articleList, setArticleList] = useState<Article[]>(initialArticles)
 
   const filteredUsers = users.filter(u =>
     !search ||
@@ -176,9 +180,10 @@ export function MasterDashboard({ users, currentUserId, vendors: initialVendors 
 
         {/* Tabs — pill style matching scanner / admin hub */}
         <Tabs defaultValue="users" className="w-full">
-          <TabsList className="grid w-full grid-cols-2 mb-6">
-            <TabsTrigger value="users"   className="text-xs sm:text-sm">Users ({users.length})</TabsTrigger>
-            <TabsTrigger value="vendors" className="text-xs sm:text-sm">Vendors ({vendorList.length})</TabsTrigger>
+          <TabsList className="grid w-full grid-cols-3 mb-6">
+            <TabsTrigger value="users"    className="text-xs sm:text-sm">Users ({users.length})</TabsTrigger>
+            <TabsTrigger value="vendors"  className="text-xs sm:text-sm">Vendors ({vendorList.length})</TabsTrigger>
+            <TabsTrigger value="articles" className="text-xs sm:text-sm">Articles ({articleList.length})</TabsTrigger>
           </TabsList>
 
           {/* ── Users tab ── */}
@@ -269,6 +274,11 @@ export function MasterDashboard({ users, currentUserId, vendors: initialVendors 
           {/* ── Vendors tab ── */}
           <TabsContent value="vendors">
             <VendorsTab initialVendors={vendorList} onListChange={setVendorList} />
+          </TabsContent>
+
+          {/* ── Articles tab ── */}
+          <TabsContent value="articles">
+            <ArticlesTab initialArticles={articleList} onListChange={setArticleList} />
           </TabsContent>
 
         </Tabs>

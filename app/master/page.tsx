@@ -8,6 +8,7 @@ import { isRedirectError } from 'next/dist/client/components/redirect-error'
 import { getAllUsers } from '@/app/actions/users'
 import { MasterDashboard } from './master-dashboard'
 import { getVendors } from '@/app/actions/vendors'
+import { getArticles } from '@/app/actions/articles'
 
 export const metadata = {
   title: 'Master - Shayona Inventory',
@@ -28,9 +29,10 @@ export default async function MasterPage() {
     redirect('/sign-in')
   }
 
-  const [allUsers, vendors] = await Promise.all([
+  const [allUsers, vendors, articles] = await Promise.all([
     getAllUsers(),
     getVendors(),
+    getArticles(),
   ])
 
   return (
@@ -38,6 +40,7 @@ export default async function MasterPage() {
       users={allUsers}
       currentUserId={currentUserId}
       vendors={vendors}
+      articles={articles}
     />
   )
 }

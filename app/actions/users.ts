@@ -14,7 +14,7 @@ async function requireAdmin() {
   if (!session?.user) throw new Error('Unauthorized')
   const [u] = await db.select({ role: user.role }).from(user).where(eq(user.id, session.user.id)).limit(1)
   const roles = (u?.role ?? '').split(',').map(r => r.trim())
-  if (!roles.includes('admin')) throw new Error('Forbidden')
+  if (!roles.includes('admin') && !roles.includes('accountant')) throw new Error('Forbidden')
   return session.user
 }
 

@@ -90,13 +90,16 @@ export const shopkeepers = pgTable('shopkeepers', {
 
 export const articles = pgTable('articles', {
   id:        serial('id').primaryKey(),
-  artNumber: text('artNumber').notNull().unique(),
-  mrp:       numeric('mrp'),
-  rate:      numeric('rate'),
+  artName:   text('artName').notNull().default(''),
+  artCode:   text('artCode').notNull().default(''),
+  color:     text('color').notNull().default(''),
+  colorCode: text('colorCode').notNull().default(''),
+  maxSize:   text('maxSize').notNull().default(''),
+  minSize:   text('minSize').notNull().default(''),
   createdAt: timestamp('createdAt').notNull().defaultNow(),
   updatedAt: timestamp('updatedAt').notNull().defaultNow(),
 }, (t) => [
-  index('articles_art_number_idx').on(t.artNumber),
+  index('articles_art_name_idx').on(t.artName),
 ])
 
 export const articleColors = pgTable('article_colors', {

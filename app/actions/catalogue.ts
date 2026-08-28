@@ -40,8 +40,6 @@ export async function searchShopkeepers(query: string): Promise<ShopkeeperResult
 export interface ArticleResult {
   id: number
   artNumber: string
-  mrp: string | null
-  rate: string | null
 }
 
 export async function searchArticles(query: string): Promise<ArticleResult[]> {
@@ -49,27 +47,23 @@ export async function searchArticles(query: string): Promise<ArticleResult[]> {
   const q = query.trim()
   if (!q) {
     return db
-      .select({ id: articles.id, artNumber: articles.artNumber, mrp: articles.mrp, rate: articles.rate })
+      .select({ id: articles.id, artNumber: articles.artName })
       .from(articles)
-      .orderBy(asc(articles.artNumber))
+      .orderBy(asc(articles.artName))
       .limit(20)
   }
 
-  // Use a DB-level CASE ranking so prefix matches sort before mid-string matches,
-  // reducing the need for JS post-processing in the common case.
-  // Note: server actions can't be cancelled mid-flight; the seq-number pattern
-  // in the client already handles stale responses from prior keystrokes.
   return db
-    .select({ id: articles.id, artNumber: articles.artNumber, mrp: articles.mrp, rate: articles.rate })
+    .select({ id: articles.id, artNumber: articles.artName })
     .from(articles)
-    .where(ilike(articles.artNumber, `%${q}%`))
+    .where(ilike(articles.artName, `%${q}%`))
     .orderBy(
       sql`CASE
-        WHEN lower("artNumber") = lower(${q}) THEN 0
-        WHEN lower("artNumber") LIKE lower(${q}) || '%' THEN 1
+        WHEN lower("artName") = lower(${q}) THEN 0
+        WHEN lower("artName") LIKE lower(${q}) || '%' THEN 1
         ELSE 2
       END`,
-      asc(articles.artNumber),
+      asc(articles.artName),
     )
     .limit(20)
 }
@@ -79,8 +73,6 @@ export async function searchArticles(query: string): Promise<ArticleResult[]> {
 export interface ArticleDetail {
   id: number
   artNumber: string
-  mrp: string | null
-  rate: string | null
   colors: { id: number; colorName: string; colorHex: string | null }[]
   sizes: { id: number; sizeLabel: string; sortOrder: number }[]
 }
@@ -88,9 +80,9 @@ export interface ArticleDetail {
 export async function getArticleDetailByNumber(artNumber: string): Promise<ArticleDetail | null> {
   await requireAuth()
   const [article] = await db
-    .select({ id: articles.id, artNumber: articles.artNumber, mrp: articles.mrp, rate: articles.rate })
+    .select({ id: articles.id, artNumber: articles.artName })
     .from(articles)
-    .where(eq(articles.artNumber, artNumber))
+    .where(eq(articles.artName, artNumber))
     .limit(1)
   if (!article) return null
   const [colors, sizes] = await Promise.all([
@@ -106,7 +98,7 @@ export async function getArticleDetail(articleId: number): Promise<ArticleDetail
   await requireAuth()
 
   const [article] = await db
-    .select({ id: articles.id, artNumber: articles.artNumber, mrp: articles.mrp, rate: articles.rate })
+    .select({ id: articles.id, artNumber: articles.artName })
     .from(articles)
     .where(eq(articles.id, articleId))
     .limit(1)
