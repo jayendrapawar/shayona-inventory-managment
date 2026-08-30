@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useMemo, useTransition, useRef } from 'react'
-import { saveArticle, importArticles, deleteArticle } from '@/app/actions/articles'
+import { saveArticle, importArticles, deleteArticle, getArticleSizes } from '@/app/actions/articles'
 import type { Article } from '@/app/actions/articles'
 
 // ── CSV parser ────────────────────────────────────────────────────────────────
@@ -39,6 +39,7 @@ type ArticleForm = {
   colorCode: string
   maxSize: string
   minSize: string
+  customSizes: string
 }
 
 const EMPTY_FORM: ArticleForm = {
@@ -48,6 +49,7 @@ const EMPTY_FORM: ArticleForm = {
   colorCode: '',
   maxSize: '',
   minSize: '',
+  customSizes: '',
 }
 
 interface Props {
@@ -70,8 +72,8 @@ export function ArticlesTab({ initialArticles, onListChange }: Props) {
   const [editTarget, setEditTarget] = useState<Article | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<Article | null>(null)
   const [form, setForm] = useState<ArticleForm>(EMPTY_FORM)
-  const [colors, setColors] = useState<{ color: string; colorCode: string; minSize: string; maxSize: string }[]>([
-    { color: '', colorCode: '', minSize: '', maxSize: '' }
+  const [colors, setColors] = useState<{ color: string; colorCode: string; minSize: string; maxSize: string; customSizes: string }[]>([
+    { color: '', colorCode: '', minSize: '', maxSize: '', customSizes: '' }
   ])
   const [formError, setFormError] = useState('')
   const [isSaving, startSave] = useTransition()
@@ -127,13 +129,13 @@ export function ArticlesTab({ initialArticles, onListChange }: Props) {
 
   function openAdd() {
     setForm(EMPTY_FORM)
-    setColors([{ color: '', colorCode: '', minSize: '', maxSize: '' }])
+    setColors([{ color: '', colorCode: '', minSize: '', maxSize: '', customSizes: '' }])
     setFormError('')
     setEditTarget(null)
     setModalMode('add')
   }
 
-  function openEdit(a: Article) {
+  async function openEdit(a: Article) {
     setForm({
       artName:   a.artName,
       artCode:   a.artCode,
@@ -141,11 +143,28 @@ export function ArticlesTab({ initialArticles, onListChange }: Props) {
       colorCode: a.colorCode,
       maxSize:   a.maxSize,
       minSize:   a.minSize,
+      customSizes: '',
     })
-    setColors([{ color: a.color, colorCode: a.colorCode, minSize: a.minSize, maxSize: a.maxSize }])
+    setColors([{ color: a.color, colorCode: a.colorCode, minSize: a.minSize, maxSize: a.maxSize, customSizes: '' }])
     setFormError('')
     setEditTarget(a)
     setModalMode('edit')
+
+    try {
+      const dbSizes = await getArticleSizes(a.id)
+      const min = parseInt(a.minSize, 10)
+      const max = parseInt(a.maxSize, 10)
+      const customs = dbSizes.filter(s => {
+        const n = parseInt(s, 10)
+        if (isNaN(min) || isNaN(max) || min > max) return true
+        return isNaN(n) || n < min || n > max
+      })
+      const customSizesStr = customs.join(', ')
+      setForm(f => ({ ...f, customSizes: customSizesStr }))
+      setColors([{ color: a.color, colorCode: a.colorCode, minSize: a.minSize, maxSize: a.maxSize, customSizes: customSizesStr }])
+    } catch {
+      // Graceful fallback
+    }
   }
 
   function handleSave() {
@@ -179,6 +198,7 @@ export function ArticlesTab({ initialArticles, onListChange }: Props) {
               colorCode: c.colorCode,
               minSize: c.minSize,
               maxSize: c.maxSize,
+              customSizes: c.customSizes,
             }
             updated = await saveArticle(payload)
           }
@@ -191,6 +211,7 @@ export function ArticlesTab({ initialArticles, onListChange }: Props) {
             colorCode: form.colorCode,
             minSize: form.minSize,
             maxSize: form.maxSize,
+            customSizes: form.customSizes,
           }
           updated = await saveArticle(payload)
         }
@@ -431,7 +452,7 @@ export function ArticlesTab({ initialArticles, onListChange }: Props) {
                       </div>
                       <button
                         type="button"
-                        onClick={() => setColors(prev => [...prev, { color: '', colorCode: '', minSize: '', maxSize: '' }])}
+                        onClick={() => setColors(prev => [...prev, { color: '', colorCode: '', minSize: '', maxSize: '', customSizes: '' }])}
                         className="rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-semibold hover:bg-muted transition-colors flex items-center gap-1"
                       >
                         <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -444,18 +465,19 @@ export function ArticlesTab({ initialArticles, onListChange }: Props) {
                     <div className="border border-border rounded-xl p-3 bg-muted/10 space-y-3">
                       {/* Grid Headers */}
                       <div className="hidden sm:grid grid-cols-12 gap-2 text-[10px] font-bold text-muted-foreground uppercase tracking-wider px-2 pb-1 border-b border-border/60">
-                        <div className="col-span-3">Color Name *</div>
-                        <div className="col-span-3">Color Code *</div>
-                        <div className="col-span-2">Min Size *</div>
-                        <div className="col-span-2">Max Size *</div>
-                        <div className="col-span-2 text-center">Actions</div>
+                        <div className="col-span-2">Color Name *</div>
+                        <div className="col-span-2">Color Code</div>
+                        <div className="col-span-2">Min Size</div>
+                        <div className="col-span-2">Max Size</div>
+                        <div className="col-span-3">Custom Sizes</div>
+                        <div className="col-span-1 text-center">Del</div>
                       </div>
 
                       <div className="space-y-3.5 max-h-[250px] overflow-y-auto pr-1">
                         {colors.map((c, idx) => (
                           <div key={idx} className="grid grid-cols-1 sm:grid-cols-12 gap-2 sm:gap-3 items-center bg-background sm:bg-transparent border border-border sm:border-transparent p-3 sm:p-0 rounded-lg sm:rounded-none">
                             
-                            <div className="col-span-1 sm:col-span-3">
+                            <div className="col-span-1 sm:col-span-2">
                               <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider sm:hidden block mb-1">Color Name *</label>
                               <input
                                 value={c.color}
@@ -464,13 +486,13 @@ export function ArticlesTab({ initialArticles, onListChange }: Props) {
                                   next[idx].color = e.target.value
                                   setColors(next)
                                 }}
-                                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                                className="w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                                 placeholder="e.g. Red"
                               />
                             </div>
 
-                            <div className="col-span-1 sm:col-span-3">
-                              <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider sm:hidden block mb-1">Color Code *</label>
+                            <div className="col-span-1 sm:col-span-2">
+                              <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider sm:hidden block mb-1">Color Code</label>
                               <input
                                 value={c.colorCode}
                                 onChange={e => {
@@ -478,13 +500,13 @@ export function ArticlesTab({ initialArticles, onListChange }: Props) {
                                   next[idx].colorCode = e.target.value
                                   setColors(next)
                                 }}
-                                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                                placeholder="e.g. #FF0000 or C01"
+                                className="w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                                placeholder="e.g. #FF0000"
                               />
                             </div>
 
                             <div className="col-span-1 sm:col-span-2">
-                              <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider sm:hidden block mb-1">Min Size *</label>
+                              <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider sm:hidden block mb-1">Min Size</label>
                               <input
                                 value={c.minSize}
                                 onChange={e => {
@@ -492,13 +514,13 @@ export function ArticlesTab({ initialArticles, onListChange }: Props) {
                                   next[idx].minSize = e.target.value
                                   setColors(next)
                                 }}
-                                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                                className="w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                                 placeholder="e.g. 6"
                               />
                             </div>
 
                             <div className="col-span-1 sm:col-span-2">
-                              <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider sm:hidden block mb-1">Max Size *</label>
+                              <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider sm:hidden block mb-1">Max Size</label>
                               <input
                                 value={c.maxSize}
                                 onChange={e => {
@@ -506,17 +528,31 @@ export function ArticlesTab({ initialArticles, onListChange }: Props) {
                                   next[idx].maxSize = e.target.value
                                   setColors(next)
                                 }}
-                                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                                className="w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                                 placeholder="e.g. 12"
                               />
                             </div>
 
-                            <div className="col-span-1 sm:col-span-2 flex justify-end sm:justify-center items-center pt-2 sm:pt-0 border-t border-border/40 sm:border-transparent">
+                            <div className="col-span-1 sm:col-span-3">
+                              <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider sm:hidden block mb-1">Custom Sizes</label>
+                              <input
+                                value={c.customSizes}
+                                onChange={e => {
+                                  const next = [...colors]
+                                  next[idx].customSizes = e.target.value
+                                  setColors(next)
+                                }}
+                                className="w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                                placeholder="e.g. 2, 5"
+                              />
+                            </div>
+
+                            <div className="col-span-1 sm:col-span-1 flex justify-end sm:justify-center items-center pt-2 sm:pt-0 border-t border-border/40 sm:border-transparent">
                               {colors.length > 1 ? (
                                 <button
                                   type="button"
                                   onClick={() => setColors(prev => prev.filter((_, i) => i !== idx))}
-                                  className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20 rounded-lg border border-border sm:border-transparent hover:border-red-200 transition-all"
+                                  className="p-1.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg border border-border sm:border-transparent hover:border-red-200 transition-all"
                                   title="Remove color"
                                 >
                                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -576,6 +612,15 @@ export function ArticlesTab({ initialArticles, onListChange }: Props) {
                         onChange={e => setForm(f => ({ ...f, maxSize: e.target.value }))}
                         className={inputCls}
                         placeholder="e.g. XXL or 44"
+                      />
+                    </div>
+                    <div className="col-span-2">
+                      <label className="text-[11px] font-semibold text-foreground uppercase tracking-wider block mb-1.5">Custom Sizes (comma-separated)</label>
+                      <input
+                        value={form.customSizes}
+                        onChange={e => setForm(f => ({ ...f, customSizes: e.target.value }))}
+                        className={inputCls}
+                        placeholder="e.g. 2, 5"
                       />
                     </div>
                   </>

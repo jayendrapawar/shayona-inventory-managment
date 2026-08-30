@@ -13,33 +13,6 @@ async function requireAuth() {
 
 export type Article = typeof articles.$inferSelect
 
-// ── Sync article_colors for an article based on color + colorCode ─────────────
-async function syncColor(articleId: number, colorName: string, colorHex: string) {
-  await db.delete(articleColors).where(eq(articleColors.articleId, articleId))
-  if (colorName.trim()) {
-    await db.insert(articleColors).values({
-      articleId,
-      colorName: colorName.trim(),
-      colorHex:  colorHex.trim() || null,
-    })
-  }
-}
-
-// ── Sync article_sizes for an article based on minSize..maxSize ───────────────
-async function syncSizes(articleId: number, minSize: string, maxSize: string) {
-  const min = parseInt(minSize, 10)
-  const max = parseInt(maxSize, 10)
-
-  await db.delete(articleSizes).where(eq(articleSizes.articleId, articleId))
-
-  if (!isNaN(min) && !isNaN(max) && min <= max) {
-    const rows = []
-    for (let size = min, order = 1; size <= max; size++, order++) {
-      rows.push({ articleId, sizeLabel: String(size), sortOrder: order })
-    }
-    await db.insert(articleSizes).values(rows)
-  }
-}
 
 // ── Fetch all articles ────────────────────────────────────────────────────────
 export async function getArticles(): Promise<Article[]> {
@@ -49,57 +22,107 @@ export async function getArticles(): Promise<Article[]> {
 
 // ── Save (upsert) a single article ───────────────────────────────────────────
 export async function saveArticle(
-  input: Omit<Article, 'id' | 'createdAt' | 'updatedAt'> & { id?: number }
+  input: Omit<Article, 'id' | 'createdAt' | 'updatedAt'> & { id?: number; customSizes?: string }
 ): Promise<Article[]> {
   await requireAuth()
+
+  // Extract customSizes so we don't insert it into articles database table which has no such column
+  const { customSizes, ...cleanInput } = input
 
   await db.transaction(async (tx) => {
     let articleId: number
 
-    if (input.id) {
+    if (cleanInput.id) {
       await tx
         .insert(articles)
-        .values({ ...input, id: input.id })
+        .values({ ...cleanInput, id: cleanInput.id })
         .onConflictDoUpdate({
           target: articles.id,
           set: {
-            artName:   input.artName,
-            artCode:   input.artCode,
-            color:     input.color,
-            colorCode: input.colorCode,
-            maxSize:   input.maxSize,
-            minSize:   input.minSize,
+            artName:   cleanInput.artName,
+            artCode:   cleanInput.artCode,
+            color:     cleanInput.color,
+            colorCode: cleanInput.colorCode,
+            maxSize:   cleanInput.maxSize,
+            minSize:   cleanInput.minSize,
             updatedAt: sql`now()`,
           },
         })
-      articleId = input.id
+      articleId = cleanInput.id
     } else {
       const [inserted] = await tx
         .insert(articles)
-        .values({ ...input })
+        .values({ ...cleanInput })
         .returning({ id: articles.id })
       articleId = inserted.id
     }
 
     // Sync article_colors
     await tx.delete(articleColors).where(eq(articleColors.articleId, articleId))
-    if (input.color.trim()) {
+    if (cleanInput.color.trim()) {
       await tx.insert(articleColors).values({
         articleId,
-        colorName: input.color.trim(),
-        colorHex:  input.colorCode.trim() || null,
+        colorName: cleanInput.color.trim(),
+        colorHex:  cleanInput.colorCode.trim() || null,
       })
     }
 
     // Sync article_sizes
-    const min = parseInt(input.minSize, 10)
-    const max = parseInt(input.maxSize, 10)
+    const min = parseInt(cleanInput.minSize, 10)
+    const max = parseInt(cleanInput.maxSize, 10)
     await tx.delete(articleSizes).where(eq(articleSizes.articleId, articleId))
-    if (!isNaN(min) && !isNaN(max) && min <= max) {
-      const sizeRows = []
-      for (let size = min, order = 1; size <= max; size++, order++) {
-        sizeRows.push({ articleId, sizeLabel: String(size), sortOrder: order })
+    
+    const sizeLabels = new Set<string>()
+
+    // 1. Process custom sizes if present
+    if (customSizes) {
+      const customs = customSizes
+        .split(',')
+        .map(s => s.trim())
+        .filter(Boolean)
+      for (const custom of customs) {
+        sizeLabels.add(custom)
       }
+    }
+
+    // 2. Process sequential size range
+    if (!isNaN(min) && !isNaN(max) && min <= max) {
+      for (let size = min; size <= max; size++) {
+        sizeLabels.add(String(size))
+      }
+    }
+
+    if (sizeLabels.size > 0) {
+      // Sort collected sizes naturally (numerics first, then XS/S/M/L, then alphanumeric strings)
+      const sortedLabels = Array.from(sizeLabels).sort((a, b) => {
+        const numA = parseInt(a, 10)
+        const numB = parseInt(b, 10)
+        
+        if (!isNaN(numA) && !isNaN(numB)) {
+          return numA - numB
+        }
+        if (!isNaN(numA)) return -1
+        if (!isNaN(numB)) return 1
+        
+        const standardOrder = ['XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL', '3XL', '4XL']
+        const idxA = standardOrder.indexOf(a.toUpperCase())
+        const idxB = standardOrder.indexOf(b.toUpperCase())
+        
+        if (idxA !== -1 && idxB !== -1) {
+          return idxA - idxB
+        }
+        if (idxA !== -1) return -1
+        if (idxB !== -1) return 1
+        
+        return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })
+      })
+
+      const sizeRows = sortedLabels.map((label, idx) => ({
+        articleId,
+        sizeLabel: label,
+        sortOrder: idx + 1
+      }))
+
       await tx.insert(articleSizes).values(sizeRows)
     }
   })
@@ -112,6 +135,17 @@ export async function deleteArticle(id: number): Promise<Article[]> {
   await requireAuth()
   await db.delete(articles).where(eq(articles.id, id))
   return db.select().from(articles).orderBy(asc(articles.artName))
+}
+
+// ── Fetch size labels for a single article ───────────────────────────────────
+export async function getArticleSizes(articleId: number): Promise<string[]> {
+  await requireAuth()
+  const rows = await db
+    .select({ sizeLabel: articleSizes.sizeLabel })
+    .from(articleSizes)
+    .where(eq(articleSizes.articleId, articleId))
+    .orderBy(articleSizes.sortOrder)
+  return rows.map(r => r.sizeLabel)
 }
 
 
