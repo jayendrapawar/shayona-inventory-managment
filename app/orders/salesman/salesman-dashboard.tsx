@@ -1643,7 +1643,7 @@ ${bills}
             PRINT ORDERS
         ════════════════════════════════════════════════════════════════ */}
         {view === 'print' && (() => {
-          const assignedOrders = orders.filter(o => o.status === 'assigned')
+          const assignedOrders = orders.filter(o => o.status === 'assigned' || o.status === 'pending')
           const selectedOrders = assignedOrders.filter(o => printSelectedIds.has(o.id))
           const allLoaded = selectedOrders.every(o => !!printItemsMap[o.id])
           const allSelected = assignedOrders.length > 0 && assignedOrders.every(o => printSelectedIds.has(o.id))
@@ -1670,8 +1670,8 @@ ${bills}
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
                   </svg>
                   <div className="text-center">
-                    <p className="text-sm font-medium">No assigned orders</p>
-                    <p className="text-xs mt-0.5">Orders must be in <span className="font-semibold text-foreground">assigned</span> status to appear here.</p>
+                    <p className="text-sm font-medium">No pending or assigned orders</p>
+                    <p className="text-xs mt-0.5">Orders must be in <span className="font-semibold text-foreground">pending</span> or <span className="font-semibold text-foreground">assigned</span> status to appear here.</p>
                   </div>
                 </div>
               )}
@@ -1824,7 +1824,7 @@ ${bills}
 
       {/* ── Sticky bottom bar — Print Orders ── */}
       {view === 'print' && (() => {
-        const assignedOrders = orders.filter(o => o.status === 'assigned')
+        const assignedOrders = orders.filter(o => o.status === 'assigned' || o.status === 'pending')
         const selectedOrders = assignedOrders.filter(o => printSelectedIds.has(o.id))
         const allLoaded = selectedOrders.every(o => !!printItemsMap[o.id])
         const canPrint = selectedOrders.length > 0 && allLoaded
@@ -1879,7 +1879,7 @@ ${bills}
 
       {/* ── Print config modal ── */}
       {printConfigOpen && (() => {
-        const assignedOrders = orders.filter(o => o.status === 'assigned')
+        const assignedOrders = orders.filter(o => o.status === 'assigned' || o.status === 'pending')
         const selectedOrders = assignedOrders.filter(o => printSelectedIds.has(o.id))
         return (
           <div
