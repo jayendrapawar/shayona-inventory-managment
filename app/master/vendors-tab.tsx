@@ -11,7 +11,7 @@ type Day = typeof DAYS[number]
 
 // ── CSV parser ────────────────────────────────────────────────────────────────
 // Expected columns (case-insensitive, order flexible):
-// partyName, partyOwner, phone, address, city, area, day, salesman, status
+// partyName, gst, phone, address, city, area, day, salesman, status
 function parseCsv(text: string): Omit<Vendor, 'id' | 'createdAt' | 'updatedAt'>[] {
   const lines = text.split(/\r?\n/).filter(l => l.trim())
   if (lines.length < 2) return []
@@ -27,7 +27,7 @@ function parseCsv(text: string): Omit<Vendor, 'id' | 'createdAt' | 'updatedAt'>[
     const status = (get('status') || 'active').toLowerCase() === 'inactive' ? 'inactive' : 'active'
     return [{
       partyName,
-      partyOwner: get('partyowner') || get('owner') || '',
+      gst: get('gst') || get('partyowner') || get('owner') || '',
       phone:      get('phone') || '',
       address:    get('address') || '',
       city:       get('city') || '',
@@ -41,7 +41,7 @@ function parseCsv(text: string): Omit<Vendor, 'id' | 'createdAt' | 'updatedAt'>[
 
 type VendorForm = {
   partyName: string
-  partyOwner: string
+  gst: string
   phone: string
   address: string
   city: string
@@ -53,7 +53,7 @@ type VendorForm = {
 
 const EMPTY_FORM: VendorForm = {
   partyName: '',
-  partyOwner: '',
+  gst: '',
   phone: '',
   address: '',
   city: '',
@@ -149,7 +149,7 @@ export function VendorsTab({ initialVendors, onListChange }: Props) {
     if (filterStatus !== 'all') list = list.filter(v => v.status === filterStatus)
     if (search) list = list.filter(v =>
       v.partyName.toLowerCase().includes(search.toLowerCase()) ||
-      v.partyOwner.toLowerCase().includes(search.toLowerCase()) ||
+      v.gst.toLowerCase().includes(search.toLowerCase()) ||
       v.city.toLowerCase().includes(search.toLowerCase()) ||
       v.area.toLowerCase().includes(search.toLowerCase()) ||
       v.salesman.toLowerCase().includes(search.toLowerCase())
@@ -271,11 +271,11 @@ export function VendorsTab({ initialVendors, onListChange }: Props) {
 
             {/* Card body */}
             <div className="px-4 pb-3 space-y-2">
-              {v.partyOwner && (
+              {v.gst && (
                 <div className="flex items-center gap-2 text-sm">
-                  {/* person icon */}
-                  <svg className="w-3.5 h-3.5 text-muted-foreground shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
-                  <span className="text-foreground">{v.partyOwner}</span>
+                  {/* receipt/GST icon */}
+                  <svg className="w-3.5 h-3.5 text-muted-foreground shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                  <span className="text-foreground font-mono text-xs">{v.gst}</span>
                 </div>
               )}
               <a href={`tel:${v.phone}`} className="flex items-center gap-2 text-sm text-blue-600 dark:text-blue-400">
@@ -322,7 +322,7 @@ export function VendorsTab({ initialVendors, onListChange }: Props) {
               <tr>
                 <th className="text-left pl-4 pr-2 py-2.5 font-semibold text-[11px] text-muted-foreground uppercase tracking-wide whitespace-nowrap w-[58px]">ID</th>
                 <th className="text-left px-2 py-2.5 font-semibold text-[11px] text-muted-foreground uppercase tracking-wide whitespace-nowrap">Party Name</th>
-                <th className="text-left px-2 py-2.5 font-semibold text-[11px] text-muted-foreground uppercase tracking-wide whitespace-nowrap">Owner</th>
+                <th className="text-left px-2 py-2.5 font-semibold text-[11px] text-muted-foreground uppercase tracking-wide whitespace-nowrap">GST</th>
                 <th className="text-left px-2 py-2.5 font-semibold text-[11px] text-muted-foreground uppercase tracking-wide whitespace-nowrap">Phone</th>
                 <th className="text-left px-2 py-2.5 font-semibold text-[11px] text-muted-foreground uppercase tracking-wide whitespace-nowrap">Location</th>
                 <th className="text-left px-2 py-2.5 font-semibold text-[11px] text-muted-foreground uppercase tracking-wide whitespace-nowrap">Day</th>
@@ -339,7 +339,7 @@ export function VendorsTab({ initialVendors, onListChange }: Props) {
                     <p className="font-medium text-foreground truncate text-sm" title={v.partyName}>{v.partyName}</p>
                   </td>
                   <td className="px-2 py-3 max-w-[120px]">
-                    <p className="text-sm text-muted-foreground truncate" title={v.partyOwner || ''}>{v.partyOwner || '—'}</p>
+                    <p className="text-sm text-muted-foreground truncate" title={v.gst || ''}>{v.gst || '—'}</p>
                   </td>
                   <td className="px-2 py-3 text-xs text-muted-foreground whitespace-nowrap">{v.phone}</td>
                   <td className="px-2 py-3 max-w-[180px]">
@@ -398,8 +398,8 @@ export function VendorsTab({ initialVendors, onListChange }: Props) {
                   <input value={form.partyName} onChange={e => setForm(f => ({ ...f, partyName: e.target.value }))} className={inputCls} placeholder="Party / shop name" />
                 </div>
                 <div>
-                  <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide block mb-1">Party Owner</label>
-                  <input value={form.partyOwner} onChange={e => setForm(f => ({ ...f, partyOwner: e.target.value }))} className={inputCls} placeholder="Owner name" />
+                  <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide block mb-1">GST</label>
+                  <input value={form.gst} onChange={e => setForm(f => ({ ...f, gst: e.target.value }))} className={inputCls} placeholder="GST number" />
                 </div>
                 <div>
                   <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide block mb-1">Phone *</label>

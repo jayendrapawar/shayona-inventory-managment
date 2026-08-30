@@ -78,7 +78,7 @@ export async function saveVendor(
       target: vendors.id,
       set: {
         partyName:  input.partyName,
-        partyOwner: input.partyOwner,
+        gst:        input.gst,
         phone:      input.phone,
         address:    input.address,
         city:       input.city,

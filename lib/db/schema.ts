@@ -62,7 +62,7 @@ export const verification = pgTable('verification', {
 export const vendors = pgTable('vendors', {
   id:         text('id').primaryKey(),
   partyName:  text('partyName').notNull(),
-  partyOwner: text('partyOwner').notNull().default(''),
+  gst:        text('gst').notNull().default(''),
   phone:      text('phone').notNull().default(''),
   address:    text('address').notNull().default(''),
   city:       text('city').notNull().default(''),
