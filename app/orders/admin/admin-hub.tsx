@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { PageNav } from '@/components/page-nav'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { AdminDashboard } from './admin-dashboard'
@@ -36,6 +36,7 @@ interface SalesmanOrder {
 
 interface QueueItem {
   totalPairs: number
+  packedPairs: number
   id: number
   orderNumber: string
   shopkeeperName: string
@@ -52,6 +53,8 @@ interface DispatchOrder {
   shopkeeperAddress: string | null
   status: string
   packedAt: Date | null
+  totalBundles: number | null
+  dispatcherId: string | null
 }
 
 interface Picker {
@@ -99,6 +102,19 @@ export function AdminHub({
     })
   }, [])
 
+  const VALID_TABS = ['overview', 'salesman', 'picker', 'dispatcher', 'procurement']
+  const [activeTab, setActiveTab] = useState('overview')
+
+  useEffect(() => {
+    const hash = window.location.hash.replace('#', '')
+    if (VALID_TABS.includes(hash)) setActiveTab(hash)
+  }, [])
+
+  function handleTabChange(tab: string) {
+    setActiveTab(tab)
+    window.location.hash = tab
+  }
+
   return (
     <div className="min-h-screen bg-background">
       <div className="max-w-6xl mx-auto px-4 py-6">
@@ -112,8 +128,8 @@ export function AdminHub({
           <PageNav />
         </div>
 
-        {/* Tabs — same pill style as scanner */}
-        <Tabs defaultValue="overview" className="w-full">
+        {/* Tabs */}
+        <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
           <TabsList className="grid w-full grid-cols-5 mb-6">
             <TabsTrigger value="overview"    className="text-xs sm:text-sm">Overview</TabsTrigger>
             <TabsTrigger value="salesman"    className="text-xs sm:text-sm">Salesman</TabsTrigger>
@@ -148,7 +164,7 @@ export function AdminHub({
           </TabsContent>
 
           <TabsContent value="dispatcher">
-            <DispatcherDashboard orders={dispatchOrders} embedded />
+            <DispatcherDashboard orders={dispatchOrders} currentDispatcherId={adminId} embedded />
           </TabsContent>
 
           {/* ── Procurement ── */}

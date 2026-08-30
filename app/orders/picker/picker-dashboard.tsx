@@ -20,6 +20,7 @@ interface QueueItem {
   orderedAt: Date
   pickerId: string | null
   totalPairs: number
+  packedPairs: number
 }
 
 interface Props {
@@ -53,8 +54,9 @@ export function PickerDashboard({ queue: initialQueue, currentPickerId, embedded
   const myOrders        = useMemo(() => queue.filter(o => o.pickerId === currentPickerId), [queue, currentPickerId])
 
   const counts = {
-    available: availableOrders.length,
-    mine:      myOrders.length,
+    mine:          myOrders.length,
+    myPending:     myOrders.reduce((s, o) => s + Math.max(0, o.totalPairs - o.packedPairs), 0),
+    myPackedPairs: myOrders.reduce((s, o) => s + o.packedPairs, 0),
   }
 
   // ── Open order detail ────────────────────────────────────────────────────────
@@ -516,14 +518,18 @@ export function PickerDashboard({ queue: initialQueue, currentPickerId, embedded
         )}
 
         {/* Stat cards */}
-        <div className="grid grid-cols-2 gap-3 mb-4">
-          <div className="rounded-xl border border-border bg-card px-4 py-3">
-            <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Available</p>
-            <p className="text-2xl font-bold text-yellow-600 tabular-nums mt-0.5">{counts.available}</p>
-          </div>
+        <div className="grid grid-cols-3 gap-3 mb-4">
           <div className="rounded-xl border border-border bg-card px-4 py-3">
             <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">My Orders</p>
             <p className="text-2xl font-bold text-blue-600 tabular-nums mt-0.5">{counts.mine}</p>
+          </div>
+          <div className="rounded-xl border border-border bg-card px-4 py-3">
+            <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">To Pack</p>
+            <p className="text-2xl font-bold text-yellow-600 tabular-nums mt-0.5">{counts.myPending}</p>
+          </div>
+          <div className="rounded-xl border border-border bg-card px-4 py-3">
+            <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Packed</p>
+            <p className="text-2xl font-bold text-green-600 tabular-nums mt-0.5">{counts.myPackedPairs}</p>
           </div>
         </div>
 
@@ -544,7 +550,7 @@ export function PickerDashboard({ queue: initialQueue, currentPickerId, embedded
               <span className={`inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full px-1 text-[10px] font-bold tabular-nums ${
                 subTab === tab ? 'bg-foreground text-background' : 'bg-muted-foreground/20 text-muted-foreground'
               }`}>
-                {tab === 'all' ? counts.available : counts.mine}
+                {tab === 'all' ? availableOrders.length : counts.mine}
               </span>
             </button>
           ))}

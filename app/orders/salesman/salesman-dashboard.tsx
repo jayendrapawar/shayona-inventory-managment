@@ -977,7 +977,7 @@ ${bills}
   const counts = {
     total: orders.length,
     pending: orders.filter(o => o.status === 'pending').length,
-    delivered: orders.filter(o => o.status === 'delivered').length,
+    inProgress: orders.filter(o => !['pending', 'cancelled', 'dispatched', 'delivered'].includes(o.status)).length,
   }
 
   // ── Unique salesmen list for filter dropdown ──
@@ -1028,7 +1028,7 @@ ${bills}
         <div className="grid grid-cols-3 gap-3 mb-6">
           <StatCard label="Total" value={counts.total} />
           <StatCard label="Pending" value={counts.pending} color="text-yellow-600" />
-          <StatCard label="Delivered" value={counts.delivered} color="text-green-600" />
+          <StatCard label="In Progress" value={counts.inProgress} color="text-blue-600" />
         </div>
 
         {/* Tab bar */}

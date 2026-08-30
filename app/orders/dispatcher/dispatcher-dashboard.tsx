@@ -8,8 +8,9 @@ import { PageNav } from '@/components/page-nav'
 interface DispatchOrder {
   id: number; orderNumber: string; shopkeeperName: string; shopkeeperPhone: string | null
   shopkeeperAddress: string | null; status: string; packedAt: Date | null
+  totalBundles: number | null; dispatcherId: string | null
 }
-interface Props { orders: DispatchOrder[]; embedded?: boolean }
+interface Props { orders: DispatchOrder[]; currentDispatcherId?: string; embedded?: boolean }
 
 interface PickupModalState {
   orderId: number
@@ -27,7 +28,7 @@ interface DetailItem {
   status: string
 }
 
-export function DispatcherDashboard({ orders: initialOrders, embedded }: Props) {
+export function DispatcherDashboard({ orders: initialOrders, currentDispatcherId = '', embedded }: Props) {
   const [orders, setOrders] = useState(initialOrders)
   const [isPending, startTransition] = useTransition()
   const [activeId, setActiveId] = useState<number | null>(null)
@@ -44,9 +45,12 @@ export function DispatcherDashboard({ orders: initialOrders, embedded }: Props) 
   const [detailError, setDetailError] = useState('')
 
   const counts = {
-    total: orders.length,
-    packed: orders.filter(o => o.status === 'packed').length,
-    dispatched: orders.filter(o => o.status === 'dispatched').length,
+    active:         orders.length,
+    packed:         orders.filter(o => o.status === 'packed').length,
+    dispatched:     orders.filter(o => o.status === 'dispatched').length,
+    myBundlesOut:   orders
+      .filter(o => o.status === 'dispatched' && o.dispatcherId === currentDispatcherId)
+      .reduce((s, o) => s + (o.totalBundles ?? 0), 0),
   }
 
   async function handleViewOrder(order: DispatchOrder) {
@@ -85,8 +89,8 @@ export function DispatcherDashboard({ orders: initialOrders, embedded }: Props) 
     setActiveId(orderId)
     startTransition(async () => {
       await markDispatched(orderId, bundles, deliveryAgent.trim())
-      setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: 'dispatched' } : o))
-      if (detailOrder?.id === orderId) setDetailOrder(prev => prev ? { ...prev, status: 'dispatched' } : prev)
+      setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: 'dispatched', totalBundles: bundles, dispatcherId: currentDispatcherId } : o))
+      if (detailOrder?.id === orderId) setDetailOrder(prev => prev ? { ...prev, status: 'dispatched', totalBundles: bundles, dispatcherId: currentDispatcherId } : prev)
       setActiveId(null)
     })
   }
@@ -128,10 +132,11 @@ export function DispatcherDashboard({ orders: initialOrders, embedded }: Props) 
         </div>
         )}
 
-        <div className="grid grid-cols-3 gap-3 mb-6">
-          <StatCard label="Total" value={counts.total} />
+        <div className="grid grid-cols-4 gap-3 mb-6">
+          <StatCard label="Active" value={counts.active} />
           <StatCard label="Ready" value={counts.packed} color="text-purple-600" />
           <StatCard label="Out for Delivery" value={counts.dispatched} color="text-orange-600" />
+          <StatCard label="My Bundles" value={counts.myBundlesOut} color="text-blue-600" />
         </div>
 
         <div className="space-y-3">
@@ -139,11 +144,10 @@ export function DispatcherDashboard({ orders: initialOrders, embedded }: Props) 
             <div className="text-center py-12 text-muted-foreground text-sm">No orders to dispatch 🎉</div>
           )}
           {orders.map(order => (
-            <button
+            <div
               key={order.id}
-              type="button"
               onClick={() => handleViewOrder(order)}
-              className="w-full text-left rounded-xl border border-border bg-card p-4 hover:bg-muted/30 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="w-full text-left rounded-xl border border-border bg-card p-4 hover:bg-muted/30 transition-colors cursor-pointer"
             >
               <div className="flex items-start justify-between gap-2 mb-3">
                 <div>
@@ -164,6 +168,7 @@ export function DispatcherDashboard({ orders: initialOrders, embedded }: Props) 
                 <div className="flex gap-2" onClick={e => e.stopPropagation()}>
                   {order.status === 'packed' && (
                     <button
+                      type="button"
                       onClick={() => openPickupModal(order)}
                       disabled={isPending && activeId === order.id}
                       className="rounded-lg bg-orange-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-orange-600 disabled:opacity-50 transition-colors"
@@ -173,6 +178,7 @@ export function DispatcherDashboard({ orders: initialOrders, embedded }: Props) 
                   )}
                   {order.status === 'dispatched' && (
                     <button
+                      type="button"
                       onClick={() => handleDeliver(order.id)}
                       disabled={isPending && activeId === order.id}
                       className="rounded-lg bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-700 disabled:opacity-50 transition-colors"
@@ -182,7 +188,7 @@ export function DispatcherDashboard({ orders: initialOrders, embedded }: Props) 
                   )}
                 </div>
               </div>
-            </button>
+            </div>
           ))}
         </div>
       </div>

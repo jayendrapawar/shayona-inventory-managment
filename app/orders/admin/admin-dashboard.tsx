@@ -2,7 +2,7 @@
 
 import { useState, useTransition, useMemo, useEffect, useCallback } from 'react'
 import { StatusPill, fmt, PageHeader, StatCard } from '../_components/shared'
-import { adminAssignPicker, adminUnassignPicker, getOrderWithItems, getPickerAssignments } from '@/app/actions/orders'
+import { adminAssignPicker, adminUnassignPicker, getOrderWithItems, getPickerAssignments, deleteOrder } from '@/app/actions/orders'
 
 interface OrderRow {
   id: number
@@ -97,6 +97,20 @@ export function AdminDashboard({ stats, orders, pickers, embedded, pickerMapOver
   const [detailLoading, setDetailLoading] = useState(false)
   const [detailError, setDetailError] = useState('')
 
+  // ── Delete confirmation ──
+  const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null)
+  const [isDeleting, startDeleteTransition] = useTransition()
+  const [deletedIds, setDeletedIds] = useState<Set<number>>(new Set())
+
+  function handleDeleteOrder(orderId: number) {
+    startDeleteTransition(async () => {
+      await deleteOrder(orderId)
+      setDeleteConfirmId(null)
+      setDetailOrder(null)
+      setDeletedIds(prev => new Set([...prev, orderId]))
+    })
+  }
+
   async function handleViewOrder(order: OrderRow) {
     setDetailOrder(order)
     setDetailItems([])
@@ -137,16 +151,18 @@ export function AdminDashboard({ stats, orders, pickers, embedded, pickerMapOver
 
   const filteredOrders = useMemo(() => {
     let list = orders.filter(o =>
-      !search ||
-      o.shopkeeperName.toLowerCase().includes(search.toLowerCase()) ||
-      o.orderNumber.toLowerCase().includes(search.toLowerCase())
+      !deletedIds.has(o.id) && (
+        !search ||
+        o.shopkeeperName.toLowerCase().includes(search.toLowerCase()) ||
+        o.orderNumber.toLowerCase().includes(search.toLowerCase())
+      )
     )
     if (filterStatus !== 'all') list = list.filter(o => o.status === filterStatus)
     if (sortBy === 'date-desc') list = [...list].sort((a, b) => new Date(b.orderedAt).getTime() - new Date(a.orderedAt).getTime())
     if (sortBy === 'date-asc')  list = [...list].sort((a, b) => new Date(a.orderedAt).getTime() - new Date(b.orderedAt).getTime())
     if (sortBy === 'order')     list = [...list].sort((a, b) => a.orderNumber.localeCompare(b.orderNumber))
     return list
-  }, [orders, search, filterStatus, sortBy])
+  }, [orders, deletedIds, search, filterStatus, sortBy])
 
   return (
     <div className={embedded ? '' : 'min-h-screen bg-background'}>
@@ -361,6 +377,47 @@ export function AdminDashboard({ stats, orders, pickers, embedded, pickerMapOver
                     )
                   })()}
                 </div>
+
+                {/* Delete order */}
+                <div className="pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setDeleteConfirmId(detailOrder.id)}
+                    className="w-full rounded-xl border border-red-200 dark:border-red-800 text-red-500 px-4 py-2.5 text-sm font-medium hover:bg-red-50 dark:hover:bg-red-950/20 transition-colors"
+                  >
+                    Delete Order
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── Delete confirmation dialog ── */}
+        {deleteConfirmId !== null && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+            <div className="w-full max-w-sm rounded-2xl bg-background border border-border p-6 shadow-lg">
+              <h2 className="text-base font-semibold mb-1 text-foreground">Delete Order?</h2>
+              <p className="text-xs text-muted-foreground mb-5">
+                This will permanently delete <span className="font-medium text-foreground">{detailOrder?.orderNumber}</span> and all its items. This cannot be undone.
+              </p>
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setDeleteConfirmId(null)}
+                  disabled={isDeleting}
+                  className="flex-1 rounded-lg border border-border px-4 py-2 text-sm font-medium hover:bg-muted transition-colors disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleDeleteOrder(deleteConfirmId)}
+                  disabled={isDeleting}
+                  className="flex-1 rounded-lg bg-red-500 px-4 py-2 text-sm font-medium text-white hover:bg-red-600 disabled:opacity-50 transition-colors"
+                >
+                  {isDeleting ? 'Deleting…' : 'Delete'}
+                </button>
               </div>
             </div>
           </div>

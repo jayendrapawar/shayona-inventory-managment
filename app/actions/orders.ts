@@ -185,7 +185,8 @@ export async function getPickerQueue() {
       status: orders.status,
       orderedAt: orders.orderedAt,
       pickerId: orders.pickerId,
-      totalPairs: sql<number>`cast(coalesce(sum(${orderItems.quantityOrdered}), 0) as int)`,
+      totalPairs:  sql<number>`cast(coalesce(sum(${orderItems.quantityOrdered}), 0) as int)`,
+      packedPairs: sql<number>`cast(coalesce(sum(${orderItems.quantityPacked}),  0) as int)`,
     })
     .from(orders)
     .leftJoin(orderItems, eq(orderItems.orderId, orders.id))
@@ -281,6 +282,8 @@ export async function getPackedOrders() {
       shopkeeperName: orders.shopkeeperName,
       status: orders.status,
       packedAt: orders.packedAt,
+      totalBundles: orders.totalBundles,
+      dispatcherId: orders.dispatcherId,
     })
     .from(orders)
     .where(inArray(orders.status, ['packed', 'dispatched']))
@@ -313,6 +316,15 @@ export async function markDelivered(orderId: number) {
 }
 
 // ── Admin actions ─────────────────────────────────────────────────────────────
+
+export async function deleteOrder(orderId: number) {
+  await requireRole('admin')
+  await db.delete(orders).where(eq(orders.id, orderId))
+  revalidatePath('/orders')
+  revalidatePath('/orders/admin')
+}
+
+
 
 export async function getAllOrders() {
   await requireRole('admin')
@@ -396,12 +408,12 @@ export async function getOrderStats() {
     total: string; pending: string; packed: string; dispatched: string; delivered: string; cancelled: string
   }>(sql`
     SELECT
-      count(*)::int AS total,
-      count(*) filter (where status = 'pending')::int   AS pending,
-      count(*) filter (where status = 'packed')::int    AS packed,
+      count(*) filter (where status NOT IN ('delivered', 'cancelled'))::int AS total,
+      count(*) filter (where status = 'pending')::int    AS pending,
+      count(*) filter (where status = 'packed')::int     AS packed,
       count(*) filter (where status = 'dispatched')::int AS dispatched,
-      count(*) filter (where status = 'delivered')::int AS delivered,
-      count(*) filter (where status = 'cancelled')::int AS cancelled
+      count(*) filter (where status = 'delivered')::int  AS delivered,
+      count(*) filter (where status = 'cancelled')::int  AS cancelled
     FROM orders
   `).then(r => r.rows)
   return {

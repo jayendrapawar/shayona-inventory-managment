@@ -1,5 +1,6 @@
 'use client'
 
+import { useState, useEffect } from 'react'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { PageNav } from '@/components/page-nav'
 import { SalesmanDashboard } from '../salesman/salesman-dashboard'
@@ -35,6 +36,18 @@ export function MultiRoleOrdersHub({
 
   const defaultTab = availableTabs[0]?.value || 'salesman'
 
+  const [activeTab, setActiveTab] = useState(defaultTab)
+
+  useEffect(() => {
+    const hash = window.location.hash.replace('#', '')
+    if (availableTabs.some(t => t.value === hash)) setActiveTab(hash)
+  }, [])
+
+  function handleTabChange(tab: string) {
+    setActiveTab(tab)
+    window.location.hash = tab
+  }
+
   return (
     <div className="min-h-screen bg-background">
       <div className="max-w-4xl mx-auto px-4 py-6">
@@ -47,7 +60,7 @@ export function MultiRoleOrdersHub({
           <PageNav />
         </div>
 
-        <Tabs defaultValue={defaultTab} className="w-full">
+        <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
           <TabsList 
             className="grid w-full mb-6" 
             style={{ gridTemplateColumns: `repeat(${availableTabs.length}, minmax(0, 1fr))` }}

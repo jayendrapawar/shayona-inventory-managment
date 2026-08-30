@@ -27,9 +27,11 @@ async function loadVendorMap(): Promise<Map<string, { phone: string | null; addr
 }
 
 export default async function DispatcherPage() {
+  let currentDispatcherId = ''
   try {
     const session = await auth.api.getSession({ headers: await headers() })
     if (!session?.user) redirect('/sign-in')
+    currentDispatcherId = session.user.id
     const [u] = await db.select({ role: user.role }).from(user).where(eq(user.id, session.user.id)).limit(1)
     const roles = (u?.role ?? 'user').split(',').map(r => r.trim())
     if (!roles.includes('dispatcher') && !roles.includes('admin')) redirect('/orders')
@@ -45,5 +47,5 @@ export default async function DispatcherPage() {
     return { ...o, shopkeeperPhone: v?.phone ?? null, shopkeeperAddress: v?.address ?? null }
   })
 
-  return <DispatcherDashboard orders={enriched} />
+  return <DispatcherDashboard orders={enriched} currentDispatcherId={currentDispatcherId} />
 }
