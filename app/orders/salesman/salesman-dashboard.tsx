@@ -629,7 +629,7 @@ export function SalesmanDashboard({ orders, userName, embedded }: Props) {
     setError(''); setSuccess('')
     setEditingLineId(null)
     setEditingOrderId(null)
-    setLastUsedSet(null)
+    // lastUsedSet is intentionally kept so it carries forward to the next new order
     setColorQuantities({})
     setDetailOrder(null)
     setDetailItems([])
