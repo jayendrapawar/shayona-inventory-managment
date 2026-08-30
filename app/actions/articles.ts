@@ -107,6 +107,14 @@ export async function saveArticle(
   return db.select().from(articles).orderBy(asc(articles.artName))
 }
 
+// ── Delete a single article ──────────────────────────────────────────────────
+export async function deleteArticle(id: number): Promise<Article[]> {
+  await requireAuth()
+  await db.delete(articles).where(eq(articles.id, id))
+  return db.select().from(articles).orderBy(asc(articles.artName))
+}
+
+
 // ── Bulk import articles from parsed CSV rows ─────────────────────────────────
 export async function importArticles(
   rows: Omit<Article, 'id' | 'createdAt' | 'updatedAt'>[]

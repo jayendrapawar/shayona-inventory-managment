@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useMemo, useTransition, useRef } from 'react'
-import { saveArticle, importArticles } from '@/app/actions/articles'
+import { saveArticle, importArticles, deleteArticle } from '@/app/actions/articles'
 import type { Article } from '@/app/actions/articles'
 
 // ── CSV parser ────────────────────────────────────────────────────────────────
@@ -68,9 +68,14 @@ export function ArticlesTab({ initialArticles, onListChange }: Props) {
   // ── Modal state ──
   const [modalMode, setModalMode] = useState<'add' | 'edit' | null>(null)
   const [editTarget, setEditTarget] = useState<Article | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<Article | null>(null)
   const [form, setForm] = useState<ArticleForm>(EMPTY_FORM)
+  const [colors, setColors] = useState<{ color: string; colorCode: string; minSize: string; maxSize: string }[]>([
+    { color: '', colorCode: '', minSize: '', maxSize: '' }
+  ])
   const [formError, setFormError] = useState('')
   const [isSaving, startSave] = useTransition()
+  const [isDeleting, startDelete] = useTransition()
 
   // ── CSV import state ──
   const csvInputRef = useRef<HTMLInputElement>(null)
@@ -122,6 +127,7 @@ export function ArticlesTab({ initialArticles, onListChange }: Props) {
 
   function openAdd() {
     setForm(EMPTY_FORM)
+    setColors([{ color: '', colorCode: '', minSize: '', maxSize: '' }])
     setFormError('')
     setEditTarget(null)
     setModalMode('add')
@@ -136,6 +142,7 @@ export function ArticlesTab({ initialArticles, onListChange }: Props) {
       maxSize:   a.maxSize,
       minSize:   a.minSize,
     })
+    setColors([{ color: a.color, colorCode: a.colorCode, minSize: a.minSize, maxSize: a.maxSize }])
     setFormError('')
     setEditTarget(a)
     setModalMode('edit')
@@ -143,16 +150,55 @@ export function ArticlesTab({ initialArticles, onListChange }: Props) {
 
   function handleSave() {
     if (!form.artName.trim()) { setFormError('Article name is required.'); return }
+    
+    if (modalMode === 'add') {
+      const emptyColorIdx = colors.findIndex(c => !c.color.trim())
+      if (emptyColorIdx !== -1) {
+        setFormError(`Color name is required (Color #${emptyColorIdx + 1}).`)
+        return
+      }
+      const colorNames = colors.map(c => c.color.trim().toLowerCase())
+      const uniqueColors = new Set(colorNames)
+      if (uniqueColors.size !== colorNames.length) {
+        setFormError('Duplicate color names are not allowed in the same article.')
+        return
+      }
+    }
+    
     setFormError('')
 
-    const payload = modalMode === 'edit' && editTarget
-      ? { ...form, id: editTarget.id }
-      : { ...form }
-
     startSave(async () => {
-      const updated = await saveArticle(payload)
-      updateArticles(updated)
-      setModalMode(null)
+      try {
+        let updated: Article[] = []
+        if (modalMode === 'add') {
+          for (const c of colors) {
+            const payload = {
+              artName: form.artName,
+              artCode: form.artCode,
+              color: c.color,
+              colorCode: c.colorCode,
+              minSize: c.minSize,
+              maxSize: c.maxSize,
+            }
+            updated = await saveArticle(payload)
+          }
+        } else if (modalMode === 'edit' && editTarget) {
+          const payload = {
+            id: editTarget.id,
+            artName: form.artName,
+            artCode: form.artCode,
+            color: form.color,
+            colorCode: form.colorCode,
+            minSize: form.minSize,
+            maxSize: form.maxSize,
+          }
+          updated = await saveArticle(payload)
+        }
+        updateArticles(updated)
+        setModalMode(null)
+      } catch {
+        setFormError('Failed to save article. Please try again.')
+      }
     })
   }
 
@@ -243,12 +289,18 @@ export function ArticlesTab({ initialArticles, onListChange }: Props) {
                 </div>
               )}
             </div>
-            <div className="border-t border-border px-4 py-3">
+            <div className="border-t border-border px-4 py-3 flex gap-2">
               <button
                 onClick={() => openEdit(a)}
-                className="w-full rounded-xl border border-border bg-background py-2.5 text-sm font-medium hover:bg-muted active:scale-95 transition-all"
+                className="flex-1 rounded-xl border border-border bg-background py-2.5 text-sm font-medium hover:bg-muted active:scale-95 transition-all"
               >
                 Edit
+              </button>
+              <button
+                onClick={() => setDeleteTarget(a)}
+                className="flex-1 rounded-xl border border-red-200 bg-red-50 text-red-600 py-2.5 text-sm font-medium hover:bg-red-100 active:scale-95 transition-all"
+              >
+                Delete
               </button>
             </div>
           </div>
@@ -268,7 +320,7 @@ export function ArticlesTab({ initialArticles, onListChange }: Props) {
                 <th className="text-left px-2 py-2.5 font-semibold text-[11px] text-muted-foreground uppercase tracking-wide whitespace-nowrap">Color Code</th>
                 <th className="text-left px-2 py-2.5 font-semibold text-[11px] text-muted-foreground uppercase tracking-wide whitespace-nowrap">Min Size</th>
                 <th className="text-left px-2 py-2.5 font-semibold text-[11px] text-muted-foreground uppercase tracking-wide whitespace-nowrap">Max Size</th>
-                <th className="pr-4 pl-2 py-2.5 w-[56px]"></th>
+                <th className="pr-4 pl-2 py-2.5 w-[140px] text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
@@ -295,8 +347,11 @@ export function ArticlesTab({ initialArticles, onListChange }: Props) {
                   </td>
                   <td className="px-2 py-3 text-sm text-muted-foreground whitespace-nowrap">{a.minSize || '—'}</td>
                   <td className="px-2 py-3 text-sm text-muted-foreground whitespace-nowrap">{a.maxSize || '—'}</td>
-                  <td className="pr-4 pl-2 py-3">
-                    <button onClick={() => openEdit(a)} className="rounded-md border border-border px-2.5 py-1 text-xs font-medium hover:bg-muted transition-colors whitespace-nowrap">Edit</button>
+                  <td className="pr-4 pl-2 py-3 w-[140px]">
+                    <div className="flex items-center gap-1.5 justify-end">
+                      <button onClick={() => openEdit(a)} className="rounded-md border border-border px-2.5 py-1 text-xs font-medium hover:bg-muted transition-colors whitespace-nowrap">Edit</button>
+                      <button onClick={() => setDeleteTarget(a)} className="rounded-md border border-red-200 bg-red-50 hover:bg-red-100 text-red-600 px-2.5 py-1 text-xs font-medium transition-colors whitespace-nowrap">Delete</button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -312,7 +367,7 @@ export function ArticlesTab({ initialArticles, onListChange }: Props) {
           onClick={() => setModalMode(null)}
         >
           <div
-            className="w-full sm:max-w-lg rounded-t-3xl sm:rounded-2xl border border-border bg-background shadow-2xl"
+            className={`w-full ${modalMode === 'add' ? 'sm:max-w-3xl' : 'sm:max-w-lg'} rounded-t-3xl sm:rounded-2xl border border-border bg-background shadow-2xl overflow-hidden`}
             onClick={e => e.stopPropagation()}
           >
             {/* Drag handle (mobile only) */}
@@ -321,9 +376,18 @@ export function ArticlesTab({ initialArticles, onListChange }: Props) {
             </div>
 
             <div className="flex items-center justify-between px-5 py-4 border-b border-border">
-              <p className="font-semibold text-base text-foreground">
-                {modalMode === 'add' ? 'Add Article' : 'Edit Article'}
-              </p>
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 flex items-center justify-center rounded-xl bg-red-500/10 border border-red-500/20 text-red-500 shrink-0">
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+                  </svg>
+                </div>
+                <div>
+                  <h3 className="font-semibold text-lg text-foreground tracking-tight">
+                    {modalMode === 'add' ? 'Add Article' : 'Edit Article'}
+                  </h3>
+                </div>
+              </div>
               <button
                 onClick={() => setModalMode(null)}
                 className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-muted transition-colors"
@@ -334,22 +398,22 @@ export function ArticlesTab({ initialArticles, onListChange }: Props) {
               </button>
             </div>
 
-            <div className="p-5 space-y-3 overflow-y-auto max-h-[65vh] sm:max-h-[70vh]">
+            <div className="p-5 space-y-4 overflow-y-auto max-h-[75vh] sm:max-h-[80vh]">
               {formError && (
                 <p className="text-xs text-red-600 bg-red-50 dark:bg-red-900/20 rounded-lg px-3 py-2">{formError}</p>
               )}
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 gap-4">
                 <div className="col-span-2">
-                  <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide block mb-1">Article Name *</label>
+                  <label className="text-[11px] font-semibold text-foreground uppercase tracking-wider block mb-1.5">Article Name *</label>
                   <input
                     value={form.artName}
                     onChange={e => setForm(f => ({ ...f, artName: e.target.value }))}
                     className={inputCls}
-                    placeholder="Article name"
+                    placeholder="Enter article name"
                   />
                 </div>
                 <div className="col-span-2">
-                  <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide block mb-1">Article Code</label>
+                  <label className="text-[11px] font-semibold text-foreground uppercase tracking-wider block mb-1.5">Article Code</label>
                   <input
                     value={form.artCode}
                     onChange={e => setForm(f => ({ ...f, artCode: e.target.value }))}
@@ -357,59 +421,229 @@ export function ArticlesTab({ initialArticles, onListChange }: Props) {
                     placeholder="e.g. AC-2024"
                   />
                 </div>
-                <div>
-                  <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide block mb-1">Color</label>
-                  <input
-                    value={form.color}
-                    onChange={e => setForm(f => ({ ...f, color: e.target.value }))}
-                    className={inputCls}
-                    placeholder="e.g. Red"
-                  />
-                </div>
-                <div>
-                  <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide block mb-1">Color Code</label>
-                  <input
-                    value={form.colorCode}
-                    onChange={e => setForm(f => ({ ...f, colorCode: e.target.value }))}
-                    className={inputCls}
-                    placeholder="e.g. #FF0000 or C01"
-                  />
-                </div>
-                <div>
-                  <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide block mb-1">Min Size</label>
-                  <input
-                    value={form.minSize}
-                    onChange={e => setForm(f => ({ ...f, minSize: e.target.value }))}
-                    className={inputCls}
-                    placeholder="e.g. S or 28"
-                  />
-                </div>
-                <div>
-                  <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide block mb-1">Max Size</label>
-                  <input
-                    value={form.maxSize}
-                    onChange={e => setForm(f => ({ ...f, maxSize: e.target.value }))}
-                    className={inputCls}
-                    placeholder="e.g. XXL or 44"
-                  />
-                </div>
+
+                {modalMode === 'add' ? (
+                  <div className="col-span-2 space-y-3">
+                    <div className="flex items-end justify-between border-t border-border pt-4 mt-2">
+                      <div>
+                        <span className="text-sm font-semibold text-foreground block">Colors</span>
+                        <span className="text-xs text-muted-foreground block mt-0.5">Add colors with their details in a single line.</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setColors(prev => [...prev, { color: '', colorCode: '', minSize: '', maxSize: '' }])}
+                        className="rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-semibold hover:bg-muted transition-colors flex items-center gap-1"
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                        </svg>
+                        Add Color
+                      </button>
+                    </div>
+
+                    <div className="border border-border rounded-xl p-3 bg-muted/10 space-y-3">
+                      {/* Grid Headers */}
+                      <div className="hidden sm:grid grid-cols-12 gap-2 text-[10px] font-bold text-muted-foreground uppercase tracking-wider px-2 pb-1 border-b border-border/60">
+                        <div className="col-span-3">Color Name *</div>
+                        <div className="col-span-3">Color Code *</div>
+                        <div className="col-span-2">Min Size *</div>
+                        <div className="col-span-2">Max Size *</div>
+                        <div className="col-span-2 text-center">Actions</div>
+                      </div>
+
+                      <div className="space-y-3.5 max-h-[250px] overflow-y-auto pr-1">
+                        {colors.map((c, idx) => (
+                          <div key={idx} className="grid grid-cols-1 sm:grid-cols-12 gap-2 sm:gap-3 items-center bg-background sm:bg-transparent border border-border sm:border-transparent p-3 sm:p-0 rounded-lg sm:rounded-none">
+                            
+                            <div className="col-span-1 sm:col-span-3">
+                              <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider sm:hidden block mb-1">Color Name *</label>
+                              <input
+                                value={c.color}
+                                onChange={e => {
+                                  const next = [...colors]
+                                  next[idx].color = e.target.value
+                                  setColors(next)
+                                }}
+                                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                                placeholder="e.g. Red"
+                              />
+                            </div>
+
+                            <div className="col-span-1 sm:col-span-3">
+                              <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider sm:hidden block mb-1">Color Code *</label>
+                              <input
+                                value={c.colorCode}
+                                onChange={e => {
+                                  const next = [...colors]
+                                  next[idx].colorCode = e.target.value
+                                  setColors(next)
+                                }}
+                                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                                placeholder="e.g. #FF0000 or C01"
+                              />
+                            </div>
+
+                            <div className="col-span-1 sm:col-span-2">
+                              <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider sm:hidden block mb-1">Min Size *</label>
+                              <input
+                                value={c.minSize}
+                                onChange={e => {
+                                  const next = [...colors]
+                                  next[idx].minSize = e.target.value
+                                  setColors(next)
+                                }}
+                                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                                placeholder="e.g. 6"
+                              />
+                            </div>
+
+                            <div className="col-span-1 sm:col-span-2">
+                              <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider sm:hidden block mb-1">Max Size *</label>
+                              <input
+                                value={c.maxSize}
+                                onChange={e => {
+                                  const next = [...colors]
+                                  next[idx].maxSize = e.target.value
+                                  setColors(next)
+                                }}
+                                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                                placeholder="e.g. 12"
+                              />
+                            </div>
+
+                            <div className="col-span-1 sm:col-span-2 flex justify-end sm:justify-center items-center pt-2 sm:pt-0 border-t border-border/40 sm:border-transparent">
+                              {colors.length > 1 ? (
+                                <button
+                                  type="button"
+                                  onClick={() => setColors(prev => prev.filter((_, i) => i !== idx))}
+                                  className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20 rounded-lg border border-border sm:border-transparent hover:border-red-200 transition-all"
+                                  title="Remove color"
+                                >
+                                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                  </svg>
+                                </button>
+                              ) : (
+                                <span className="text-xs text-muted-foreground/60 select-none hidden sm:inline">—</span>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Notice Banner */}
+                    <div className="rounded-lg bg-muted/40 border border-border/80 p-3 text-xs text-muted-foreground flex items-center gap-2">
+                      <svg className="w-4 h-4 text-muted-foreground shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      <span>You can add, edit or remove colors as needed.</span>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <div className="col-span-1">
+                      <label className="text-[11px] font-semibold text-foreground uppercase tracking-wider block mb-1.5">Color Name *</label>
+                      <input
+                        value={form.color}
+                        onChange={e => setForm(f => ({ ...f, color: e.target.value }))}
+                        className={inputCls}
+                        placeholder="e.g. Red"
+                      />
+                    </div>
+                    <div className="col-span-1">
+                      <label className="text-[11px] font-semibold text-foreground uppercase tracking-wider block mb-1.5">Color Code</label>
+                      <input
+                        value={form.colorCode}
+                        onChange={e => setForm(f => ({ ...f, colorCode: e.target.value }))}
+                        className={inputCls}
+                        placeholder="e.g. #FF0000 or C01"
+                      />
+                    </div>
+                    <div className="col-span-1">
+                      <label className="text-[11px] font-semibold text-foreground uppercase tracking-wider block mb-1.5">Min Size</label>
+                      <input
+                        value={form.minSize}
+                        onChange={e => setForm(f => ({ ...f, minSize: e.target.value }))}
+                        className={inputCls}
+                        placeholder="e.g. S or 28"
+                      />
+                    </div>
+                    <div className="col-span-1">
+                      <label className="text-[11px] font-semibold text-foreground uppercase tracking-wider block mb-1.5">Max Size</label>
+                      <input
+                        value={form.maxSize}
+                        onChange={e => setForm(f => ({ ...f, maxSize: e.target.value }))}
+                        className={inputCls}
+                        placeholder="e.g. XXL or 44"
+                      />
+                    </div>
+                  </>
+                )}
               </div>
             </div>
 
-            <div className="flex gap-2 px-5 py-4 border-t border-border">
+            <div className="flex gap-3 px-5 py-4 border-t border-border bg-muted/10">
               <button
+                type="button"
                 onClick={() => setModalMode(null)}
                 disabled={isSaving}
-                className="flex-1 rounded-xl border border-border px-3 py-3 text-sm font-medium hover:bg-muted transition-colors disabled:opacity-50"
+                className="flex-1 rounded-xl border border-border px-4 py-3 text-sm font-semibold hover:bg-muted transition-all disabled:opacity-50"
               >
                 Cancel
               </button>
               <button
+                type="button"
                 onClick={handleSave}
                 disabled={isSaving}
-                className="flex-1 rounded-xl bg-foreground text-background px-3 py-3 text-sm font-semibold hover:opacity-90 active:scale-95 transition-all disabled:opacity-60"
+                className="flex-1 rounded-xl bg-foreground text-background px-4 py-3 text-sm font-bold hover:opacity-90 active:scale-[0.99] transition-all disabled:opacity-60 flex items-center justify-center"
               >
                 {isSaving ? 'Saving…' : modalMode === 'add' ? 'Add Article' : 'Save Changes'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Delete Confirmation Modal ── */}
+      {deleteTarget && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+          onClick={() => setDeleteTarget(null)}
+        >
+          <div
+            className="w-full max-w-sm rounded-2xl border border-border bg-background p-6 shadow-2xl m-4"
+            onClick={e => e.stopPropagation()}
+          >
+            <h3 className="text-lg font-semibold text-foreground mb-2">Delete Article</h3>
+            <p className="text-sm text-muted-foreground mb-6">
+              Are you sure you want to delete <span className="font-semibold text-foreground">&quot;{deleteTarget.artName}&quot;</span> ({deleteTarget.color || 'no color'})? This action cannot be undone.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setDeleteTarget(null)}
+                disabled={isDeleting}
+                className="flex-1 rounded-xl border border-border py-2.5 text-sm font-medium hover:bg-muted transition-all disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  startDelete(async () => {
+                    try {
+                      const updated = await deleteArticle(deleteTarget.id)
+                      updateArticles(updated)
+                      setDeleteTarget(null)
+                    } catch {
+                      setFormError('Failed to delete article. Please try again.')
+                      setDeleteTarget(null)
+                    }
+                  })
+                }}
+                disabled={isDeleting}
+                className="flex-1 rounded-xl bg-red-600 text-white py-2.5 text-sm font-semibold hover:bg-red-700 active:scale-95 transition-all disabled:opacity-50"
+              >
+                {isDeleting ? 'Deleting…' : 'Delete'}
               </button>
             </div>
           </div>
