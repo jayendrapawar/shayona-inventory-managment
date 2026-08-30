@@ -1215,38 +1215,63 @@ ${bills}
               {!detailLoading && !detailError && detailItems.length === 0 && (
                 <p className="px-4 py-6 text-sm text-muted-foreground text-center">No items found.</p>
               )}
-              {!detailLoading && detailItems.length > 0 && (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
+              {!detailLoading && detailItems.length > 0 && (() => {
+                // Group items: artNumber → colorNumber → [{sizeNumber, quantityOrdered}]
+                const grouped = new Map<string, Map<string, { size: string | null; qty: number }[]>>()
+                for (const item of detailItems) {
+                  if (!grouped.has(item.artNumber)) grouped.set(item.artNumber, new Map())
+                  const colorKey = item.colorNumber ?? '—'
+                  if (!grouped.get(item.artNumber)!.has(colorKey)) grouped.get(item.artNumber)!.set(colorKey, [])
+                  grouped.get(item.artNumber)!.get(colorKey)!.push({ size: item.sizeNumber, qty: item.quantityOrdered })
+                }
+                return (
+                  <table className="w-full text-sm border-collapse">
                     <thead className="bg-muted/20 border-b border-border">
                       <tr>
-                        <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Article</th>
-                        <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Color</th>
-                        <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Size</th>
-                        <th className="text-right px-4 py-2.5 text-xs font-medium text-muted-foreground">Qty</th>
+                        <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground w-24">Article</th>
+                        <th className="text-left px-3 py-2.5 text-xs font-medium text-muted-foreground w-28">Color</th>
+                        <th className="text-left px-3 py-2.5 text-xs font-medium text-muted-foreground">Size / Qty</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-border">
-                      {detailItems.map(item => (
-                        <tr key={item.id} className="hover:bg-muted/20">
-                          <td className="px-4 py-2.5 font-semibold text-xs">{item.artNumber}</td>
-                          <td className="px-4 py-2.5 text-xs text-muted-foreground">{item.colorNumber ?? '—'}</td>
-                          <td className="px-4 py-2.5 text-xs text-muted-foreground">{item.sizeNumber ?? '—'}</td>
-                          <td className="px-4 py-2.5 text-xs font-medium text-right">{item.quantityOrdered}</td>
-                        </tr>
-                      ))}
+                    <tbody>
+                      {Array.from(grouped.entries()).map(([art, colorMap]) =>
+                        Array.from(colorMap.entries()).map(([color, sizes], ci) => (
+                          <tr key={`${art}-${color}`} className="border-b border-border hover:bg-muted/20">
+                            {ci === 0 && (
+                              <td
+                                className="px-4 py-2.5 font-semibold text-xs align-top border-r border-border"
+                                rowSpan={colorMap.size}
+                              >
+                                {art}
+                              </td>
+                            )}
+                            <td className="px-3 py-2.5 text-xs font-medium text-foreground align-top w-28 border-r border-border">{color}</td>
+                            <td className="px-3 py-2.5 align-top">
+                              <div className="flex flex-wrap gap-x-3 gap-y-1">
+                                {sizes.map(({ size, qty }) => (
+                                  <span key={size ?? '—'} className="text-xs tabular-nums whitespace-nowrap">
+                                    <span className="text-muted-foreground">{size ?? '—'}</span>
+                                    <span className="mx-0.5 text-muted-foreground">/</span>
+                                    <span className="font-semibold text-foreground">{qty}</span>
+                                  </span>
+                                ))}
+                              </div>
+                            </td>
+                          </tr>
+                        ))
+                      )}
                     </tbody>
-                    <tfoot className="border-t border-border bg-muted/20">
+                    <tfoot className="border-t-2 border-border bg-muted/20">
                       <tr>
-                        <td colSpan={3} className="px-4 py-2.5 text-xs font-medium text-muted-foreground text-right">Total pairs</td>
-                        <td className="px-4 py-2.5 text-xs font-bold text-right">
+                        <td colSpan={2} className="px-4 py-2.5 text-xs font-medium text-muted-foreground text-right">Total pairs</td>
+                        <td className="px-3 py-2.5 text-xs font-bold">
                           {detailItems.reduce((s, i) => s + i.quantityOrdered, 0)}
                         </td>
                       </tr>
                     </tfoot>
                   </table>
-                </div>
-              )}
+                )
+              })()}
             </div>
 
             {/* Actions */}

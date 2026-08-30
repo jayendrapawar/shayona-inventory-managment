@@ -221,7 +221,62 @@ export function PickerDashboard({ queue: initialQueue, currentPickerId, embedded
         </div>
 
         <div className="max-w-2xl mx-auto px-4 py-4 pb-28">
-          {/* Consolidated Article Groups */}
+
+          {/* ── READ-ONLY consolidated table (All orders tab) ── */}
+          {selectedOrder.readOnly ? (
+            <div className="rounded-xl border border-border bg-card overflow-hidden">
+              <table className="w-full text-sm border-collapse">
+                <thead className="bg-muted/20 border-b border-border">
+                  <tr>
+                    <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground w-24">Article</th>
+                    <th className="text-left px-3 py-2.5 text-xs font-medium text-muted-foreground w-28">Color</th>
+                    <th className="text-left px-3 py-2.5 text-xs font-medium text-muted-foreground">Size / Qty</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {articleGroups.map(({ artNumber, colorGroups }) =>
+                    colorGroups.map(({ color, items }, ci) => (
+                      <tr key={`${artNumber}-${color}`} className="border-b border-border hover:bg-muted/20">
+                        {ci === 0 && (
+                          <td
+                            className="px-4 py-2.5 font-semibold text-xs align-top border-r border-border"
+                            rowSpan={colorGroups.length}
+                          >
+                            {artNumber}
+                            <span className="block font-normal text-muted-foreground tabular-nums">
+                              {colorGroups.flatMap(cg => cg.items).reduce((s, i) => s + i.quantityOrdered, 0)} pairs
+                            </span>
+                          </td>
+                        )}
+                        <td className="px-3 py-2.5 text-xs font-medium text-foreground align-top w-28 border-r border-border">{color}</td>
+                        <td className="px-3 py-2.5 align-top">
+                          <div className="flex flex-wrap gap-x-3 gap-y-1">
+                            {items.map(item => (
+                              <span key={item.id} className="text-xs tabular-nums whitespace-nowrap">
+                                <span className="text-muted-foreground">{item.sizeNumber ?? '—'}</span>
+                                <span className="mx-0.5 text-muted-foreground">/</span>
+                                <span className="font-semibold text-foreground">{item.quantityOrdered}</span>
+                              </span>
+                            ))}
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+                <tfoot className="border-t-2 border-border bg-muted/20">
+                  <tr>
+                    <td colSpan={2} className="px-4 py-2.5 text-xs font-medium text-muted-foreground text-right">Total pairs</td>
+                    <td className="px-3 py-2.5 text-xs font-bold">
+                      {selectedOrder.items.reduce((s, i) => s + i.quantityOrdered, 0)}
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          ) : (
+
+          /* ── INTERACTIVE packing view (Mine tab) ── */
           <div className="space-y-3">
             {articleGroups.map(({ artNumber, colorGroups }) => {
               const allItems = colorGroups.flatMap(cg => cg.items)
@@ -320,19 +375,17 @@ export function PickerDashboard({ queue: initialQueue, currentPickerId, embedded
                           </div>
 
                           {/* Packed qty / action */}
-                          {selectedOrder.readOnly || isDone ? (
-                            isDone && (
-                              confirmed === 0 || isOOS ? (
-                                <div className="flex items-center gap-1 text-xs font-medium text-red-500">
-                                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                                  Out of stock
-                                </div>
-                              ) : (
-                                <div className="flex items-center gap-1 text-xs font-medium text-green-600 dark:text-green-400">
-                                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5"><polyline points="20 6 9 17 4 12"/></svg>
-                                  {confirmed} packed
-                                </div>
-                              )
+                          {isDone ? (
+                            confirmed === 0 || isOOS ? (
+                              <div className="flex items-center gap-1 text-xs font-medium text-red-500">
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                                Out of stock
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-1 text-xs font-medium text-green-600 dark:text-green-400">
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5"><polyline points="20 6 9 17 4 12"/></svg>
+                                {confirmed} packed
+                              </div>
                             )
                           ) : (
                             <div className="space-y-1.5">
@@ -397,6 +450,7 @@ export function PickerDashboard({ queue: initialQueue, currentPickerId, embedded
               )
             })}
           </div>
+          )}
         </div>
 
         {/* Sticky bottom CTA — only for mine tab */}
