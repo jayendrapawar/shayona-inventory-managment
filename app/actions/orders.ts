@@ -466,3 +466,56 @@ export async function getProcurementSummary(opts?: {
     orderCount:  r.orderCount,
   }))
 }
+
+export interface ShortfallRow {
+  artNumber: string
+  colorNumber: string
+  sizeNumber: string
+  vendorName: string
+  shortfall: number
+}
+
+/**
+ * Returns one row per (artNumber, colorNumber, sizeNumber, shopkeeperName)
+ * where sum(quantityOrdered - quantityPacked) > 0, for orders in the given
+ * statuses (default: packed + dispatched + delivered — i.e. already being
+ * fulfilled but with gaps the picker couldn't fill).
+ */
+export async function getProcurementShortfall(opts?: {
+  statuses?: string[]
+  artNumber?: string
+  colorNumber?: string
+}): Promise<ShortfallRow[]> {
+  await requireRole('admin', 'salesman')
+
+  const statuses    = opts?.statuses ?? ['packed', 'dispatched', 'delivered']
+  const artFilter   = opts?.artNumber?.trim().toUpperCase()   || ''
+  const colorFilter = opts?.colorNumber?.trim().toUpperCase() || ''
+
+  const conditions = [inArray(orders.status, statuses as OrderStatus[])]
+  if (artFilter)   conditions.push(ilike(orderItems.artNumber,   `${artFilter}%`))
+  if (colorFilter) conditions.push(ilike(orderItems.colorNumber, `${colorFilter}%`))
+
+  const rows = await db
+    .select({
+      artNumber:   orderItems.artNumber,
+      colorNumber: orderItems.colorNumber,
+      sizeNumber:  orderItems.sizeNumber,
+      vendorName:  orders.shopkeeperName,
+      shortfall:   sql<number>`cast(sum(${orderItems.quantityOrdered} - ${orderItems.quantityPacked}) as int)`,
+    })
+    .from(orderItems)
+    .innerJoin(orders, eq(orderItems.orderId, orders.id))
+    .where(and(...conditions))
+    .groupBy(orderItems.artNumber, orderItems.colorNumber, orderItems.sizeNumber, orders.shopkeeperName)
+    .having(sql`sum(${orderItems.quantityOrdered} - ${orderItems.quantityPacked}) > 0`)
+    .orderBy(orderItems.artNumber, orderItems.colorNumber, orderItems.sizeNumber, orders.shopkeeperName)
+
+  return rows.map(r => ({
+    artNumber:   r.artNumber,
+    colorNumber: r.colorNumber ?? '—',
+    sizeNumber:  r.sizeNumber  ?? '—',
+    vendorName:  r.vendorName,
+    shortfall:   r.shortfall,
+  }))
+}
