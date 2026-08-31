@@ -72,8 +72,8 @@ export function ArticlesTab({ initialArticles, onListChange }: Props) {
   const [editTarget, setEditTarget] = useState<Article | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<Article | null>(null)
   const [form, setForm] = useState<ArticleForm>(EMPTY_FORM)
-  const [colors, setColors] = useState<{ color: string; colorCode: string; minSize: string; maxSize: string; customSizes: string }[]>([
-    { color: '', colorCode: '', minSize: '', maxSize: '', customSizes: '' }
+  const [colors, setColors] = useState<{ color: string; colorCode: string }[]>([
+    { color: '', colorCode: '' }
   ])
   const [formError, setFormError] = useState('')
   const [isSaving, startSave] = useTransition()
@@ -129,7 +129,7 @@ export function ArticlesTab({ initialArticles, onListChange }: Props) {
 
   function openAdd() {
     setForm(EMPTY_FORM)
-    setColors([{ color: '', colorCode: '', minSize: '', maxSize: '', customSizes: '' }])
+    setColors([{ color: '', colorCode: '' }])
     setFormError('')
     setEditTarget(null)
     setModalMode('add')
@@ -145,7 +145,7 @@ export function ArticlesTab({ initialArticles, onListChange }: Props) {
       minSize:   a.minSize,
       customSizes: '',
     })
-    setColors([{ color: a.color, colorCode: a.colorCode, minSize: a.minSize, maxSize: a.maxSize, customSizes: '' }])
+    setColors([{ color: a.color, colorCode: a.colorCode }])
     setFormError('')
     setEditTarget(a)
     setModalMode('edit')
@@ -161,7 +161,7 @@ export function ArticlesTab({ initialArticles, onListChange }: Props) {
       })
       const customSizesStr = customs.join(', ')
       setForm(f => ({ ...f, customSizes: customSizesStr }))
-      setColors([{ color: a.color, colorCode: a.colorCode, minSize: a.minSize, maxSize: a.maxSize, customSizes: customSizesStr }])
+      setColors([{ color: a.color, colorCode: a.colorCode }])
     } catch {
       // Graceful fallback
     }
@@ -196,9 +196,9 @@ export function ArticlesTab({ initialArticles, onListChange }: Props) {
               artCode: form.artCode,
               color: c.color,
               colorCode: c.colorCode,
-              minSize: c.minSize,
-              maxSize: c.maxSize,
-              customSizes: c.customSizes,
+              minSize: form.minSize,
+              maxSize: form.maxSize,
+              customSizes: form.customSizes,
             }
             updated = await saveArticle(payload)
           }
@@ -444,46 +444,80 @@ export function ArticlesTab({ initialArticles, onListChange }: Props) {
                 </div>
 
                 {modalMode === 'add' ? (
-                  <div className="col-span-2 space-y-3">
-                    <div className="flex items-end justify-between border-t border-border pt-4 mt-2">
-                      <div>
-                        <span className="text-sm font-semibold text-foreground block">Colors</span>
-                        <span className="text-xs text-muted-foreground block mt-0.5">Add colors with their details in a single line.</span>
+                  <div className="col-span-2 space-y-5">
+
+                    {/* ── Sizes section ── */}
+                    <div className="border-t border-border pt-4 mt-2">
+                      <span className="text-sm font-semibold text-foreground block mb-3">Sizes</span>
+                      <div className="rounded-xl border border-border bg-muted/10 p-4 grid grid-cols-3 gap-4">
+                        <div>
+                          <label className="text-[11px] font-semibold text-foreground uppercase tracking-wider block mb-1.5">Min Size</label>
+                          <input
+                            value={form.minSize}
+                            onChange={e => setForm(f => ({ ...f, minSize: e.target.value }))}
+                            className={inputCls}
+                            placeholder="e.g. 6"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[11px] font-semibold text-foreground uppercase tracking-wider block mb-1.5">Max Size</label>
+                          <input
+                            value={form.maxSize}
+                            onChange={e => setForm(f => ({ ...f, maxSize: e.target.value }))}
+                            className={inputCls}
+                            placeholder="e.g. 12"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[11px] font-semibold text-foreground uppercase tracking-wider block mb-1.5">Custom Sizes</label>
+                          <input
+                            value={form.customSizes}
+                            onChange={e => setForm(f => ({ ...f, customSizes: e.target.value }))}
+                            className={inputCls}
+                            placeholder="e.g. 2, 5"
+                          />
+                        </div>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => setColors(prev => [...prev, { color: '', colorCode: '', minSize: '', maxSize: '', customSizes: '' }])}
-                        className="rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-semibold hover:bg-muted transition-colors flex items-center gap-1"
-                      >
-                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                        </svg>
-                        Add Color
-                      </button>
                     </div>
+
+                    {/* ── Colors section ── */}
+                    <div>
+                      <div className="flex items-end justify-between mb-3">
+                        <div>
+                          <span className="text-sm font-semibold text-foreground block">Colors</span>
+                          <span className="text-xs text-muted-foreground block mt-0.5">Color name &amp; code for each variant.</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setColors(prev => [...prev, { color: '', colorCode: '' }])}
+                          className="rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-semibold hover:bg-muted transition-colors flex items-center gap-1"
+                        >
+                          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                          </svg>
+                          Add Color
+                        </button>
+                      </div>
 
                     <div className="border border-border rounded-xl p-3 bg-muted/10 space-y-3">
                       {/* Grid Headers */}
                       <div className="hidden sm:grid grid-cols-12 gap-2 text-[10px] font-bold text-muted-foreground uppercase tracking-wider px-2 pb-1 border-b border-border/60">
-                        <div className="col-span-2">Color Name *</div>
-                        <div className="col-span-2">Color Code</div>
-                        <div className="col-span-2">Min Size</div>
-                        <div className="col-span-2">Max Size</div>
-                        <div className="col-span-3">Custom Sizes</div>
+                        <div className="col-span-5">Color Name *</div>
+                        <div className="col-span-6">Color Code</div>
                         <div className="col-span-1 text-center">Del</div>
                       </div>
 
                       <div className="space-y-3.5 max-h-[250px] overflow-y-auto pr-1">
                         {colors.map((c, idx) => (
                           <div key={idx} className="grid grid-cols-1 sm:grid-cols-12 gap-2 sm:gap-3 items-center bg-background sm:bg-transparent border border-border sm:border-transparent p-3 sm:p-0 rounded-lg sm:rounded-none">
-                            
-                            <div className="col-span-1 sm:col-span-2">
+
+                            <div className="col-span-1 sm:col-span-5">
                               <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider sm:hidden block mb-1">Color Name *</label>
                               <input
                                 value={c.color}
                                 onChange={e => {
                                   const next = [...colors]
-                                  next[idx].color = e.target.value
+                                  next[idx] = { ...next[idx], color: e.target.value }
                                   setColors(next)
                                 }}
                                 className="w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
@@ -491,59 +525,17 @@ export function ArticlesTab({ initialArticles, onListChange }: Props) {
                               />
                             </div>
 
-                            <div className="col-span-1 sm:col-span-2">
+                            <div className="col-span-1 sm:col-span-6">
                               <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider sm:hidden block mb-1">Color Code</label>
                               <input
                                 value={c.colorCode}
                                 onChange={e => {
                                   const next = [...colors]
-                                  next[idx].colorCode = e.target.value
+                                  next[idx] = { ...next[idx], colorCode: e.target.value }
                                   setColors(next)
                                 }}
                                 className="w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                                 placeholder="e.g. #FF0000"
-                              />
-                            </div>
-
-                            <div className="col-span-1 sm:col-span-2">
-                              <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider sm:hidden block mb-1">Min Size</label>
-                              <input
-                                value={c.minSize}
-                                onChange={e => {
-                                  const next = [...colors]
-                                  next[idx].minSize = e.target.value
-                                  setColors(next)
-                                }}
-                                className="w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                                placeholder="e.g. 6"
-                              />
-                            </div>
-
-                            <div className="col-span-1 sm:col-span-2">
-                              <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider sm:hidden block mb-1">Max Size</label>
-                              <input
-                                value={c.maxSize}
-                                onChange={e => {
-                                  const next = [...colors]
-                                  next[idx].maxSize = e.target.value
-                                  setColors(next)
-                                }}
-                                className="w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                                placeholder="e.g. 12"
-                              />
-                            </div>
-
-                            <div className="col-span-1 sm:col-span-3">
-                              <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider sm:hidden block mb-1">Custom Sizes</label>
-                              <input
-                                value={c.customSizes}
-                                onChange={e => {
-                                  const next = [...colors]
-                                  next[idx].customSizes = e.target.value
-                                  setColors(next)
-                                }}
-                                className="w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                                placeholder="e.g. 2, 5"
                               />
                             </div>
 
@@ -566,15 +558,8 @@ export function ArticlesTab({ initialArticles, onListChange }: Props) {
                           </div>
                         ))}
                       </div>
-                    </div>
-
-                    {/* Notice Banner */}
-                    <div className="rounded-lg bg-muted/40 border border-border/80 p-3 text-xs text-muted-foreground flex items-center gap-2">
-                      <svg className="w-4 h-4 text-muted-foreground shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                      <span>You can add, edit or remove colors as needed.</span>
-                    </div>
+                    </div>{/* end colors card */}
+                    </div>{/* end colors section */}
                   </div>
                 ) : (
                   <>
