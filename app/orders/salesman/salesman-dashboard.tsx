@@ -110,7 +110,7 @@ function SearchCombobox<T>({
     else if (e.key === 'Enter') {
       e.preventDefault()
       const item = results[activeIdx]
-      if (item) { onSelect(item); setOpen(false) }
+      if (item) { onSelect(item); setOpen(false); inputRef.current?.blur() }
     } else if (e.key === 'Escape') { setOpen(false); inputRef.current?.blur() }
   }
 
@@ -172,7 +172,7 @@ function SearchCombobox<T>({
               role="option"
               aria-selected={i === activeIdx}
               onMouseEnter={() => setActiveIdx(i)}
-              onMouseDown={e => { e.preventDefault(); onSelect(item); setOpen(false) }}
+              onMouseDown={e => { e.preventDefault(); onSelect(item); setOpen(false); inputRef.current?.blur() }}
               className={`px-4 py-2.5 text-sm cursor-pointer transition-colors ${i === activeIdx ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`}
             >
               {renderOption(item, i === activeIdx)}
