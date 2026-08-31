@@ -188,7 +188,7 @@ function SearchCombobox<T>({
 // SizeMatrix — single color, quick buttons + manual input
 // ─────────────────────────────────────────────────────────────────────────────
 
-const QUICK_QTYS = [1, 2, 3, 4, 5, 6]
+const QUICK_QTYS = [1, 2, 3, 4, 5]
 
 interface SizeMatrixProps {
   sizes: { id: number; sizeLabel: string; sortOrder: number }[]
@@ -205,9 +205,11 @@ function SizeMatrix({ sizes, quantities, onChange }: SizeMatrixProps) {
   }
 
   function handleQuickClick(sizeLabel: string, qty: number) {
-    // Quick button click: clear manual mode for this size
+    const current = quantities[sizeLabel] ?? 0
+    // Double-tap: clicking the already-active chip deselects it (sets to 0)
+    const next = !manualActive[sizeLabel] && current === qty ? 0 : qty
     setManualActive(prev => ({ ...prev, [sizeLabel]: false }))
-    setQty(sizeLabel, qty)
+    setQty(sizeLabel, next)
   }
 
   function handleManualChange(sizeLabel: string, raw: string) {
@@ -218,10 +220,12 @@ function SizeMatrix({ sizes, quantities, onChange }: SizeMatrixProps) {
 
   const colorTotal = sizes.reduce((s, sz) => s + (quantities[sz.sizeLabel] ?? 0), 0)
 
+  const gridCols = '5rem repeat(5, 2.5rem) 5rem 3.5rem'
+
   return (
     <div className="space-y-2">
       {/* Header row */}
-      <div className="grid items-center gap-1" style={{ gridTemplateColumns: '5rem repeat(6, 2.5rem) 5rem 3.5rem' }}>
+      <div className="grid items-center gap-1" style={{ gridTemplateColumns: gridCols }}>
         <span className="text-xs font-medium text-muted-foreground">Size</span>
         {QUICK_QTYS.map(q => (
           <span key={q} className="text-xs font-medium text-muted-foreground text-center">{q}</span>
@@ -238,23 +242,23 @@ function SizeMatrix({ sizes, quantities, onChange }: SizeMatrixProps) {
           <div
             key={sz.id}
             className="grid items-center gap-1 rounded-lg py-1"
-            style={{ gridTemplateColumns: '5rem repeat(6, 2.5rem) 5rem 3.5rem' }}
+            style={{ gridTemplateColumns: gridCols }}
           >
             <span className="text-sm font-medium text-foreground truncate">{sz.sizeLabel}</span>
             {QUICK_QTYS.map(q => {
-              const active = !isManual && current === q
+              const isActive = !isManual && current === q
+              // Active chip = green outline only. All other chips = normal grey.
+              const chipClass = isActive
+                ? 'border-green-400 bg-background text-green-700 dark:text-green-400 dark:border-green-600'
+                : 'border-border bg-background text-muted-foreground hover:bg-muted hover:text-foreground'
               return (
                 <button
                   key={q}
                   type="button"
                   aria-label={`Set ${sz.sizeLabel} to ${q}`}
-                  aria-pressed={active}
+                  aria-pressed={isActive}
                   onClick={() => handleQuickClick(sz.sizeLabel, q)}
-                  className={`h-9 w-9 rounded-lg text-sm font-semibold border transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-                    active
-                      ? 'bg-primary text-primary-foreground border-primary'
-                      : 'border-border bg-background text-muted-foreground hover:bg-muted hover:text-foreground'
-                  }`}
+                  className={`h-9 w-9 rounded-lg text-sm font-semibold border transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring ${chipClass}`}
                 >
                   {q}
                 </button>
@@ -264,13 +268,13 @@ function SizeMatrix({ sizes, quantities, onChange }: SizeMatrixProps) {
               type="number"
               min={0}
               aria-label={`Manual quantity for size ${sz.sizeLabel}`}
-              value={isManual ? (current === 0 ? '' : current) : (current > 6 ? current : '')}
+              value={isManual ? (current === 0 ? '' : current) : (current > 5 ? current : '')}
               placeholder="0"
               onChange={e => handleManualChange(sz.sizeLabel, e.target.value)}
               onFocus={() => setManualActive(prev => ({ ...prev, [sz.sizeLabel]: true }))}
               className={`h-9 w-full rounded-lg border text-sm text-center font-medium bg-background focus:outline-none focus:ring-2 focus:ring-ring transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${
-                isManual && current > 0
-                  ? 'border-primary text-primary'
+                (isManual && current > 0) || current > 5
+                  ? 'border-green-400 text-green-700 dark:text-green-400 dark:border-green-600'
                   : 'border-border text-muted-foreground'
               }`}
             />
@@ -531,7 +535,8 @@ export function SalesmanDashboard({ orders, userName, embedded }: Props) {
     if (lastUsedSet) setCurrentQties({ ...lastUsedSet })
   }
 
-  // ── Add current color to order ──
+  // ── Add / save current color to order ──
+  // Always replaces: whether it's a brand-new color or re-editing one already in the order.
   function handleAddToOrder() {
     if (!selectedArt || selectedColorId == null || !selectedColor) return
     if (currentColorTotal === 0) {
@@ -541,50 +546,41 @@ export function SalesmanDashboard({ orders, userName, embedded }: Props) {
     setError('')
 
     const qties = { ...currentQties }
+    const existingIdx = lines.findIndex(
+      l => l.articleId === selectedArt.id && l.colorId === selectedColorId
+    )
+    const editIdx = editingLineId ? lines.findIndex(l => l.id === editingLineId) : -1
 
-    if (editingLineId) {
-      // Update existing line
+    if (editIdx !== -1) {
+      // Came via "Edit" button from the cart — replace that specific line
       setLines(prev => prev.map(l =>
         l.id === editingLineId ? { ...l, quantities: qties } : l
       ))
       setEditingLineId(null)
+    } else if (existingIdx !== -1) {
+      // User re-selected this color from the chip — replace quantities (no merge)
+      setLines(prev => prev.map((l, i) =>
+        i !== existingIdx ? l : { ...l, quantities: qties }
+      ))
     } else {
-      // Check for duplicate (same article + color already in cart)
-      const dupIdx = lines.findIndex(
-        l => l.articleId === selectedArt.id && l.colorId === selectedColorId
-      )
-      if (dupIdx !== -1) {
-        // Merge quantities
-        setLines(prev => prev.map((l, i) =>
-          i !== dupIdx ? l : {
-            ...l,
-            quantities: Object.fromEntries(
-              selectedArt.sizes.map(sz => [
-                sz.sizeLabel,
-                (l.quantities[sz.sizeLabel] ?? 0) + (qties[sz.sizeLabel] ?? 0),
-              ])
-            ),
-          }
-        ))
-      } else {
-        const newLine: OrderLine = {
-          id: uid(),
-          articleId: selectedArt.id,
-          artNumber: selectedArt.artNumber,
-          colorId: selectedColorId,
-          colorName: selectedColor.colorName,
-          colorHex: selectedColor.colorHex,
-          sizes: selectedArt.sizes,
-          quantities: qties,
-        }
-        setLines(prev => [...prev, newLine])
+      // Brand new color
+      const newLine: OrderLine = {
+        id: uid(),
+        articleId: selectedArt.id,
+        artNumber: selectedArt.artNumber,
+        colorId: selectedColorId,
+        colorName: selectedColor.colorName,
+        colorHex: selectedColor.colorHex,
+        sizes: selectedArt.sizes,
+        quantities: qties,
       }
+      setLines(prev => [...prev, newLine])
     }
 
-    // Remember last used set globally (most recent Add to Order)
+    // Remember last used set globally
     setLastUsedSet(qties)
 
-    // Clear current color quantities after adding, but stay on same article
+    // Clear working quantities for this color and deselect
     setColorQuantities(prev => ({ ...prev, [selectedColorId]: {} }))
     setSelectedColorId(null)
     // Force SizeMatrix remount so manualActive state is cleared
@@ -1475,13 +1471,33 @@ ${bills}
                           {selectedArt.colors.map(c => {
                             const active = selectedColorId === c.id
                             const hasData = Object.values(colorQuantities[c.id] ?? {}).some(v => v > 0)
-                            const inOrder = lines.some(l => l.articleId === selectedArt.id && l.colorId === c.id)
+                            const savedLine = lines.find(l => l.articleId === selectedArt.id && l.colorId === c.id)
+                            const inOrder = !!savedLine
+                            // Dirty = in order but working quantities differ from what's saved
+                            const isDirty = inOrder && hasData && savedLine
+                              ? Object.keys({ ...colorQuantities[c.id], ...savedLine.quantities }).some(
+                                  k => (colorQuantities[c.id]?.[k] ?? 0) !== (savedLine.quantities[k] ?? 0)
+                                )
+                              : false
                             return (
                               <button
                                 key={c.id}
                                 type="button"
                                 aria-pressed={active}
-                                onClick={() => setSelectedColorId(c.id)}
+                                onClick={() => {
+                                  // Only seed from saved line if there are no working quantities
+                                  // already — preserves any unsaved edits the user made before switching away.
+                                  const hasWorking = Object.values(colorQuantities[c.id] ?? {}).some(v => v > 0)
+                                  if (!hasWorking) {
+                                    const savedLine = lines.find(
+                                      l => l.articleId === selectedArt.id && l.colorId === c.id
+                                    )
+                                    if (savedLine) {
+                                      setColorQuantities(prev => ({ ...prev, [c.id]: { ...savedLine.quantities } }))
+                                    }
+                                  }
+                                  setSelectedColorId(c.id)
+                                }}
                                 className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-medium transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
                                   active
                                     ? 'border-primary bg-primary/10 text-foreground ring-1 ring-primary'
@@ -1491,8 +1507,11 @@ ${bills}
                                 <span className="w-3.5 h-3.5 rounded-full border border-white/30 flex-shrink-0"
                                   style={{ background: swatch(c.colorHex, c.colorName) }} aria-hidden />
                                 {c.colorName}
-                                {inOrder && !active && (
+                                {inOrder && !isDirty && !active && (
                                   <span className="w-1.5 h-1.5 rounded-full bg-green-500 flex-shrink-0" aria-label="added to order" />
+                                )}
+                                {inOrder && isDirty && !active && (
+                                  <span className="w-1.5 h-1.5 rounded-full bg-orange-400 flex-shrink-0" aria-label="unsaved changes" />
                                 )}
                                 {hasData && !inOrder && !active && (
                                   <span className="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0" aria-label="has quantities" />
@@ -1566,7 +1585,9 @@ ${bills}
                             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                             </svg>
-                            {editingLineId ? 'Save Changes' : 'Add to Order'}
+                            {(editingLineId || lines.some(l => l.articleId === selectedArt.id && l.colorId === selectedColorId))
+                              ? 'Save Changes'
+                              : 'Add to Order'}
                           </button>
                         </div>
                       </div>
