@@ -42,7 +42,7 @@ export default async function OrdersPage() {
 
     const roles = (u?.role ?? 'user').split(',').map(r => r.trim())
 
-    if (roles.includes('admin')) {
+    if (roles.includes('admin') || roles.includes('accountant')) {
       redirect('/orders/admin')
     }
 

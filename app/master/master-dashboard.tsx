@@ -133,11 +133,13 @@ interface Props {
   currentUserId: string
   vendors: Vendor[]
   articles: Article[]
+  /** When true, only Vendors and Articles tabs are shown (hides Users tab) — used for accountant role */
+  isAccountant?: boolean
 }
 
 const ROLES: AppRole[] = ['admin', 'accountant', 'salesman', 'picker', 'dispatcher', 'user']
 
-export function MasterDashboard({ users, currentUserId, vendors: initialVendors, articles: initialArticles }: Props) {
+export function MasterDashboard({ users, currentUserId, vendors: initialVendors, articles: initialArticles, isAccountant = false }: Props) {
   const [isPending, startTransition] = useTransition()
   const [search, setSearch] = useState('')
   const [vendorList, setVendorList] = useState<Vendor[]>(initialVendors)
@@ -155,15 +157,18 @@ export function MasterDashboard({ users, currentUserId, vendors: initialVendors,
     })
   }
 
+  const defaultTab = isAccountant ? 'vendors' : 'users'
+
   return (
     <div className="min-h-screen bg-background">
       <div className="max-w-5xl mx-auto px-4 py-6">
         <div className="flex items-center justify-between mb-6">
-          <PageHeader title="Master" subtitle="User management & vendors" />
+          <PageHeader title="Master" subtitle={isAccountant ? 'Vendors & articles' : 'User management & vendors'} />
           <PageNav />
         </div>
 
-        {/* Stats row */}
+        {/* Stats row — hidden for accountant (user management not relevant) */}
+        {!isAccountant && (
         <div className="grid grid-cols-3 sm:grid-cols-6 gap-3 mb-6">
           {ROLES.map(r => {
             const count = users.filter(u => {
@@ -178,16 +183,21 @@ export function MasterDashboard({ users, currentUserId, vendors: initialVendors,
             )
           })}
         </div>
+        )}
 
         {/* Tabs — pill style matching scanner / admin hub */}
-        <Tabs defaultValue="users" className="w-full">
-          <TabsList className="grid w-full grid-cols-3 mb-6">
-            <TabsTrigger value="users"    className="text-xs sm:text-sm">Users ({users.length})</TabsTrigger>
+        <Tabs defaultValue={defaultTab} className="w-full">
+          <TabsList
+            className="grid w-full mb-6"
+            style={{ gridTemplateColumns: isAccountant ? 'repeat(2, minmax(0, 1fr))' : 'repeat(3, minmax(0, 1fr))' }}
+          >
+            {!isAccountant && <TabsTrigger value="users"    className="text-xs sm:text-sm">Users ({users.length})</TabsTrigger>}
             <TabsTrigger value="vendors"  className="text-xs sm:text-sm">Vendors ({vendorList.length})</TabsTrigger>
             <TabsTrigger value="articles" className="text-xs sm:text-sm">Articles ({articleList.length})</TabsTrigger>
           </TabsList>
 
-          {/* ── Users tab ── */}
+          {/* ── Users tab — hidden for accountant ── */}
+          {!isAccountant && (
           <TabsContent value="users">
             <input
               type="search"
@@ -271,6 +281,7 @@ export function MasterDashboard({ users, currentUserId, vendors: initialVendors,
               </div>
             </div>
           </TabsContent>
+          )}
 
           {/* ── Vendors tab ── */}
           <TabsContent value="vendors">

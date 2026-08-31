@@ -1,0 +1,158 @@
+
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Accountant Role Permissions</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, "Segoe UI", system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.6;
+    background: #ffffff;
+    color: #1f2328;
+    padding: 32px 24px;
+  }
+  .container { max-width: 760px; margin: 0 auto; }
+  h1 { font-size: 18px; font-weight: 700; margin-bottom: 4px; }
+  .subtitle { font-size: 13px; color: #57606a; margin-bottom: 28px; }
+
+  .section { margin-bottom: 28px; }
+  .section-title {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #57606a;
+    margin-bottom: 8px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid #e5e7eb;
+  }
+
+  table { width: 100%; border-collapse: collapse; }
+  thead tr { background: #f7f8fa; }
+  th {
+    text-align: left;
+    padding: 9px 14px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #57606a;
+    border-bottom: 1px solid #e5e7eb;
+  }
+  td {
+    padding: 9px 14px;
+    font-size: 13px;
+    border-bottom: 1px solid #f0f1f3;
+    vertical-align: middle;
+  }
+  tr:last-child td { border-bottom: none; }
+
+  .yes {
+    display: inline-flex; align-items: center; gap: 5px;
+    color: #1a7f37; font-weight: 600;
+  }
+  .yes::before { content: "✓"; font-size: 13px; }
+
+  .no {
+    display: inline-flex; align-items: center; gap: 5px;
+    color: #cf222e; font-weight: 600;
+  }
+  .no::before { content: "✗"; font-size: 13px; }
+
+  .note { font-size: 11px; color: #57606a; margin-top: 2px; }
+
+  footer {
+    margin-top: 40px;
+    padding-top: 16px;
+    border-top: 1px solid #e5e7eb;
+    text-align: center;
+    font-size: 12px;
+    color: #57606a;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>Accountant Role — Permissions</h1>
+  <p class="subtitle">Full access matrix for the Accountant role across every module</p>
+
+  
+  <div class="section">
+    <div class="section-title">Home</div>
+    <table>
+      <thead><tr><th>Action</th><th>Accountant</th></tr></thead>
+      <tbody>
+        <tr><td>See Orders tile</td><td><span class="yes">Yes</span></td></tr>
+        <tr><td>See Billing tile</td><td><span class="yes">Yes</span></td></tr>
+        <tr><td>See Purchases tile</td><td><span class="yes">Yes</span></td></tr>
+        <tr><td>See Master tile</td><td><span class="yes">Yes</span></td></tr>
+        <tr><td>See Reports tile</td><td><span class="yes">Yes</span></td></tr>
+        <tr><td>See Scanner tile</td><td><span class="yes">Yes</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  
+  <div class="section">
+    <div class="section-title">Orders → Accountant Hub (tabs)</div>
+    <table>
+      <thead><tr><th>Action</th><th>Accountant</th></tr></thead>
+      <tbody>
+        <tr><td>Overview tab</td><td><span class="yes">Yes</span></td></tr>
+        <tr><td>Salesman tab</td><td><span class="yes">Yes</span></td></tr>
+        <tr><td>Procurement tab</td><td><span class="yes">Yes</span></td></tr>
+        <tr><td>Picker tab</td><td><span class="no">No</span></td></tr>
+        <tr><td>Dispatcher tab</td><td><span class="no">No</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  
+  <div class="section">
+    <div class="section-title">Orders → Overview tab</div>
+    <table>
+      <thead><tr><th>Action</th><th>Accountant</th></tr></thead>
+      <tbody>
+        <tr><td>View all orders &amp; stats</td><td><span class="yes">Yes</span></td></tr>
+        <tr><td>View order detail</td><td><span class="yes">Yes</span></td></tr>
+        <tr><td>Assign picker</td><td><span class="no">No</span></td></tr>
+        <tr><td>Delete order</td><td><span class="no">No</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  
+  <div class="section">
+    <div class="section-title">Orders → Salesman tab</div>
+    <table>
+      <thead><tr><th>Action</th><th>Accountant</th></tr></thead>
+      <tbody>
+        <tr><td>View all orders</td><td><span class="yes">Yes</span></td></tr>
+        <tr><td>New Order tab</td><td><span class="yes">Yes</span></td></tr>
+        <tr><td>Create order</td><td><span class="yes">Yes</span></td></tr>
+        <tr><td>Edit order</td><td><span class="yes">Yes</span></td></tr>
+        <tr><td>Cancel order</td><td><span class="yes">Yes</span></td></tr>
+        <tr><td>Print Orders tab</td><td><span class="yes">Yes</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  
+  <div class="section">
+    <div class="section-title">Master</div>
+    <table>
+      <thead><tr><th>Action</th><th>Accountant</th></tr></thead>
+      <tbody>
+        <tr><td>Vendors tab</td><td><span class="yes">Yes</span></td></tr>
+        <tr><td>Articles tab</td><td><span class="yes">Yes</span></td></tr>
+        <tr><td>Users tab</td><td><span class="no">No</span></td></tr>
+        <tr><td>Assign roles</td><td><span class="no">No</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <footer>Made with IBM Bob</footer>
+</div>
+</body>
+</html>

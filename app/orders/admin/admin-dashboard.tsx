@@ -21,6 +21,8 @@ interface Props {
   orders: OrderRow[]
   pickers: { id: string; name: string | null; email: string; role: string | null; createdAt: Date }[]
   embedded?: boolean
+  /** When true, hides destructive actions (Delete Order) — used for accountant role */
+  readOnly?: boolean
   /** Externally controlled picker map — when provided, overrides local state */
   pickerMapOverride?: Record<number, string>
   onPickerChange?: (orderId: number, pickerId: string | null) => void
@@ -48,7 +50,7 @@ function orderTag(orderedAt: Date, updatedAt: Date): 'new' | 'updated' | null {
 
 const ALL_STATUSES = ['pending', 'assigned', 'packed', 'dispatched', 'delivered', 'cancelled']
 
-export function AdminDashboard({ stats, orders, pickers, embedded, pickerMapOverride, onPickerChange }: Props) {
+export function AdminDashboard({ stats, orders, pickers, embedded, readOnly = false, pickerMapOverride, onPickerChange }: Props) {
   const [isPending, startTransition] = useTransition()
   const [search, setSearch] = useState('')
 
@@ -378,7 +380,8 @@ export function AdminDashboard({ stats, orders, pickers, embedded, pickerMapOver
                   })()}
                 </div>
 
-                {/* Delete order */}
+                {/* Delete order — hidden for read-only roles (e.g. accountant) */}
+                {!readOnly && (
                 <div className="pt-2">
                   <button
                     type="button"
@@ -388,6 +391,7 @@ export function AdminDashboard({ stats, orders, pickers, embedded, pickerMapOver
                     Delete Order
                   </button>
                 </div>
+                )}
               </div>
             </div>
           </div>

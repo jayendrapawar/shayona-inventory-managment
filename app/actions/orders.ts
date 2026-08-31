@@ -129,9 +129,9 @@ export async function getSalesmanOrders() {
     .orderBy(desc(orders.orderedAt))
 }
 
-/** Admin-only: returns ALL orders regardless of salesmanId. */
+/** Admin/accountant: returns ALL orders regardless of salesmanId. */
 export async function getAllSalesmanOrders() {
-  await requireRole('admin')
+  await requireRole('admin', 'accountant')
   return db
     .select({
       id: orders.id,
@@ -158,12 +158,12 @@ export async function getSalesmanOrderWithItems(orderId: number) {
 }
 
 export async function cancelOrder(orderId: number) {
-  const u = await requireRole('salesman', 'admin')
+  const u = await requireRole('salesman', 'admin', 'accountant')
   const [order] = await db.select({ salesmanId: orders.salesmanId, status: orders.status })
     .from(orders).where(eq(orders.id, orderId)).limit(1)
   if (!order) throw new Error('Order not found')
   const userRoles = u.role.split(',').map(r => r.trim())
-  if (order.salesmanId !== u.id && !userRoles.includes('admin')) throw new Error('Forbidden')
+  if (order.salesmanId !== u.id && !userRoles.includes('admin') && !userRoles.includes('accountant')) throw new Error('Forbidden')
   if (!['pending', 'assigned'].includes(order.status)) throw new Error('Only pending or assigned orders can be cancelled')
   await db.update(orders)
     .set({ status: 'cancelled', updatedAt: sql`now()` })
@@ -176,7 +176,7 @@ export async function cancelOrder(orderId: number) {
 // ── Picker actions ────────────────────────────────────────────────────────────
 
 export async function getPickerQueue() {
-  await requireRole('picker', 'admin')
+  await requireRole('picker', 'admin', 'accountant')
   return db
     .select({
       id: orders.id,
@@ -230,7 +230,7 @@ export async function unassignOrder(orderId: number): Promise<{ orderId: number 
 }
 
 export async function getOrderWithItems(orderId: number) {
-  await requireRole('picker', 'dispatcher', 'admin', 'salesman')
+  await requireRole('picker', 'dispatcher', 'admin', 'salesman', 'accountant')
   const [order] = await db.select().from(orders).where(eq(orders.id, orderId)).limit(1)
   if (!order) throw new Error('Order not found')
   const items = await db.select().from(orderItems).where(eq(orderItems.orderId, orderId))
@@ -274,7 +274,7 @@ export async function markOrderPacked(orderId: number) {
 // ── Dispatcher actions ────────────────────────────────────────────────────────
 
 export async function getPackedOrders() {
-  await requireRole('dispatcher', 'admin')
+  await requireRole('dispatcher', 'admin', 'accountant')
   return db
     .select({
       id: orders.id,
@@ -327,7 +327,7 @@ export async function deleteOrder(orderId: number) {
 
 
 export async function getAllOrders() {
-  await requireRole('admin')
+  await requireRole('admin', 'accountant')
   return db
     .select({
       id: orders.id,
@@ -394,7 +394,7 @@ export async function adminUnassignPicker(orderId: number) {
 
 /** Returns orderId → pickerId map for all non-null picker assignments. */
 export async function getPickerAssignments(): Promise<Record<number, string>> {
-  await requireRole('admin')
+  await requireRole('admin', 'accountant')
   const rows = await db
     .select({ id: orders.id, pickerId: orders.pickerId })
     .from(orders)
@@ -403,7 +403,7 @@ export async function getPickerAssignments(): Promise<Record<number, string>> {
 }
 
 export async function getOrderStats() {
-  await requireRole('admin')
+  await requireRole('admin', 'accountant')
   const [row] = await db.execute<{
     total: string; pending: string; packed: string; dispatched: string; delivered: string; cancelled: string
   }>(sql`
@@ -446,7 +446,7 @@ export async function getProcurementSummary(opts?: {
   artNumber?: string
   colorNumber?: string
 }): Promise<ProcurementRow[]> {
-  await requireRole('admin', 'salesman')
+  await requireRole('admin', 'salesman', 'accountant')
 
   const status      = opts?.status      || 'pending'
   const artFilter   = opts?.artNumber?.trim().toUpperCase()   || ''

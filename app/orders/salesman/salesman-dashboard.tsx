@@ -361,7 +361,7 @@ interface DetailItem {
 }
 
 export function SalesmanDashboard({ orders, userName, embedded }: Props) {
-  const [view, setView] = useState<'list' | 'new' | 'detail' | 'print'>('list')
+  const [view, setView] = useState<'list' | 'new' | 'detail' | 'print'>('new')
   const router = useRouter()
 
   // ── Detail view state ──
@@ -1033,7 +1033,8 @@ ${bills}
 
         {/* Tab bar */}
         <div className="flex gap-1 border-b border-border mb-6">
-          {(['list', 'new', 'print'] as const).map(t => (
+          {(['list', 'new', 'print'] as const)
+            .map(t => (
             <button key={t} type="button"
               onClick={() => {
                 setView(t)

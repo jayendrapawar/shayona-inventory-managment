@@ -17,6 +17,7 @@ export const metadata = {
 
 export default async function MasterPage() {
   let currentUserId = ''
+  let isAccountant = false
   try {
     const session = await auth.api.getSession({ headers: await headers() })
     if (!session?.user) redirect('/sign-in')
@@ -24,6 +25,7 @@ export default async function MasterPage() {
     const [u] = await db.select({ role: user.role }).from(user).where(eq(user.id, session.user.id)).limit(1)
     const roles = (u?.role ?? 'user').split(',').map(r => r.trim())
     if (!roles.includes('admin') && !roles.includes('accountant')) redirect('/home')
+    isAccountant = !roles.includes('admin') && roles.includes('accountant')
   } catch (err) {
     if (isRedirectError(err)) throw err
     redirect('/sign-in')
@@ -41,6 +43,7 @@ export default async function MasterPage() {
       currentUserId={currentUserId}
       vendors={vendors}
       articles={articles}
+      isAccountant={isAccountant}
     />
   )
 }

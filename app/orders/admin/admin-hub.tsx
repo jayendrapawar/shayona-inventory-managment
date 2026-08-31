@@ -68,6 +68,7 @@ interface Picker {
 interface Props {
   adminName: string
   adminId: string
+  isAccountant?: boolean
   stats: { total: number; pending: number; packed: number; dispatched: number; delivered: number; cancelled: number }
   allOrders: OrderRow[]
   pickers: Picker[]
@@ -80,6 +81,7 @@ interface Props {
 export function AdminHub({
   adminName,
   adminId,
+  isAccountant = false,
   stats,
   allOrders,
   pickers,
@@ -102,7 +104,10 @@ export function AdminHub({
     })
   }, [])
 
-  const VALID_TABS = ['overview', 'salesman', 'picker', 'dispatcher', 'procurement']
+  // Accountant sees: overview, salesman, procurement only (no picker/dispatcher management)
+  const VALID_TABS = isAccountant
+    ? ['overview', 'salesman', 'procurement']
+    : ['overview', 'salesman', 'picker', 'dispatcher', 'procurement']
   const [activeTab, setActiveTab] = useState('overview')
 
   useEffect(() => {
@@ -122,19 +127,26 @@ export function AdminHub({
         {/* Page header */}
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h1 className="text-xl font-bold tracking-tight text-foreground">Admin Hub</h1>
-            <p className="text-sm text-muted-foreground mt-0.5">Manage all orders across every role</p>
+            <h1 className="text-xl font-bold tracking-tight text-foreground">
+              {isAccountant ? 'Accountant Hub' : 'Admin Hub'}
+            </h1>
+            <p className="text-sm text-muted-foreground mt-0.5">
+              {isAccountant ? 'View orders & procurement overview' : 'Manage all orders across every role'}
+            </p>
           </div>
           <PageNav />
         </div>
 
         {/* Tabs */}
         <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
-          <TabsList className="grid w-full grid-cols-5 mb-6">
+          <TabsList
+            className="grid w-full mb-6"
+            style={{ gridTemplateColumns: `repeat(${VALID_TABS.length}, minmax(0, 1fr))` }}
+          >
             <TabsTrigger value="overview"    className="text-xs sm:text-sm">Overview</TabsTrigger>
             <TabsTrigger value="salesman"    className="text-xs sm:text-sm">Salesman</TabsTrigger>
-            <TabsTrigger value="picker"      className="text-xs sm:text-sm">Picker</TabsTrigger>
-            <TabsTrigger value="dispatcher"  className="text-xs sm:text-sm">Dispatcher</TabsTrigger>
+            {!isAccountant && <TabsTrigger value="picker"      className="text-xs sm:text-sm">Picker</TabsTrigger>}
+            {!isAccountant && <TabsTrigger value="dispatcher"  className="text-xs sm:text-sm">Dispatcher</TabsTrigger>}
             <TabsTrigger value="procurement" className="text-xs sm:text-sm">Procurement</TabsTrigger>
           </TabsList>
 
@@ -145,6 +157,7 @@ export function AdminHub({
               orders={allOrders}
               pickers={pickers}
               embedded
+              readOnly={isAccountant}
               pickerMapOverride={sharedPickerMap}
               onPickerChange={handlePickerChange}
             />
@@ -154,6 +167,7 @@ export function AdminHub({
             <SalesmanDashboard orders={salesmanOrders} userName={adminName} embedded />
           </TabsContent>
 
+          {!isAccountant && (
           <TabsContent value="picker">
             <PickerDashboard
               queue={pickerQueue}
@@ -162,10 +176,13 @@ export function AdminHub({
               onPickerChange={handlePickerChange}
             />
           </TabsContent>
+          )}
 
+          {!isAccountant && (
           <TabsContent value="dispatcher">
             <DispatcherDashboard orders={dispatchOrders} currentDispatcherId={adminId} embedded />
           </TabsContent>
+          )}
 
           {/* ── Procurement ── */}
           <TabsContent value="procurement">
