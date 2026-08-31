@@ -185,6 +185,138 @@ function SearchCombobox<T>({
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// OrderItemsCard — consolidated table view matching the screenshot layout
+// Article | Color | Size/Qty — article name only on first row of its group
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface OrderItemsCardProps {
+  lines: OrderLine[]
+  editingLineId: string | null
+  onEdit: (line: OrderLine) => void
+  onDeselect: () => void
+  onDelete: (lineId: string) => void
+}
+
+function OrderItemsCard({ lines, editingLineId, onEdit, onDeselect, onDelete }: OrderItemsCardProps) {
+  const tableRef = useRef<HTMLTableElement>(null)
+
+  // Click outside the table → deselect
+  useEffect(() => {
+    if (!editingLineId) return
+    function handleOutside(e: MouseEvent) {
+      if (tableRef.current && !tableRef.current.contains(e.target as Node)) {
+        onDeselect()
+      }
+    }
+    document.addEventListener('mousedown', handleOutside)
+    return () => document.removeEventListener('mousedown', handleOutside)
+  }, [editingLineId, onDeselect])
+
+  // Group lines by artNumber preserving insertion order
+  const groups: { artNumber: string; lines: OrderLine[] }[] = []
+  const seen = new Map<string, OrderLine[]>()
+  for (const line of lines) {
+    if (!seen.has(line.artNumber)) {
+      const group: OrderLine[] = []
+      seen.set(line.artNumber, group)
+      groups.push({ artNumber: line.artNumber, lines: group })
+    }
+    seen.get(line.artNumber)!.push(line)
+  }
+
+  const totalPairs = lines.reduce((s, l) => s + Object.values(l.quantities).reduce((a, b) => a + b, 0), 0)
+
+  return (
+    <table className="w-full text-sm border-collapse">
+      {/* Header */}
+      <thead>
+        <tr className="border-b border-border/50 bg-muted/20">
+          <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground w-28 border-r border-border/40">Article</th>
+          <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground w-32 border-r border-border/40">Color</th>
+          <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground border-r border-border/40">Size / Qty</th>
+          <th className="w-12" />
+        </tr>
+      </thead>
+
+      <tbody>
+        {groups.map(group =>
+          group.lines.map((line, lineIdx) => {
+            const isFirst = lineIdx === 0
+            const isEditing = editingLineId === line.id
+            const sizeCols = line.sizes
+              .filter((sz, i, arr) => arr.findIndex(s => s.sizeLabel === sz.sizeLabel) === i)
+              .filter(sz => (line.quantities[sz.sizeLabel] ?? 0) > 0)
+
+            return (
+              <tr
+                key={line.id}
+                onClick={() => isEditing ? onDeselect() : onEdit(line)}
+                className={`border-b border-border/40 transition-colors cursor-pointer group ${
+                  isEditing ? 'bg-amber-50/40 dark:bg-amber-900/10' : 'hover:bg-primary/5'
+                }`}
+              >
+                {/* Article cell — only shown on first row of group */}
+                <td className="px-4 py-3 align-top border-r border-border/40">
+                  {isFirst && (
+                    <span className="font-bold text-sm text-foreground">{group.artNumber}</span>
+                  )}
+                </td>
+
+                {/* Color */}
+                <td className="px-4 py-3 align-middle border-r border-border/40">
+                  <div className="flex items-center gap-1.5">
+                    <span
+                      className="w-2.5 h-2.5 rounded-full border border-border/60 flex-shrink-0"
+                      style={{ background: swatch(line.colorHex, line.colorName) }}
+                      aria-hidden
+                    />
+                    <span className="font-medium text-foreground uppercase tracking-wide text-xs">
+                      {line.colorName}
+                    </span>
+                  </div>
+                </td>
+
+                {/* Size / Qty */}
+                <td className="px-4 py-3 align-middle border-r border-border/40">
+                  <span className="flex flex-wrap gap-x-3 gap-y-1">
+                    {sizeCols.map(sz => (
+                      <span key={sz.sizeLabel} className="text-sm text-muted-foreground">
+                        {sz.sizeLabel}/<span className="font-bold text-foreground">{line.quantities[sz.sizeLabel]}</span>
+                      </span>
+                    ))}
+                  </span>
+                </td>
+
+                {/* Delete — stop propagation so row click doesn't also fire */}
+                <td className="px-3 py-3 align-middle text-center" onClick={e => e.stopPropagation()}>
+                  <button
+                    type="button"
+                    onClick={() => onDelete(line.id)}
+                    className="text-muted-foreground hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
+                    aria-label={`Remove ${line.artNumber} ${line.colorName}`}
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </td>
+              </tr>
+            )
+          })
+        )}
+
+        {/* Total row */}
+        <tr className="border-t border-border/60 bg-muted/20">
+          <td colSpan={2} className="px-4 py-2.5 text-right text-xs text-muted-foreground border-r border-border/40">Total</td>
+          <td className="px-4 py-2.5 text-sm font-bold text-foreground border-r border-border/40">{totalPairs}</td>
+          <td />
+        </tr>
+      </tbody>
+    </table>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // SizeMatrix — single color, quick buttons + manual input
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -587,9 +719,8 @@ export function SalesmanDashboard({ orders, userName, embedded }: Props) {
     setMatrixKey(k => k + 1)
   }
 
-  // ── Edit a line ──
+  // ── Edit a line (open it in the matrix for modification) ──
   function handleEditLine(line: OrderLine) {
-    // Reload the article if different
     if (!selectedArt || selectedArt.id !== line.articleId) {
       setArtDetailLoading(true)
       setSelectedArt(null)
@@ -605,8 +736,6 @@ export function SalesmanDashboard({ orders, userName, embedded }: Props) {
       setColorQuantities(prev => ({ ...prev, [line.colorId]: { ...line.quantities } }))
     }
     setEditingLineId(line.id)
-    // Scroll to top of form
-    window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
   // ── Delete a line ──
@@ -675,7 +804,6 @@ export function SalesmanDashboard({ orders, userName, embedded }: Props) {
 
   // ── Totals ──
   const totalPairs = useMemo(() => lines.reduce((s, l) => s + linePairs(l), 0), [lines])
-  const uniqueArticles = useMemo(() => new Set(lines.map(l => l.articleId)).size, [lines])
 
   const canSubmit = !!selectedSk && lines.length > 0 && !isPending
 
@@ -1605,98 +1733,13 @@ ${bills}
                   <h2 id="order-heading" className="text-sm font-semibold text-foreground">Current Order</h2>
                   <span className="ml-auto text-xs text-muted-foreground">{lines.length} line{lines.length !== 1 ? 's' : ''}</span>
                 </div>
-
-                {/* ── Mobile: card per line ── */}
-                <div className="sm:hidden divide-y divide-border">
-                  {lines.map((line, idx) => {
-                    const pairs = linePairs(line)
-                    const isEditing = editingLineId === line.id
-                    const sizeSummary = line.sizes
-                      .filter((sz, i, arr) => arr.findIndex(s => s.sizeLabel === sz.sizeLabel) === i)
-                      .filter(sz => (line.quantities[sz.sizeLabel] ?? 0) > 0)
-                      .map(sz => `${sz.sizeLabel}/${line.quantities[sz.sizeLabel]}`)
-                      .join(', ')
-                    return (
-                      <div key={line.id} className={`px-4 py-3 space-y-1.5 ${isEditing ? 'bg-amber-50/40 dark:bg-amber-900/10' : ''}`}>
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="flex items-center gap-2 min-w-0">
-                            <span className="text-xs text-muted-foreground w-4 shrink-0">{idx + 1}</span>
-                            <span className="font-semibold text-sm truncate">{line.artNumber}</span>
-                            <span className="flex items-center gap-1 text-xs text-muted-foreground shrink-0">
-                              <span className="w-2.5 h-2.5 rounded-full border border-border inline-block"
-                                style={{ background: swatch(line.colorHex, line.colorName) }} aria-hidden />
-                              {line.colorName}
-                            </span>
-                          </div>
-                          <span className="font-bold text-sm shrink-0">{pairs} pr</span>
-                        </div>
-                        {sizeSummary && (
-                          <p className="text-xs text-muted-foreground pl-6 truncate" title={sizeSummary}>{sizeSummary}</p>
-                        )}
-                        {isEditing && (
-                          <p className="pl-6 text-[10px] font-medium text-amber-600 dark:text-amber-400">Editing this line…</p>
-                        )}
-                        <div className="pl-6 flex items-center gap-4 pt-0.5">
-                          <button type="button" onClick={() => handleEditLine(line)}
-                            className="text-xs font-medium text-primary hover:underline">
-                            Edit
-                          </button>
-                          <button type="button" onClick={() => setDeleteLineId(line.id)}
-                            className="text-xs font-medium text-red-500 hover:underline">
-                            Remove
-                          </button>
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-
-                {/* ── Desktop: table ── */}
-                <div className="hidden sm:block overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead className="border-b border-border bg-muted/20">
-                      <tr>
-                        <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">#</th>
-                        <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Article</th>
-                        <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Color</th>
-                        <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Size/Qty</th>
-                        <th className="text-right px-4 py-2.5 text-xs font-medium text-muted-foreground">Pairs</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border">
-                      {lines.map((line, idx) => {
-                        const pairs = linePairs(line)
-                        const isEditing = editingLineId === line.id
-                        const sizeSummary = line.sizes
-                          .filter((sz, i, arr) => arr.findIndex(s => s.sizeLabel === sz.sizeLabel) === i)
-                          .filter(sz => (line.quantities[sz.sizeLabel] ?? 0) > 0)
-                          .map(sz => `${sz.sizeLabel}/${line.quantities[sz.sizeLabel]}`)
-                          .join(', ')
-                        return (
-                          <tr key={line.id} className={`transition-colors ${isEditing ? 'bg-amber-50/30 dark:bg-amber-900/10' : 'hover:bg-muted/20'}`}>
-                            <td className="px-4 py-3 text-muted-foreground text-xs">{idx + 1}</td>
-                            <td className="px-4 py-3 font-semibold">{line.artNumber}</td>
-                            <td className="px-4 py-3">
-                              <div className="flex items-center gap-1.5">
-                                <span className="w-3 h-3 rounded-full border border-border flex-shrink-0"
-                                  style={{ background: swatch(line.colorHex, line.colorName) }} aria-hidden />
-                                {line.colorName}
-                              </div>
-                            </td>
-                            <td className="px-4 py-3 text-xs text-muted-foreground max-w-[160px] truncate" title={sizeSummary}>{sizeSummary}</td>
-                            <td className="px-4 py-3 text-right font-semibold">{pairs}</td>
-                          </tr>
-                        )
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-
-                {/* Order totals */}
-                <div className="border-t border-border px-4 py-3 flex flex-wrap gap-6">
-                  <div><p className="text-xs text-muted-foreground">Total Articles</p><p className="text-base font-bold text-foreground">{uniqueArticles}</p></div>
-                  <div><p className="text-xs text-muted-foreground">Total Pairs</p><p className="text-base font-bold text-foreground">{totalPairs}</p></div>
-                </div>
+                <OrderItemsCard
+                  lines={lines}
+                  editingLineId={editingLineId}
+                  onEdit={handleEditLine}
+                  onDeselect={() => { setEditingLineId(null); setSelectedColorId(null) }}
+                  onDelete={setDeleteLineId}
+                />
               </section>
             )}
 
