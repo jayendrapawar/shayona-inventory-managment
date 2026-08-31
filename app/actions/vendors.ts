@@ -5,6 +5,7 @@ import { vendors } from '@/lib/db/schema'
 import { eq, asc, ilike, or, sql } from 'drizzle-orm'
 import { auth } from '@/lib/auth'
 import { headers } from 'next/headers'
+import { fuzzyScore } from '@/lib/fuzzy'
 
 async function requireAuth() {
   const session = await auth.api.getSession({ headers: await headers() })
@@ -96,16 +97,13 @@ export async function saveVendor(
 export async function searchVendors(query: string): Promise<Vendor[]> {
   await requireAuth()
   const q = query.trim()
-  const base = db
-    .select()
-    .from(vendors)
-    .where(eq(vendors.status, 'active'))
 
   if (!q) {
-    return base.orderBy(asc(vendors.partyName)).limit(20)
+    return db.select().from(vendors).where(eq(vendors.status, 'active')).orderBy(asc(vendors.partyName)).limit(20)
   }
 
-  return db
+  // Broad DB fetch — pull any row that substring-matches on key fields
+  const rows = await db
     .select()
     .from(vendors)
     .where(
@@ -117,5 +115,36 @@ export async function searchVendors(query: string): Promise<Vendor[]> {
       )
     )
     .orderBy(asc(vendors.partyName))
-    .limit(20)
+    .limit(100)
+
+  // Also fetch a wider set for fuzzy (typo tolerance) — up to 200 active vendors
+  const wider = await db
+    .select()
+    .from(vendors)
+    .where(eq(vendors.status, 'active'))
+    .orderBy(asc(vendors.partyName))
+    .limit(200)
+
+  // Merge: start with broader set, score every row, keep top matches
+  const seen = new Set<string>()
+  const candidates = [...rows, ...wider].filter(v => {
+    if (seen.has(v.id)) return false
+    seen.add(v.id)
+    return true
+  })
+
+  const scored = candidates
+    .map(v => ({
+      v,
+      score: Math.min(
+        fuzzyScore(v.partyName, q),
+        fuzzyScore(v.area ?? '', q),
+        fuzzyScore(v.city ?? '', q),
+        fuzzyScore(v.phone ?? '', q),
+      ),
+    }))
+    .filter(x => x.score < Infinity)
+    .sort((a, b) => a.score !== b.score ? a.score - b.score : a.v.partyName.localeCompare(b.v.partyName))
+
+  return scored.slice(0, 20).map(x => x.v)
 }

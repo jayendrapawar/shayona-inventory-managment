@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useMemo } from 'react'
+import { fuzzyFilter } from '@/lib/fuzzy'
 
 export interface Supplier {
   id: string
@@ -70,13 +71,7 @@ export function SuppliersTab({ initialSuppliers, onListChange }: Props) {
   const filtered = useMemo(() => {
     let list = suppliers
     if (filterStatus !== 'all') list = list.filter(s => s.status === filterStatus)
-    if (search) list = list.filter(s =>
-      s.name.toLowerCase().includes(search.toLowerCase()) ||
-      s.contactPerson.toLowerCase().includes(search.toLowerCase()) ||
-      s.city.toLowerCase().includes(search.toLowerCase()) ||
-      s.supplyCategory.toLowerCase().includes(search.toLowerCase())
-    )
-    return list
+    return fuzzyFilter(list, search, s => [s.name, s.contactPerson, s.city, s.supplyCategory])
   }, [suppliers, search, filterStatus])
 
   function openAdd() {

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useMemo, useTransition, useRef } from 'react'
+import { fuzzyFilter } from '@/lib/fuzzy'
 import { saveVendor, importVendors } from '@/app/actions/vendors'
 import type { Vendor } from '@/app/actions/vendors'
 
@@ -147,14 +148,7 @@ export function VendorsTab({ initialVendors, onListChange }: Props) {
   const filtered = useMemo(() => {
     let list = vendors
     if (filterStatus !== 'all') list = list.filter(v => v.status === filterStatus)
-    if (search) list = list.filter(v =>
-      v.partyName.toLowerCase().includes(search.toLowerCase()) ||
-      v.gst.toLowerCase().includes(search.toLowerCase()) ||
-      v.city.toLowerCase().includes(search.toLowerCase()) ||
-      v.area.toLowerCase().includes(search.toLowerCase()) ||
-      v.salesman.toLowerCase().includes(search.toLowerCase())
-    )
-    return list
+    return fuzzyFilter(list, search, v => [v.partyName, v.gst, v.city, v.area, v.salesman])
   }, [vendors, search, filterStatus])
 
   function openAdd() {

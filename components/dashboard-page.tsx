@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
+import { fuzzyFilter } from '@/lib/fuzzy'
 import { useRouter } from 'next/navigation'
 import { BarChart3, Filter, Package, PieChart, QrCode, Tag, TrendingUp, User } from 'lucide-react'
 import {
@@ -110,28 +111,13 @@ export function DashboardPage({ embedded }: { embedded?: boolean } = {}) {
   }, [activeSubTab, activeTab, overallChartData, scannedChartData])
 
   const applySearch = useCallback((query: string) => {
-    const q = query.toLowerCase().trim()
     if (activeTab === 'scanned') {
       setFilteredInventory(
-        q
-          ? inventory.filter(
-              (item) =>
-                item.artNumber?.toLowerCase().includes(q) ||
-                item.colorNumber?.toLowerCase().includes(q) ||
-                item.sizeNumber?.toLowerCase().includes(q)
-            )
-          : inventory
+        fuzzyFilter(inventory, query, item => [item.artNumber, item.colorNumber, item.sizeNumber])
       )
     } else {
       setFilteredStock(
-        q
-          ? stockItems.filter(
-              (item) =>
-                item.artNumber?.toLowerCase().includes(q) ||
-                item.colorNumber?.toLowerCase().includes(q) ||
-                item.sizeNumber?.toLowerCase().includes(q)
-            )
-          : stockItems
+        fuzzyFilter(stockItems, query, item => [item.artNumber, item.colorNumber, item.sizeNumber])
       )
     }
   }, [activeTab, inventory, stockItems])

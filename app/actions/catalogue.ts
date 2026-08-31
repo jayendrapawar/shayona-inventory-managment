@@ -6,6 +6,7 @@ import { articles, articleColors, articleSizes } from '@/lib/db/schema'
 import { ilike, asc, eq, sql } from 'drizzle-orm'
 import { headers } from 'next/headers'
 import { searchVendors } from '@/app/actions/vendors'
+import { fuzzyScore } from '@/lib/fuzzy'
 
 async function requireAuth() {
   const session = await auth.api.getSession({ headers: await headers() })
@@ -47,7 +48,6 @@ export async function searchArticles(query: string): Promise<ArticleResult[]> {
   await requireAuth()
   const q = query.trim()
 
-  // Use DISTINCT ON to return one row per unique artName, ordered for relevance
   if (!q) {
     const rows = await db.execute(sql`
       SELECT DISTINCT "artName" AS "artNumber"
@@ -58,21 +58,38 @@ export async function searchArticles(query: string): Promise<ArticleResult[]> {
     return (rows.rows as unknown[]).map(r => ({ artNumber: (r as Record<string, unknown>).artNumber as string }))
   }
 
+  // Broad substring fetch for the DB pass
   const rows = await db.execute(sql`
-    SELECT "artNumber" FROM (
-      SELECT DISTINCT "artName" AS "artNumber",
-        CASE
-          WHEN lower("artName") = lower(${q})           THEN 0
-          WHEN lower("artName") LIKE lower(${q}) || '%' THEN 1
-          ELSE 2
-        END AS rank
-      FROM articles
-      WHERE lower("artName") LIKE ${'%' + q.toLowerCase() + '%'}
-    ) sub
-    ORDER BY rank ASC, "artNumber" ASC
-    LIMIT 20
+    SELECT DISTINCT "artName" AS "artNumber"
+    FROM articles
+    WHERE lower("artName") LIKE ${'%' + q.toLowerCase() + '%'}
+    LIMIT 100
   `)
-  return (rows.rows as unknown[]).map(r => ({ artNumber: (r as Record<string, unknown>).artNumber as string }))
+  const candidates = (rows.rows as unknown[]).map(r => (r as Record<string, unknown>).artNumber as string)
+
+  // Also fetch a wider set so typos that don't substring-match still appear
+  const wider = await db.execute(sql`
+    SELECT DISTINCT "artName" AS "artNumber"
+    FROM articles
+    ORDER BY "artName" ASC
+    LIMIT 300
+  `)
+  const widerNames = (wider.rows as unknown[]).map(r => (r as Record<string, unknown>).artNumber as string)
+
+  // Merge unique, score with fuzzy, return top 20
+  const seen = new Set<string>()
+  const all = [...candidates, ...widerNames].filter(n => {
+    if (seen.has(n)) return false
+    seen.add(n)
+    return true
+  })
+
+  const scored = all
+    .map(artNumber => ({ artNumber, score: fuzzyScore(artNumber, q) }))
+    .filter(x => x.score < Infinity)
+    .sort((a, b) => a.score !== b.score ? a.score - b.score : a.artNumber.localeCompare(b.artNumber))
+
+  return scored.slice(0, 20).map(x => ({ artNumber: x.artNumber }))
 }
 
 // ── Article detail — all colors + sizes for a given artName ──────────────────

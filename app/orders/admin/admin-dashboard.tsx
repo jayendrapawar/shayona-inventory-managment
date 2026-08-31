@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useTransition, useMemo, useEffect, useCallback } from 'react'
+import { fuzzyFilter } from '@/lib/fuzzy'
 import { StatusPill, fmt, PageHeader, StatCard } from '../_components/shared'
 import { adminAssignPicker, adminUnassignPicker, getOrderWithItems, getPickerAssignments, deleteOrder } from '@/app/actions/orders'
 
@@ -152,12 +153,10 @@ export function AdminDashboard({ stats, orders, pickers, embedded, readOnly = fa
   }
 
   const filteredOrders = useMemo(() => {
-    let list = orders.filter(o =>
-      !deletedIds.has(o.id) && (
-        !search ||
-        o.shopkeeperName.toLowerCase().includes(search.toLowerCase()) ||
-        o.orderNumber.toLowerCase().includes(search.toLowerCase())
-      )
+    let list = fuzzyFilter(
+      orders.filter(o => !deletedIds.has(o.id)),
+      search,
+      o => [o.shopkeeperName, o.orderNumber]
     )
     if (filterStatus !== 'all') list = list.filter(o => o.status === filterStatus)
     if (sortBy === 'date-desc') list = [...list].sort((a, b) => new Date(b.orderedAt).getTime() - new Date(a.orderedAt).getTime())

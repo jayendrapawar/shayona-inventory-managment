@@ -1661,7 +1661,6 @@ ${bills}
                         <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Color</th>
                         <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Size/Qty</th>
                         <th className="text-right px-4 py-2.5 text-xs font-medium text-muted-foreground">Pairs</th>
-                        <th className="text-center px-4 py-2.5 text-xs font-medium text-muted-foreground">Action</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border">
@@ -1686,22 +1685,6 @@ ${bills}
                             </td>
                             <td className="px-4 py-3 text-xs text-muted-foreground max-w-[160px] truncate" title={sizeSummary}>{sizeSummary}</td>
                             <td className="px-4 py-3 text-right font-semibold">{pairs}</td>
-                            <td className="px-4 py-3">
-                              <div className="flex items-center justify-center gap-2">
-                                <button type="button" onClick={() => handleEditLine(line)}
-                                  aria-label={`Edit ${line.artNumber} ${line.colorName}`}
-                                  className="text-xs text-primary hover:underline font-medium">
-                                  Edit
-                                </button>
-                                <button type="button" onClick={() => setDeleteLineId(line.id)}
-                                  aria-label={`Delete ${line.artNumber} ${line.colorName}`}
-                                  className="text-muted-foreground hover:text-red-500 transition-colors">
-                                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                  </svg>
-                                </button>
-                              </div>
-                            </td>
                           </tr>
                         )
                       })}

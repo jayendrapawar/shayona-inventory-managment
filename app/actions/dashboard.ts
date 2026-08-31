@@ -7,6 +7,7 @@ import { and, eq, isNull, desc, sql } from 'drizzle-orm'
 import { headers } from 'next/headers'
 import { revalidatePath } from 'next/cache'
 import { DUPLICATE_ENTRY_ERROR } from '@/lib/errors'
+import { fuzzyScore } from '@/lib/fuzzy'
 
 async function getUser() {
   const session = await auth.api.getSession({ headers: await headers() })
@@ -21,22 +22,41 @@ export async function getLoggedInUserName(): Promise<string | null> {
 
 export async function searchInventory(query: string) {
   await getUser()
-  if (!query.trim()) {
+  const q = query.trim()
+
+  if (!q) {
     return db.select().from(scans).orderBy(desc(scans.createdAt))
   }
 
-  const q = `%${query.trim()}%`
-  return db
+  // Broad substring fetch
+  const like = `%${q}%`
+  const rows = await db
     .select()
     .from(scans)
     .where(
       sql`(
-        ${scans.artNumber} ILIKE ${q} OR
-        ${scans.colorNumber} ILIKE ${q} OR
-        ${scans.sizeNumber} ILIKE ${q}
+        ${scans.artNumber} ILIKE ${like} OR
+        ${scans.colorNumber} ILIKE ${like} OR
+        ${scans.sizeNumber} ILIKE ${like}
       )`
     )
     .orderBy(desc(scans.createdAt))
+    .limit(500)
+
+  // Fuzzy re-rank: score each row, filter out non-matches, sort best first
+  const scored = rows
+    .map(row => ({
+      row,
+      score: Math.min(
+        fuzzyScore(row.artNumber ?? '', q),
+        fuzzyScore(row.colorNumber ?? '', q),
+        fuzzyScore(row.sizeNumber ?? '', q),
+      ),
+    }))
+    .filter(x => x.score < Infinity)
+    .sort((a, b) => a.score !== b.score ? a.score - b.score : 0)
+
+  return scored.map(x => x.row)
 }
 
 export async function getInventorySummary() {

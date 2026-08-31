@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useMemo, useTransition, useRef } from 'react'
+import { fuzzyFilter } from '@/lib/fuzzy'
 import { saveArticle, importArticles, deleteArticle, getArticleSizes } from '@/app/actions/articles'
 import type { Article } from '@/app/actions/articles'
 
@@ -116,16 +117,9 @@ export function ArticlesTab({ initialArticles, onListChange }: Props) {
     reader.readAsText(file)
   }
 
-  const filtered = useMemo(() => {
-    if (!search) return articleList
-    const q = search.toLowerCase()
-    return articleList.filter(a =>
-      a.artName.toLowerCase().includes(q) ||
-      a.artCode.toLowerCase().includes(q) ||
-      a.color.toLowerCase().includes(q) ||
-      a.colorCode.toLowerCase().includes(q)
-    )
-  }, [articleList, search])
+  const filtered = useMemo(() =>
+    fuzzyFilter(articleList, search, a => [a.artName, a.artCode, a.color, a.colorCode])
+  , [articleList, search])
 
   function openAdd() {
     setForm(EMPTY_FORM)
