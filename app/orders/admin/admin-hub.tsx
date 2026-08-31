@@ -69,6 +69,7 @@ interface Props {
   adminName: string
   adminId: string
   isAccountant?: boolean
+  userRoles?: string[]
   stats: { total: number; pending: number; packed: number; dispatched: number; delivered: number; cancelled: number }
   allOrders: OrderRow[]
   pickers: Picker[]
@@ -82,6 +83,7 @@ export function AdminHub({
   adminName,
   adminId,
   isAccountant = false,
+  userRoles = [],
   stats,
   allOrders,
   pickers,
@@ -104,10 +106,17 @@ export function AdminHub({
     })
   }, [])
 
-  // Accountant sees: overview, salesman, procurement only (no picker/dispatcher management)
-  const VALID_TABS = isAccountant
-    ? ['overview', 'salesman', 'procurement']
-    : ['overview', 'salesman', 'picker', 'dispatcher', 'procurement']
+  // For accountants: show picker/dispatcher tabs only if those roles are explicitly assigned
+  const showPicker     = !isAccountant || userRoles.includes('picker')
+  const showDispatcher = !isAccountant || userRoles.includes('dispatcher')
+
+  const VALID_TABS = [
+    'overview',
+    'salesman',
+    showPicker     && 'picker',
+    showDispatcher && 'dispatcher',
+    'procurement',
+  ].filter(Boolean) as string[]
   const [activeTab, setActiveTab] = useState('overview')
 
   useEffect(() => {
@@ -144,10 +153,10 @@ export function AdminHub({
             style={{ gridTemplateColumns: `repeat(${VALID_TABS.length}, minmax(0, 1fr))` }}
           >
             <TabsTrigger value="overview"    className="text-xs sm:text-sm">Overview</TabsTrigger>
-            <TabsTrigger value="salesman"    className="text-xs sm:text-sm">Salesman</TabsTrigger>
-            {!isAccountant && <TabsTrigger value="picker"      className="text-xs sm:text-sm">Picker</TabsTrigger>}
-            {!isAccountant && <TabsTrigger value="dispatcher"  className="text-xs sm:text-sm">Dispatcher</TabsTrigger>}
-            <TabsTrigger value="procurement" className="text-xs sm:text-sm">Procurement</TabsTrigger>
+              <TabsTrigger value="salesman"    className="text-xs sm:text-sm">Salesman</TabsTrigger>
+              {showPicker     && <TabsTrigger value="picker"      className="text-xs sm:text-sm">Picker</TabsTrigger>}
+              {showDispatcher && <TabsTrigger value="dispatcher"  className="text-xs sm:text-sm">Dispatcher</TabsTrigger>}
+              <TabsTrigger value="procurement" className="text-xs sm:text-sm">Procurement</TabsTrigger>
           </TabsList>
 
           {/* ── Overview ── */}
@@ -167,7 +176,7 @@ export function AdminHub({
             <SalesmanDashboard orders={salesmanOrders} userName={adminName} embedded />
           </TabsContent>
 
-          {!isAccountant && (
+          {showPicker && (
           <TabsContent value="picker">
             <PickerDashboard
               queue={pickerQueue}
@@ -178,7 +187,7 @@ export function AdminHub({
           </TabsContent>
           )}
 
-          {!isAccountant && (
+          {showDispatcher && (
           <TabsContent value="dispatcher">
             <DispatcherDashboard orders={dispatchOrders} currentDispatcherId={adminId} embedded />
           </TabsContent>

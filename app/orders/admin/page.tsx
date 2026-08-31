@@ -22,13 +22,14 @@ export default async function AdminPage() {
   let adminName = ''
   let adminId   = ''
   let isAccountant = false
+  let userRoles: string[] = []
   try {
     const session = await auth.api.getSession({ headers: await headers() })
     if (!session?.user) redirect('/sign-in')
     const [u] = await db.select({ role: user.role, name: user.name, id: user.id }).from(user).where(eq(user.id, session.user.id)).limit(1)
-    const roles = (u?.role ?? 'user').split(',').map(r => r.trim())
-    if (!roles.includes('admin') && !roles.includes('accountant')) redirect('/orders')
-    isAccountant = !roles.includes('admin') && roles.includes('accountant')
+    userRoles = (u?.role ?? 'user').split(',').map(r => r.trim())
+    if (!userRoles.includes('admin') && !userRoles.includes('accountant')) redirect('/orders')
+    isAccountant = !userRoles.includes('admin') && userRoles.includes('accountant')
     adminName = u?.name ?? session.user.email ?? ''
     adminId   = u?.id   ?? session.user.id    ?? ''
   } catch (err) {
@@ -76,6 +77,7 @@ export default async function AdminPage() {
       adminName={adminName}
       adminId={adminId}
       isAccountant={isAccountant}
+      userRoles={userRoles}
       stats={stats}
       allOrders={allOrders}
       pickers={pickers}
