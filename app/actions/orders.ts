@@ -271,6 +271,33 @@ export async function markOrderPacked(orderId: number) {
   revalidatePath('/orders/picker')
 }
 
+// Save all item quantities/statuses in one round-trip, then mark the order packed.
+// Called once when the picker taps "Pack Order" — replaces the per-item saves.
+export async function bulkSaveAndPackOrder(
+  orderId: number,
+  items: { id: number; quantityPacked: number; status: 'packed' | 'out_of_stock' | 'pending' }[]
+) {
+  await requireRole('picker', 'admin')
+
+  // Update all items in parallel
+  await Promise.all(
+    items.map(item =>
+      db.update(orderItems)
+        .set({ quantityPacked: item.quantityPacked, status: item.status, updatedAt: sql`now()` })
+        .where(eq(orderItems.id, item.id))
+    )
+  )
+
+  // Mark the order packed
+  await db.update(orders)
+    .set({ status: 'packed', packedAt: sql`now()`, updatedAt: sql`now()` })
+    .where(eq(orders.id, orderId))
+
+  revalidatePath('/orders')
+  revalidatePath('/orders/admin')
+  revalidatePath('/orders/picker')
+}
+
 // ── Dispatcher actions ────────────────────────────────────────────────────────
 
 export async function getPackedOrders() {

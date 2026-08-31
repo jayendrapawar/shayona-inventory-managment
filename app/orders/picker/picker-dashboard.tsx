@@ -4,9 +4,7 @@ import { StatusPill, fmt } from '../_components/shared'
 import { PageNav } from '@/components/page-nav'
 import {
   getOrderWithItems,
-  updateItemPacked,
-  markItemOutOfStock,
-  markOrderPacked,
+  bulkSaveAndPackOrder,
   selfAssignOrder,
   unassignOrder,
 } from '@/app/actions/orders'
@@ -96,31 +94,23 @@ export function PickerDashboard({ queue: initialQueue, currentPickerId, embedded
     })
   }
 
-  // ── Item packing handlers ────────────────────────────────────────────────────
-  function handleQtyChange(itemId: number, qty: number) {
-    startTransition(async () => {
-      await updateItemPacked(itemId, qty)
-      if (selectedOrder) {
-        const data = await getOrderWithItems(selectedOrder.order.id)
-        setSelectedOrder({ ...data, readOnly: selectedOrder.readOnly })
-      }
-    })
-  }
-
-  function handleOutOfStock(itemId: number) {
-    startTransition(async () => {
-      await markItemOutOfStock(itemId)
-      if (selectedOrder) {
-        const data = await getOrderWithItems(selectedOrder.order.id)
-        setSelectedOrder({ ...data, readOnly: selectedOrder.readOnly })
-      }
-    })
-  }
-
+  // ── Pack order — flush all local touched state to DB in one call ─────────────
   function handleMarkPacked() {
     if (!selectedOrder) return
     startTransition(async () => {
-      await markOrderPacked(selectedOrder.order.id)
+      const items = selectedOrder.items.map(item => {
+        const qty = touched[item.id] ?? 0
+        return {
+          id: item.id,
+          quantityPacked: qty,
+          status: (qty === 0
+            ? 'out_of_stock'
+            : qty >= item.quantityOrdered
+            ? 'packed'
+            : 'pending') as 'packed' | 'out_of_stock' | 'pending',
+        }
+      })
+      await bulkSaveAndPackOrder(selectedOrder.order.id, items)
       setQueue(prev => prev.filter(o => o.id !== selectedOrder.order.id))
       setSelectedOrder(null)
     })
@@ -286,6 +276,33 @@ export function PickerDashboard({ queue: initialQueue, currentPickerId, embedded
               const activeColor = activeColorTab[artNumber] ?? colorGroups[0].color
               const activeColorGroup = colorGroups.find(cg => cg.color === activeColor) ?? colorGroups[0]
 
+              // Confirm all pending/draft items in this article at once — local only, no DB call
+              function confirmArticle() {
+                const allColorItems = colorGroups.flatMap(cg => cg.items)
+                const newTouched = { ...touched }
+                const newPending = { ...pending }
+                const newDraft   = { ...customDraft }
+                for (const item of allColorItems) {
+                  if (item.id in newTouched) continue
+                  const draftVal = newDraft[item.id] !== undefined && newDraft[item.id] !== ''
+                    ? parseInt(newDraft[item.id]!)
+                    : NaN
+                  const qty = !isNaN(draftVal) && draftVal >= 0 ? draftVal : newPending[item.id]
+                  if (qty === undefined || qty === null) continue
+                  newTouched[item.id] = qty as number
+                  delete newPending[item.id]
+                  delete newDraft[item.id]
+                }
+                setTouched(newTouched)
+                setPending(newPending)
+                setCustomDraft(newDraft)
+              }
+
+              // Article confirm is enabled when any unconfirmed item has a staged/draft value
+              const artHasSelection = allItems
+                .filter(i => !(i.id in touched))
+                .some(i => pending[i.id] !== undefined || (customDraft[i.id] !== undefined && customDraft[i.id] !== ''))
+
               return (
                 <div
                   key={artNumber}
@@ -294,20 +311,19 @@ export function PickerDashboard({ queue: initialQueue, currentPickerId, embedded
                   }`}
                 >
                   {/* Article header row */}
-                  <div className="flex items-center justify-between px-3.5 pt-3 pb-2 gap-2">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <div className={`shrink-0 w-2 h-2 rounded-full ${allDone ? 'bg-green-500' : 'bg-border'}`} />
-                      <p className="text-sm font-bold font-mono text-foreground">
-                        {artNumber}
-                        <span className="ml-1.5 text-xs font-normal text-muted-foreground tabular-nums">
-                          ({allItems.reduce((s, i) => s + i.quantityOrdered, 0)} pairs)
-                        </span>
-                      </p>
-                    </div>
+                  <div className="flex items-center px-3.5 pt-3 pb-2 gap-2">
+                    <div className={`shrink-0 w-2 h-2 rounded-full ${allDone ? 'bg-green-500' : 'bg-border'}`} />
+                    <p className="text-sm font-bold font-mono text-foreground">
+                      {artNumber}
+                      <span className="ml-1.5 text-xs font-normal text-muted-foreground tabular-nums">
+                        ({allItems.reduce((s, i) => s + i.quantityOrdered, 0)} pairs)
+                      </span>
+                    </p>
                   </div>
 
-                  {/* Color tabs — one per DISTINCT color */}
-                  <div className="flex gap-1 px-3.5 pb-2 overflow-x-auto">
+                  {/* Color tabs + Confirm on the same row */}
+                  <div className="flex items-center gap-2 px-3.5 pb-2">
+                    <div className="flex gap-1 overflow-x-auto flex-1 min-w-0">
                       {colorGroups.map(cg => {
                         const cgTotal   = cg.items.reduce((s, i) => s + i.quantityOrdered, 0)
                         const cgAllDone = cg.items.every(i => i.status === 'out_of_stock' || i.id in touched)
@@ -329,6 +345,46 @@ export function PickerDashboard({ queue: initialQueue, currentPickerId, embedded
                           </button>
                         )
                       })}
+                    </div>
+                    {/* Confirm (pending) or Edit (all done) — right of color tabs */}
+                    {allDone ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const artItems = colorGroups.flatMap(cg => cg.items)
+                          // Re-seed pending with the previously confirmed values so chips stay selected
+                          setPending(prev => {
+                            const n = { ...prev }
+                            artItems.forEach(i => {
+                              if (i.id in touched) {
+                                const v = touched[i.id]
+                                if (v > 0 && v <= 5) n[i.id] = v
+                                else if (v > 5) setCustomDraft(d => ({ ...d, [i.id]: String(v) }))
+                              }
+                            })
+                            return n
+                          })
+                          // Remove from touched so chips reappear
+                          setTouched(prev => {
+                            const n = { ...prev }
+                            artItems.forEach(i => delete n[i.id])
+                            return n
+                          })
+                        }}
+                        className="shrink-0 h-7 rounded-lg bg-amber-500 hover:bg-amber-600 text-white px-3 text-xs font-semibold transition-colors shadow-sm"
+                      >
+                        Edit
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={confirmArticle}
+                        disabled={isPending || !artHasSelection}
+                        className="shrink-0 h-7 rounded-lg bg-blue-600 hover:bg-blue-700 text-white px-3 text-xs font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed shadow-sm"
+                      >
+                        {isPending ? '…' : 'Confirm'}
+                      </button>
+                    )}
                   </div>
 
                   {/* Active color — list all size rows */}
@@ -355,11 +411,6 @@ export function PickerDashboard({ queue: initialQueue, currentPickerId, embedded
                         setTouched(prev => ({ ...prev, [item.id]: qty as number }))
                         setPending(prev => { const n = { ...prev }; delete n[item.id]; return n })
                         setCustomDraft(prev => { const n = { ...prev }; delete n[item.id]; return n })
-                        if (qty === 0) {
-                          handleOutOfStock(item.id)
-                        } else {
-                          handleQtyChange(item.id, qty as number)
-                        }
                       }
 
                       const hasSelection = staged !== undefined || (customDraft[item.id] !== undefined && customDraft[item.id] !== '')
@@ -433,14 +484,6 @@ export function PickerDashboard({ queue: initialQueue, currentPickerId, embedded
                                   disabled={isPending}
                                   className="w-14 h-8 rounded-lg border border-border bg-background px-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-orange-400 placeholder:text-muted-foreground disabled:opacity-40"
                                 />
-                                <button
-                                  type="button"
-                                  onClick={confirmQty}
-                                  disabled={isPending || !hasSelection}
-                                  className="h-8 ml-auto rounded-lg bg-blue-600 hover:bg-blue-700 text-white px-4 text-xs font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed shadow-sm"
-                                >
-                                  {isPending ? '…' : 'Confirm'}
-                                </button>
                               </div>
                             </div>
                           )}
