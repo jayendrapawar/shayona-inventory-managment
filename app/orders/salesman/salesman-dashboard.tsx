@@ -1,9 +1,10 @@
 'use client'
 
 import {
-  useState, useTransition, useRef, useEffect, useMemo, useId,
+  useState, useTransition, useRef, useEffect, useMemo, useId, useCallback,
 } from 'react'
 import { useRouter } from 'next/navigation'
+import { useAutoRefresh } from '@/lib/use-auto-refresh'
 import { StatusPill, fmt, PageHeader, StatCard } from '../_components/shared'
 import { createOrder, updateOrder, cancelOrder, getSalesmanOrderWithItems } from '@/app/actions/orders'
 import { PageNav } from '@/components/page-nav'
@@ -482,6 +483,48 @@ function uid() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// LiveBadge — shows last-refreshed time and a manual refresh button
+// ─────────────────────────────────────────────────────────────────────────────
+
+function LiveBadge({ lastRefreshed, onRefresh }: { lastRefreshed: Date; onRefresh: () => void }) {
+  const [, tick] = useState(0)
+
+  // Re-render every 30 s so the "X min ago" text stays accurate
+  useEffect(() => {
+    const t = setInterval(() => tick(n => n + 1), 30_000)
+    return () => clearInterval(t)
+  }, [])
+
+  function ago(d: Date) {
+    const diff = Math.floor((Date.now() - d.getTime()) / 1000)
+    if (diff < 10) return 'just now'
+    if (diff < 60) return `${diff}s ago`
+    const m = Math.floor(diff / 60)
+    return `${m}m ago`
+  }
+
+  return (
+    <div className="flex items-center justify-between text-[11px] text-muted-foreground px-0.5">
+      <span className="flex items-center gap-1.5">
+        <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+        Live · updated {ago(lastRefreshed)}
+      </span>
+      <button
+        type="button"
+        onClick={onRefresh}
+        className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+        title="Refresh now"
+      >
+        <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582M20 20v-5h-.581M4.582 9A8 8 0 0120 15M19.418 15A8 8 0 014 9" />
+        </svg>
+        Refresh
+      </button>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Main dashboard component
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -499,6 +542,16 @@ interface DetailItem {
 export function SalesmanDashboard({ orders, userName, embedded }: Props) {
   const [view, setView] = useState<'list' | 'new' | 'detail' | 'print'>('new')
   const router = useRouter()
+
+  // ── Auto-refresh (All Orders stays live) ──
+  const [lastRefreshed, setLastRefreshed] = useState<Date>(() => new Date())
+  const { refresh: rawRefresh } = useAutoRefresh(30_000)
+  const refresh = useCallback(() => {
+    rawRefresh()
+    setLastRefreshed(new Date())
+  }, [rawRefresh])
+  // Update lastRefreshed whenever orders prop changes (server pushed new data)
+  useEffect(() => { setLastRefreshed(new Date()) }, [orders])
 
   // ── Detail view state ──
   const [detailOrder, setDetailOrder] = useState<ExistingOrder | null>(null)
@@ -1181,6 +1234,9 @@ ${bills}
             {orderActionError && (
               <p className="text-sm text-red-600 bg-red-50 dark:bg-red-900/20 rounded-xl px-3 py-2">{orderActionError}</p>
             )}
+
+            {/* Live refresh indicator */}
+            <LiveBadge lastRefreshed={lastRefreshed} onRefresh={refresh} />
 
             {/* Filter + Sort bar (Compact & Sleek) */}
             {orders.length > 0 && (
