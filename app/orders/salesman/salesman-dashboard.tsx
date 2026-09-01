@@ -592,6 +592,9 @@ export function SalesmanDashboard({ orders, userName, embedded }: Props) {
   // ── Set confirmation dialog ──
   const [setConfirm, setSetConfirm] = useState(false)
 
+  // ── Single confirmation dialog ──
+  const [singleConfirm, setSingleConfirm] = useState(false)
+
   // ── Edit state ──
   const [editingLineId, setEditingLineId] = useState<string | null>(null)
 
@@ -718,6 +721,30 @@ export function SalesmanDashboard({ orders, userName, embedded }: Props) {
 
   function applyLastUsed() {
     if (lastUsedSet) setCurrentQties({ ...lastUsedSet })
+  }
+
+  // ── Apply single (qty 1 for every available size of the selected color) ──
+  function buildSingle(): Record<string, number> | null {
+    if (!selectedArt || !selectedColor) return null
+    const sizes = selectedArt.sizes.filter(s => s.articleId === selectedColor.articleId)
+    if (sizes.length === 0) return null
+    const result: Record<string, number> = {}
+    sizes.forEach(s => { result[s.sizeLabel] = 1 })
+    return result
+  }
+
+  function applySingle() {
+    const s = buildSingle()
+    if (!s) return
+    const hasAny = Object.values(currentQties).some(v => v > 0)
+    if (hasAny) { setSingleConfirm(true); return }
+    setCurrentQties(s)
+  }
+
+  function confirmApplySingle() {
+    const s = buildSingle()
+    if (s) setCurrentQties(s)
+    setSingleConfirm(false)
   }
 
   // ── Add / save current color to order ──
@@ -1724,6 +1751,14 @@ ${bills}
                           <div className="flex flex-wrap items-center gap-2">
                             <button
                               type="button"
+                              onClick={applySingle}
+                              disabled={!buildSingle()}
+                              className="rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium hover:bg-muted transition-colors disabled:opacity-40"
+                            >
+                              Single
+                            </button>
+                            <button
+                              type="button"
                               onClick={applyDefaultSet}
                               disabled={!buildDefaultSet()}
                               className="rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium hover:bg-muted transition-colors disabled:opacity-40"
@@ -2174,6 +2209,17 @@ ${bills}
           </div>
         )
       })()}
+
+      {/* ── Single confirmation dialog ── */}
+      {singleConfirm && (
+        <ConfirmDialog
+          title="Replace current quantities?"
+          message={<>This will set qty 1 for every size of <strong>{selectedColor?.colorName}</strong>.</>}
+          confirmLabel="Apply Single"
+          onCancel={() => setSingleConfirm(false)}
+          onConfirm={confirmApplySingle}
+        />
+      )}
 
       {/* ── Set confirmation dialog ── */}
       {setConfirm && (
