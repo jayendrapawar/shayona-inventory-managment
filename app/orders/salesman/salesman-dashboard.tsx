@@ -359,7 +359,7 @@ function SizeMatrix({ sizes, quantities, onChange }: SizeMatrixProps) {
 
   const colorTotal = sizes.reduce((s, sz) => s + (quantities[sz.sizeLabel] ?? 0), 0)
 
-  const gridCols = '5rem repeat(5, 2.5rem) 5rem 3.5rem'
+  const gridCols = '4.5rem repeat(5, 2.5rem) 3.5rem 3rem'
 
   return (
     <div className="space-y-2">
