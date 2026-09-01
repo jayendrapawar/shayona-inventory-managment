@@ -2,7 +2,7 @@
   "name": "Shayona Inventory",
   "short_name": "Shayona",
   "description": "Warehouse inventory scanning and management",
-  "start_url": "/orders",
+  "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait",
