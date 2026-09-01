@@ -7,6 +7,7 @@ import { eq } from 'drizzle-orm'
 import { isRedirectError } from 'next/dist/client/components/redirect-error'
 import { getSalesmanOrders, getPickerQueue, getPackedOrders } from '@/app/actions/orders'
 import { loadCatalogue } from '@/app/actions/catalogue'
+import { getGlobalNotes } from '@/app/actions/notes'
 import { MultiRoleOrdersHub } from './_components/multi-role-hub'
 
 export const metadata = {
@@ -83,8 +84,9 @@ export default async function OrdersPage() {
       )
     }
 
-    const [catalogue] = await Promise.all([
+    const [catalogue, initialNotes] = await Promise.all([
       loadCatalogue(),
+      getGlobalNotes(),
       ...promises,
     ])
 
@@ -97,6 +99,7 @@ export default async function OrdersPage() {
         currentPickerId={u?.id ?? session.user.id}
         dispatcherOrders={dispatcherOrders}
         catalogue={catalogue}
+        initialNotes={initialNotes}
       />
     )
   } catch (err) {

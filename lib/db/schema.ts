@@ -204,6 +204,23 @@ export const orderItems = pgTable('order_items', {
   updatedAt:        timestamp('updatedAt').notNull().defaultNow(),
 })
 
+// --- Global Notes (shared bulletin board, visible to all roles) ---
+
+export const globalNotes = pgTable('global_notes', {
+  id:        serial('id').primaryKey(),
+  content:   text('content').notNull(),
+  authorId:  text('authorId').references(() => user.id, { onDelete: 'set null' }),
+  authorName: text('authorName'),
+  pinned:    boolean('pinned').notNull().default(false),
+  createdAt: timestamp('createdAt').notNull().defaultNow(),
+  updatedAt: timestamp('updatedAt').notNull().defaultNow(),
+}, (t) => [
+  index('global_notes_created_at_idx').on(t.createdAt),
+])
+
+export type GlobalNote = typeof globalNotes.$inferSelect
+export type NewGlobalNote = typeof globalNotes.$inferInsert
+
 export type Order = typeof orders.$inferSelect
 export type NewOrder = typeof orders.$inferInsert
 export type OrderItem = typeof orderItems.$inferSelect

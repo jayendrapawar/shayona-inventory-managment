@@ -2,14 +2,15 @@
 
 import { useState, useCallback, useEffect } from 'react'
 import { PageNav } from '@/components/page-nav'
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { AdminDashboard } from './admin-dashboard'
 import { SalesmanDashboard } from '../salesman/salesman-dashboard'
 import { PickerDashboard } from '../picker/picker-dashboard'
 import { DispatcherDashboard } from '../dispatcher/dispatcher-dashboard'
 import { ProcurementSummary } from './procurement-summary'
+import { NotesDashboard } from '../_components/notes-dashboard'
 import type { ProcurementRow } from '@/app/actions/orders'
 import type { CatalogueData } from '@/app/actions/catalogue'
+import type { NoteRow } from '@/app/actions/notes'
 
 // ── Prop types (mirroring what each dashboard expects) ────────────────────────
 
@@ -79,7 +80,83 @@ interface Props {
   dispatchOrders: DispatchOrder[]
   procurementRows: ProcurementRow[]
   catalogue: CatalogueData
+  initialNotes: NoteRow[]
 }
+
+// ── Grid-based tab bar ────────────────────────────────────────────────────────
+// Mobile (<sm): responsive grid — 1→1col, 2→2col, 3→3col, 4→2×2, 5→3+2, 6→2×3
+// Desktop (sm+): original muted-pill segment control (TabsList/TabsTrigger)
+function gridColsClass(n: number): string {
+  if (n <= 3) return `grid-cols-${n}`
+  if (n === 4) return 'grid-cols-2'
+  return 'grid-cols-3'
+}
+
+interface Tab { value: string; label: string; icon?: React.ReactNode }
+
+function GridTabBar({
+  tabs,
+  active,
+  onChange,
+}: {
+  tabs: Tab[]
+  active: string
+  onChange: (v: string) => void
+}) {
+  const mobileGrid = gridColsClass(tabs.length)
+  return (
+    <>
+      {/* Mobile: grid layout */}
+      <div className={`grid ${mobileGrid} gap-1.5 mb-5 sm:hidden`}>
+        {tabs.map(tab => {
+          const isActive = tab.value === active
+          return (
+            <button
+              key={tab.value}
+              type="button"
+              onClick={() => onChange(tab.value)}
+              className={`rounded-xl border py-2.5 px-2 text-xs font-semibold text-center transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                isActive
+                  ? 'border-primary bg-primary text-primary-foreground shadow-sm'
+                  : 'border-border bg-card text-muted-foreground hover:bg-muted hover:text-foreground'
+              }`}
+            >
+              {tab.label}
+            </button>
+          )
+        })}
+      </div>
+
+      {/* Desktop: pill/segment control (matches TabsList/TabsTrigger visuals) */}
+      <div className="hidden sm:block mb-6">
+        <div
+          className="grid w-full items-center justify-center rounded-lg bg-muted p-[3px] text-muted-foreground"
+          style={{ gridTemplateColumns: `repeat(${tabs.length}, minmax(0, 1fr))` }}
+        >
+          {tabs.map(tab => {
+            const isActive = active === tab.value
+            return (
+              <button
+                key={tab.value}
+                type="button"
+                onClick={() => onChange(tab.value)}
+                className={`inline-flex items-center justify-center whitespace-nowrap rounded-md border border-transparent px-2 py-1.5 text-sm font-medium transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                  isActive
+                    ? 'bg-background text-foreground shadow-sm'
+                    : 'text-foreground/60 hover:text-foreground'
+                }`}
+              >
+                {tab.label}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+    </>
+  )
+}
+
+// ── Hub ───────────────────────────────────────────────────────────────────────
 
 export function AdminHub({
   adminName,
@@ -94,6 +171,7 @@ export function AdminHub({
   dispatchOrders,
   procurementRows,
   catalogue,
+  initialNotes,
 }: Props) {
   // Shared picker assignment map — owned here so Overview + Picker tab stay in sync
   const [sharedPickerMap, setSharedPickerMap] = useState<Record<number, string>>(() =>
@@ -113,13 +191,16 @@ export function AdminHub({
   const showPicker     = !isAccountant || userRoles.includes('picker')
   const showDispatcher = !isAccountant || userRoles.includes('dispatcher')
 
-  const VALID_TABS = [
-    'overview',
-    'salesman',
-    showPicker     && 'picker',
-    showDispatcher && 'dispatcher',
-    'procurement',
-  ].filter(Boolean) as string[]
+  const TABS: Tab[] = [
+    { value: 'overview',     label: 'Overview' },
+    { value: 'salesman',     label: 'Salesman' },
+    ...(showPicker     ? [{ value: 'picker',      label: 'Picker' }]      : []),
+    ...(showDispatcher ? [{ value: 'dispatcher',  label: 'Dispatcher' }]  : []),
+    { value: 'procurement',  label: 'Procurement' },
+    { value: 'notes',        label: 'Notes' },
+  ]
+
+  const VALID_TABS = TABS.map(t => t.value)
   const [activeTab, setActiveTab] = useState('overview')
 
   useEffect(() => {
@@ -149,65 +230,62 @@ export function AdminHub({
           <PageNav />
         </div>
 
-        {/* Tabs */}
-        <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
-          <div className="overflow-x-auto mb-6">
-          <TabsList className="flex w-max min-w-full h-auto p-[3px]">
-            <TabsTrigger value="overview"    className="flex-1 text-xs px-3 py-1.5 whitespace-nowrap">Overview</TabsTrigger>
-            <TabsTrigger value="salesman"    className="flex-1 text-xs px-3 py-1.5 whitespace-nowrap">Salesman</TabsTrigger>
-            {showPicker     && <TabsTrigger value="picker"      className="flex-1 text-xs px-3 py-1.5 whitespace-nowrap">Picker</TabsTrigger>}
-            {showDispatcher && <TabsTrigger value="dispatcher"  className="flex-1 text-xs px-3 py-1.5 whitespace-nowrap">Dispatcher</TabsTrigger>}
-            <TabsTrigger value="procurement" className="flex-1 text-xs px-3 py-1.5 whitespace-nowrap">Procurement</TabsTrigger>
-          </TabsList>
-          </div>
+        {/* Tab bar — grid on mobile, row on desktop */}
+        <GridTabBar tabs={TABS} active={activeTab} onChange={handleTabChange} />
 
-          {/* ── Overview ── */}
-          <TabsContent value="overview">
-            <AdminDashboard
-              stats={stats}
-              orders={allOrders}
-              pickers={pickers}
-              embedded
-              readOnly={isAccountant}
-              pickerMapOverride={sharedPickerMap}
-              onPickerChange={handlePickerChange}
-            />
-          </TabsContent>
+        {/* Tab content */}
+        {activeTab === 'overview' && (
+          <AdminDashboard
+            stats={stats}
+            orders={allOrders}
+            pickers={pickers}
+            embedded
+            readOnly={isAccountant}
+            pickerMapOverride={sharedPickerMap}
+            onPickerChange={handlePickerChange}
+          />
+        )}
 
-          <TabsContent value="salesman">
-            <SalesmanDashboard orders={salesmanOrders} userName={adminName} embedded catalogue={catalogue} />
-          </TabsContent>
+        {activeTab === 'salesman' && (
+          <SalesmanDashboard orders={salesmanOrders} userName={adminName} embedded catalogue={catalogue} />
+        )}
 
-          {showPicker && (
-          <TabsContent value="picker">
-            <PickerDashboard
-              queue={pickerQueue}
-              currentPickerId={adminId}
-              embedded
-              onPickerChange={handlePickerChange}
-            />
-          </TabsContent>
-          )}
+        {showPicker && activeTab === 'picker' && (
+          <PickerDashboard
+            queue={pickerQueue}
+            currentPickerId={adminId}
+            embedded
+            onPickerChange={handlePickerChange}
+          />
+        )}
 
-          {showDispatcher && (
-          <TabsContent value="dispatcher">
-            <DispatcherDashboard orders={dispatchOrders} currentDispatcherId={adminId} embedded />
-          </TabsContent>
-          )}
+        {showDispatcher && activeTab === 'dispatcher' && (
+          <DispatcherDashboard orders={dispatchOrders} currentDispatcherId={adminId} embedded />
+        )}
 
-          {/* ── Procurement ── */}
-          <TabsContent value="procurement">
-            <div className="rounded-xl border border-border bg-card p-4">
-              <div className="mb-4">
-                <h2 className="text-sm font-semibold text-foreground">Procurement Requirements</h2>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Total pairs needed per article · colour · vendor — use these numbers to place upstream orders.
-                </p>
-              </div>
-              <ProcurementSummary initialRows={procurementRows} />
+        {activeTab === 'procurement' && (
+          <div className="rounded-xl border border-border bg-card p-4">
+            <div className="mb-4">
+              <h2 className="text-sm font-semibold text-foreground">Procurement Requirements</h2>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Total pairs needed per article · colour · vendor — use these numbers to place upstream orders.
+              </p>
             </div>
-          </TabsContent>
-        </Tabs>
+            <ProcurementSummary initialRows={procurementRows} />
+          </div>
+        )}
+
+        {activeTab === 'notes' && (
+          <div className="rounded-xl border border-border bg-card p-4">
+            <div className="mb-4">
+              <h2 className="text-sm font-semibold text-foreground">Notes</h2>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Shared notes visible to all users and roles. Pin important items to keep them at the top.
+              </p>
+            </div>
+            <NotesDashboard initialNotes={initialNotes} />
+          </div>
+        )}
 
       </div>
     </div>
