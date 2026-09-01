@@ -837,29 +837,56 @@ export function SalesmanDashboard({ orders, userName, embedded, catalogue: serve
     setMatrixKey(k => k + 1)
   }
 
-  // ── Next Article — save current color (if any qty entered) then jump to article search ──
+  // ── Next Article — save ALL colors with qty > 0 for this article, then jump to article search ──
   function handleNextArticle() {
-    // Save current color to the order if a color is selected and has qty > 0
-    if (selectedArt && selectedColorId != null && selectedColor && currentColorTotal > 0) {
-      const qties = { ...currentQties }
-      const existingIdx = lines.findIndex(
-        l => l.articleId === selectedArt.id && l.colorId === selectedColorId
-      )
-      const editIdx = editingLineId ? lines.findIndex(l => l.id === editingLineId) : -1
-      if (editIdx !== -1) {
-        setLines(prev => prev.map(l => l.id === editingLineId ? { ...l, quantities: qties } : l))
-        setEditingLineId(null)
-      } else if (existingIdx !== -1) {
-        setLines(prev => prev.map((l, i) => i !== existingIdx ? l : { ...l, quantities: qties }))
-      } else {
-        setLines(prev => [...prev, {
-          id: uid(), articleId: selectedArt.id, artNumber: selectedArt.artNumber,
-          colorId: selectedColorId, colorName: selectedColor.colorName,
-          colorHex: selectedColor.colorHex, sizes: selectedArt.sizes, quantities: qties,
-        }])
-      }
-      setLastUsedSet(qties)
+    if (selectedArt) {
+      let lastQties: Record<string, number> | null = null
+
+      setLines(prev => {
+        let next = [...prev]
+
+        // Flush every color that has at least 1 pair entered
+        for (const [colorIdStr, qties] of Object.entries(colorQuantities)) {
+          const colorId = Number(colorIdStr)
+          const total = Object.values(qties).reduce((s, n) => s + n, 0)
+          if (total === 0) continue
+
+          const colorObj = selectedArt.colors.find(c => c.id === colorId)
+          if (!colorObj) continue
+
+          lastQties = qties
+
+          // If we're editing a specific line and this is that color, update it
+          const editIdx = editingLineId ? next.findIndex(l => l.id === editingLineId && l.colorId === colorId) : -1
+          if (editIdx !== -1) {
+            next = next.map(l => l.id === editingLineId ? { ...l, quantities: { ...qties } } : l)
+          } else {
+            const existingIdx = next.findIndex(
+              l => l.articleId === selectedArt.id && l.colorId === colorId
+            )
+            if (existingIdx !== -1) {
+              next = next.map((l, i) => i !== existingIdx ? l : { ...l, quantities: { ...qties } })
+            } else {
+              next = [...next, {
+                id: uid(),
+                articleId: selectedArt.id,
+                artNumber: selectedArt.artNumber,
+                colorId,
+                colorName: colorObj.colorName,
+                colorHex: colorObj.colorHex,
+                sizes: selectedArt.sizes,
+                quantities: { ...qties },
+              }]
+            }
+          }
+        }
+
+        return next
+      })
+
+      if (lastQties) setLastUsedSet(lastQties)
     }
+
     // Clear article and focus the search input
     setArtQuery('')
     setArtResults([])
