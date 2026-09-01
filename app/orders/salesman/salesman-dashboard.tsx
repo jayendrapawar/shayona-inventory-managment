@@ -359,13 +359,13 @@ function SizeMatrix({ sizes, quantities, onChange }: SizeMatrixProps) {
 
   const colorTotal = sizes.reduce((s, sz) => s + (quantities[sz.sizeLabel] ?? 0), 0)
 
-  const gridCols = '4.5rem repeat(5, 2.5rem) 3.5rem 3rem'
+  const gridCols = 'auto repeat(5, 2.5rem) 3.5rem 3rem'
 
   return (
     <div className="space-y-2">
       {/* Header row */}
-      <div className="grid items-center gap-1" style={{ gridTemplateColumns: gridCols }}>
-        <span className="text-xs font-medium text-muted-foreground">Size</span>
+      <div className="grid items-center gap-y-0 gap-x-1" style={{ gridTemplateColumns: gridCols }}>
+        <span className="text-xs font-medium text-muted-foreground pr-1">Size</span>
         {QUICK_QTYS.map(q => (
           <span key={q} className="text-xs font-medium text-muted-foreground text-center">{q}</span>
         ))}
@@ -380,10 +380,10 @@ function SizeMatrix({ sizes, quantities, onChange }: SizeMatrixProps) {
         return (
           <div
             key={sz.id}
-            className="grid items-center gap-1 rounded-lg py-1"
+            className="grid items-center gap-y-0 gap-x-1 rounded-lg py-1"
             style={{ gridTemplateColumns: gridCols }}
           >
-            <span className="text-sm font-medium text-foreground truncate">{sz.sizeLabel}</span>
+            <span className="text-sm font-medium text-foreground truncate pr-1">{sz.sizeLabel}</span>
             {QUICK_QTYS.map(q => {
               const isActive = !isManual && current === q
               // Active chip = green outline only. All other chips = normal grey.
