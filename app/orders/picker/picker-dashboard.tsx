@@ -441,50 +441,48 @@ export function PickerDashboard({ queue: initialQueue, currentPickerId, embedded
                               </div>
                             )
                           ) : (
-                            <div className="space-y-1.5">
-                              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Packed qty</p>
-                              <div className="flex flex-wrap items-center gap-1.5">
+                            <div className="flex items-center gap-1 overflow-x-auto">
+                              <span className="shrink-0 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mr-0.5">Qty</span>
+                              <button
+                                type="button"
+                                onClick={() => stageQty(0)}
+                                disabled={isPending}
+                                className={`shrink-0 w-7 h-7 rounded-md border text-xs font-semibold transition-colors disabled:opacity-40 ${
+                                  selected === 0
+                                    ? 'border-red-400 bg-red-400 text-white shadow-sm'
+                                    : 'border-red-200 dark:border-red-800 bg-background text-red-500 hover:border-red-400 hover:bg-red-50 dark:hover:bg-red-950/20'
+                                }`}
+                              >
+                                0
+                              </button>
+                              {chips.map(n => (
                                 <button
+                                  key={n}
                                   type="button"
-                                  onClick={() => stageQty(0)}
+                                  onClick={() => stageQty(n)}
                                   disabled={isPending}
-                                  className={`min-w-[2.25rem] h-8 rounded-lg border px-2 text-sm font-semibold transition-colors disabled:opacity-40 ${
-                                    selected === 0
-                                      ? 'border-red-400 bg-red-400 text-white shadow-sm'
-                                      : 'border-red-200 dark:border-red-800 bg-background text-red-500 hover:border-red-400 hover:bg-red-50 dark:hover:bg-red-950/20'
+                                  className={`shrink-0 w-7 h-7 rounded-md border text-xs font-semibold transition-colors disabled:opacity-40 ${
+                                    selected === n
+                                      ? 'border-orange-400 bg-orange-400 text-white shadow-sm'
+                                      : 'border-border bg-background text-foreground hover:border-orange-300 hover:bg-orange-50 dark:hover:bg-orange-950/20'
                                   }`}
                                 >
-                                  0
+                                  {n}
                                 </button>
-                                {chips.map(n => (
-                                  <button
-                                    key={n}
-                                    type="button"
-                                    onClick={() => stageQty(n)}
-                                    disabled={isPending}
-                                    className={`min-w-[2.25rem] h-8 rounded-lg border px-2 text-sm font-semibold transition-colors disabled:opacity-40 ${
-                                      selected === n
-                                        ? 'border-orange-400 bg-orange-400 text-white shadow-sm'
-                                        : 'border-border bg-background text-foreground hover:border-orange-300 hover:bg-orange-50 dark:hover:bg-orange-950/20'
-                                    }`}
-                                  >
-                                    {n}
-                                  </button>
-                                ))}
-                                <input
-                                  type="number"
-                                  min={0}
-                                  placeholder="…"
-                                  value={customDraft[item.id] ?? ''}
-                                  onChange={e => {
-                                    setCustomDraft(prev => ({ ...prev, [item.id]: e.target.value }))
-                                    setPending(prev => { const n = { ...prev }; delete n[item.id]; return n })
-                                  }}
-                                  onKeyDown={e => { if (e.key === 'Enter') confirmQty() }}
-                                  disabled={isPending}
-                                  className="w-14 h-8 rounded-lg border border-border bg-background px-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-orange-400 placeholder:text-muted-foreground disabled:opacity-40"
-                                />
-                              </div>
+                              ))}
+                              <input
+                                type="number"
+                                min={0}
+                                placeholder="…"
+                                value={customDraft[item.id] ?? ''}
+                                onChange={e => {
+                                  setCustomDraft(prev => ({ ...prev, [item.id]: e.target.value }))
+                                  setPending(prev => { const n = { ...prev }; delete n[item.id]; return n })
+                                }}
+                                onKeyDown={e => { if (e.key === 'Enter') confirmQty() }}
+                                disabled={isPending}
+                                className="shrink-0 w-10 h-7 rounded-md border border-border bg-background px-1 text-xs text-center focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-orange-400 placeholder:text-muted-foreground disabled:opacity-40"
+                              />
                             </div>
                           )}
                         </div>

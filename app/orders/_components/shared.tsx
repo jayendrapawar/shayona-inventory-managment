@@ -89,9 +89,9 @@ export function PageHeader({ title, subtitle, back }: { title: string; subtitle?
 
 export function StatCard({ label, value, color }: { label: string; value: number | string; color?: string }) {
   return (
-    <div className="rounded-xl border border-border bg-card p-4">
-      <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">{label}</p>
-      <p className={`text-2xl font-bold mt-1 ${color ?? 'text-foreground'}`}>{value}</p>
+    <div className="rounded-xl border border-border bg-card p-2.5 sm:p-4">
+      <p className="text-[10px] sm:text-xs text-muted-foreground font-medium uppercase tracking-wide truncate">{label}</p>
+      <p className={`text-xl sm:text-2xl font-bold mt-0.5 sm:mt-1 tabular-nums ${color ?? 'text-foreground'}`}>{value}</p>
     </div>
   )
 }

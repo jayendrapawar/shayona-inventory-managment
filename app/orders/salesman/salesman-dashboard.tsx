@@ -249,92 +249,94 @@ function OrderItemsCard({ lines, editingLineId, onEdit, onDeselect, onDelete }: 
   const totalPairs = lines.reduce((s, l) => s + Object.values(l.quantities).reduce((a, b) => a + b, 0), 0)
 
   return (
-    <table className="w-full text-sm border-collapse">
-      {/* Header */}
-      <thead>
-        <tr className="border-b border-border/50 bg-muted/20">
-          <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground w-28 border-r border-border/40">Article</th>
-          <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground w-32 border-r border-border/40">Color</th>
-          <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground border-r border-border/40">Size / Qty</th>
-          <th className="w-12" />
-        </tr>
-      </thead>
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm border-collapse" ref={tableRef}>
+        {/* Header */}
+        <thead>
+          <tr className="border-b border-border/50 bg-muted/20">
+            <th className="text-left px-3 py-2 text-xs font-medium text-muted-foreground border-r border-border/40 whitespace-nowrap">Article</th>
+            <th className="text-left px-3 py-2 text-xs font-medium text-muted-foreground border-r border-border/40 whitespace-nowrap">Color</th>
+            <th className="text-left px-3 py-2 text-xs font-medium text-muted-foreground border-r border-border/40 whitespace-nowrap">Size / Qty</th>
+            <th className="w-8" />
+          </tr>
+        </thead>
 
-      <tbody>
-        {groups.map(group =>
-          group.lines.map((line, lineIdx) => {
-            const isFirst = lineIdx === 0
-            const isEditing = editingLineId === line.id
-            const sizeCols = line.sizes
-              .filter((sz, i, arr) => arr.findIndex(s => s.sizeLabel === sz.sizeLabel) === i)
-              .filter(sz => (line.quantities[sz.sizeLabel] ?? 0) > 0)
+        <tbody>
+          {groups.map(group =>
+            group.lines.map((line, lineIdx) => {
+              const isFirst = lineIdx === 0
+              const isEditing = editingLineId === line.id
+              const sizeCols = line.sizes
+                .filter((sz, i, arr) => arr.findIndex(s => s.sizeLabel === sz.sizeLabel) === i)
+                .filter(sz => (line.quantities[sz.sizeLabel] ?? 0) > 0)
 
-            return (
-              <tr
-                key={line.id}
-                onClick={() => isEditing ? onDeselect() : onEdit(line)}
-                className={`border-b border-border/40 transition-colors cursor-pointer group ${
-                  isEditing ? 'bg-amber-50/40 dark:bg-amber-900/10' : 'hover:bg-primary/5'
-                }`}
-              >
-                {/* Article cell — only shown on first row of group */}
-                <td className="px-4 py-3 align-top border-r border-border/40">
-                  {isFirst && (
-                    <span className="font-bold text-sm text-foreground">{group.artNumber}</span>
-                  )}
-                </td>
+              return (
+                <tr
+                  key={line.id}
+                  onClick={() => isEditing ? onDeselect() : onEdit(line)}
+                  className={`border-b border-border/40 transition-colors cursor-pointer group ${
+                    isEditing ? 'bg-amber-50/40 dark:bg-amber-900/10' : 'hover:bg-primary/5'
+                  }`}
+                >
+                  {/* Article cell — only shown on first row of group */}
+                  <td className="px-3 py-2.5 align-top border-r border-border/40 whitespace-nowrap">
+                    {isFirst && (
+                      <span className="font-bold text-xs text-foreground">{group.artNumber}</span>
+                    )}
+                  </td>
 
-                {/* Color */}
-                <td className="px-4 py-3 align-middle border-r border-border/40">
-                  <div className="flex items-center gap-1.5">
-                    <span
-                      className="w-2.5 h-2.5 rounded-full border border-border/60 flex-shrink-0"
-                      style={{ background: swatch(line.colorHex, line.colorName) }}
-                      aria-hidden
-                    />
-                    <span className="font-medium text-foreground uppercase tracking-wide text-xs">
-                      {line.colorName}
-                    </span>
-                  </div>
-                </td>
-
-                {/* Size / Qty */}
-                <td className="px-4 py-3 align-middle border-r border-border/40">
-                  <span className="flex flex-wrap gap-x-3 gap-y-1">
-                    {sizeCols.map(sz => (
-                      <span key={sz.sizeLabel} className="text-sm text-muted-foreground">
-                        {sz.sizeLabel}/<span className="font-bold text-foreground">{line.quantities[sz.sizeLabel]}</span>
+                  {/* Color */}
+                  <td className="px-3 py-2.5 align-middle border-r border-border/40 whitespace-nowrap">
+                    <div className="flex items-center gap-1.5">
+                      <span
+                        className="w-2.5 h-2.5 rounded-full border border-border/60 flex-shrink-0"
+                        style={{ background: swatch(line.colorHex, line.colorName) }}
+                        aria-hidden
+                      />
+                      <span className="font-medium text-foreground uppercase tracking-wide text-xs">
+                        {line.colorName}
                       </span>
-                    ))}
-                  </span>
-                </td>
+                    </div>
+                  </td>
 
-                {/* Delete — stop propagation so row click doesn't also fire */}
-                <td className="px-3 py-3 align-middle text-center" onClick={e => e.stopPropagation()}>
-                  <button
-                    type="button"
-                    onClick={() => onDelete(line.id)}
-                    className="text-muted-foreground hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
-                    aria-label={`Remove ${line.artNumber} ${line.colorName}`}
-                  >
-                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
-                </td>
-              </tr>
-            )
-          })
-        )}
+                  {/* Size / Qty */}
+                  <td className="px-3 py-2.5 align-middle border-r border-border/40">
+                    <span className="flex flex-wrap gap-x-2 gap-y-0.5">
+                      {sizeCols.map(sz => (
+                        <span key={sz.sizeLabel} className="text-xs text-muted-foreground whitespace-nowrap">
+                          {sz.sizeLabel}/<span className="font-bold text-foreground">{line.quantities[sz.sizeLabel]}</span>
+                        </span>
+                      ))}
+                    </span>
+                  </td>
 
-        {/* Total row */}
-        <tr className="border-t border-border/60 bg-muted/20">
-          <td colSpan={2} className="px-4 py-2.5 text-right text-xs text-muted-foreground border-r border-border/40">Total</td>
-          <td className="px-4 py-2.5 text-sm font-bold text-foreground border-r border-border/40">{totalPairs}</td>
-          <td />
-        </tr>
-      </tbody>
-    </table>
+                  {/* Delete — stop propagation so row click doesn't also fire */}
+                  <td className="px-2 py-2.5 align-middle text-center" onClick={e => e.stopPropagation()}>
+                    <button
+                      type="button"
+                      onClick={() => onDelete(line.id)}
+                      className="text-muted-foreground hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
+                      aria-label={`Remove ${line.artNumber} ${line.colorName}`}
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </td>
+                </tr>
+              )
+            })
+          )}
+
+          {/* Total row */}
+          <tr className="border-t border-border/60 bg-muted/20">
+            <td colSpan={2} className="px-3 py-2 text-right text-xs text-muted-foreground border-r border-border/40">Total</td>
+            <td className="px-3 py-2 text-sm font-bold text-foreground border-r border-border/40">{totalPairs}</td>
+            <td />
+          </tr>
+        </tbody>
+      </table>
+    </div>
   )
 }
 
@@ -374,18 +376,19 @@ function SizeMatrix({ sizes, quantities, onChange }: SizeMatrixProps) {
 
   const colorTotal = sizes.reduce((s, sz) => s + (quantities[sz.sizeLabel] ?? 0), 0)
 
-  const gridCols = 'auto repeat(5, 2.5rem) 3.5rem 3rem'
+  // Responsive column sizes: on very small screens chips shrink to 2rem, on sm+ stay 2.5rem
+  const gridCols = 'minmax(2rem,auto) repeat(5, minmax(0,2.5rem)) minmax(0,3.5rem) 2.5rem'
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-1">
       {/* Header row */}
       <div className="grid items-center gap-y-0 gap-x-1" style={{ gridTemplateColumns: gridCols }}>
-        <span className="text-xs font-medium text-muted-foreground pr-1">Size</span>
+        <span className="text-xs font-medium text-muted-foreground leading-tight">Size</span>
         {QUICK_QTYS.map(q => (
           <span key={q} className="text-xs font-medium text-muted-foreground text-center">{q}</span>
         ))}
-        <span className="text-xs font-medium text-muted-foreground text-center">Manual</span>
-        <span className="text-xs font-medium text-muted-foreground text-center">Total</span>
+        <span className="text-xs font-medium text-muted-foreground text-center">Qty</span>
+        <span className="text-xs font-medium text-muted-foreground text-center">=</span>
       </div>
 
       {/* Size rows */}
@@ -395,10 +398,10 @@ function SizeMatrix({ sizes, quantities, onChange }: SizeMatrixProps) {
         return (
           <div
             key={sz.id}
-            className="grid items-center gap-y-0 gap-x-1 rounded-lg py-1"
+            className="grid items-center gap-y-0 gap-x-1 rounded-lg py-0.5"
             style={{ gridTemplateColumns: gridCols }}
           >
-            <span className="text-sm font-medium text-foreground truncate pr-1">{sz.sizeLabel}</span>
+            <span className="text-sm font-medium text-foreground truncate pr-1 leading-tight">{sz.sizeLabel}</span>
             {QUICK_QTYS.map(q => {
               const isActive = !isManual && current === q
               // Active chip = green outline only. All other chips = normal grey.
@@ -412,7 +415,7 @@ function SizeMatrix({ sizes, quantities, onChange }: SizeMatrixProps) {
                   aria-label={`Set ${sz.sizeLabel} to ${q}`}
                   aria-pressed={isActive}
                   onClick={() => handleQuickClick(sz.sizeLabel, q)}
-                  className={`h-9 w-9 rounded-lg text-sm font-semibold border transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring ${chipClass}`}
+                  className={`h-8 w-full rounded-lg text-sm font-semibold border transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring ${chipClass}`}
                 >
                   {q}
                 </button>
@@ -426,13 +429,13 @@ function SizeMatrix({ sizes, quantities, onChange }: SizeMatrixProps) {
               placeholder="0"
               onChange={e => handleManualChange(sz.sizeLabel, e.target.value)}
               onFocus={() => setManualActive(prev => ({ ...prev, [sz.sizeLabel]: true }))}
-              className={`h-9 w-full rounded-lg border text-sm text-center font-medium bg-background focus:outline-none focus:ring-2 focus:ring-ring transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${
+              className={`h-8 w-full rounded-lg border text-xs text-center font-medium bg-background focus:outline-none focus:ring-2 focus:ring-ring transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${
                 (isManual && current > 0) || current > 5
                   ? 'border-green-400 text-green-700 dark:text-green-400 dark:border-green-600'
                   : 'border-border text-muted-foreground'
               }`}
             />
-            <span className={`text-sm font-bold text-center ${current > 0 ? 'text-foreground' : 'text-muted-foreground'}`}>
+            <span className={`text-xs font-bold text-center ${current > 0 ? 'text-foreground' : 'text-muted-foreground'}`}>
               {current}
             </span>
           </div>
@@ -1300,7 +1303,7 @@ ${bills}
         </div>
 
         {/* Tab bar */}
-        <div className="flex gap-1 border-b border-border mb-6">
+        <div className="flex border-b border-border mb-6">
           {(['list', 'new', 'print'] as const)
             .map(t => (
             <button key={t} type="button"
@@ -1309,7 +1312,7 @@ ${bills}
                 if (t === 'list') resetForm()
                 if (t === 'print') { setPrintSelectedIds(new Set()); setPrintItemsMap({}) }
               }}
-              className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px ${
+              className={`flex-1 px-2 py-2 text-xs sm:text-sm font-medium transition-colors border-b-2 -mb-px whitespace-nowrap ${
                 (view === t || (view === 'detail' && t === 'list')) ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'
               }`}>
               {t === 'list' ? 'All Orders' : t === 'new' ? 'New Order' : 'Print Orders'}
@@ -1502,12 +1505,13 @@ ${bills}
                   colorGroups: Array.from(colorMap.entries()).map(([color, items]) => ({ color, items })),
                 }))
                 return (
+                  <div className="overflow-x-auto">
                   <table className="w-full text-sm border-collapse">
                     <thead className="bg-muted/20 border-b border-border">
                       <tr>
-                        <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground w-24">Article</th>
-                        <th className="text-left px-3 py-2.5 text-xs font-medium text-muted-foreground w-28">Color</th>
-                        <th className="text-left px-3 py-2.5 text-xs font-medium text-muted-foreground">
+                        <th className="text-left px-3 py-2 text-xs font-medium text-muted-foreground whitespace-nowrap">Article</th>
+                        <th className="text-left px-3 py-2 text-xs font-medium text-muted-foreground whitespace-nowrap">Color</th>
+                        <th className="text-left px-3 py-2 text-xs font-medium text-muted-foreground whitespace-nowrap">
                           {showPacked
                             ? <>Size <span className="ml-1 text-[10px] font-normal text-muted-foreground/60">ord→pkd</span></>
                             : 'Size / Qty'}
@@ -1587,6 +1591,7 @@ ${bills}
                       </tr>
                     </tfoot>
                   </table>
+                  </div>
                 )
               })()}
             </div>
@@ -1799,22 +1804,22 @@ ${bills}
 
                     {/* Size matrix for selected color — filtered to this color's articleId */}
                     {selectedColor && selectedArt.sizes.filter(s => s.articleId === selectedColor.articleId).length > 0 && (
-                      <div className="rounded-xl border border-border bg-background p-4 space-y-4">
-                        {/* Color header */}
-                        <div className="flex items-center justify-between flex-wrap gap-2">
-                          <div className="flex items-center gap-2">
+                      <div className="rounded-xl border border-border bg-background p-3 space-y-3">
+                        {/* Color header — name left, set-buttons right; on narrow screens buttons wrap below */}
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <div className="flex items-center gap-2 min-w-0 flex-1">
                             <span className="w-4 h-4 rounded-full border border-border flex-shrink-0"
                               style={{ background: swatch(selectedColor.colorHex, selectedColor.colorName) }} aria-hidden />
-                            <span className="text-sm font-semibold text-foreground">Color: {selectedColor.colorName}</span>
+                            <span className="text-sm font-semibold text-foreground truncate">Color: {selectedColor.colorName}</span>
                           </div>
 
-                          {/* Set buttons */}
-                          <div className="flex flex-wrap items-center gap-2">
+                          {/* Set buttons — compact, never overflow their row */}
+                          <div className="flex items-center gap-1.5 flex-shrink-0">
                             <button
                               type="button"
                               onClick={applySingle}
                               disabled={!buildSingle()}
-                              className="rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium hover:bg-muted transition-colors disabled:opacity-40"
+                              className="rounded-lg border border-border bg-background px-2.5 py-1 text-xs font-medium hover:bg-muted transition-colors disabled:opacity-40"
                             >
                               Single
                             </button>
@@ -1822,7 +1827,7 @@ ${bills}
                               type="button"
                               onClick={applyDefaultSet}
                               disabled={!buildDefaultSet()}
-                              className="rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium hover:bg-muted transition-colors disabled:opacity-40"
+                              className="rounded-lg border border-border bg-background px-2.5 py-1 text-xs font-medium hover:bg-muted transition-colors disabled:opacity-40"
                             >
                               {DEFAULT_SET_LABEL}
                             </button>
@@ -1833,33 +1838,31 @@ ${bills}
                               title={lastUsedSet
                                 ? `Restore: ${Object.entries(lastUsedSet).filter(([,v])=>v>0).map(([k,v])=>`${k}/${v}`).join(', ')}`
                                 : 'No previous set'}
-                              className="rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium hover:bg-muted transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                              className="rounded-lg border border-border bg-background px-2.5 py-1 text-xs font-medium hover:bg-muted transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                             >
                               Last Used
                             </button>
                           </div>
                         </div>
 
-                        <div className="overflow-x-auto">
-                          <SizeMatrix
-                            key={matrixKey}
-                            sizes={selectedArt.sizes.filter(s => s.articleId === selectedColor.articleId)}
-                            quantities={currentQties}
-                            onChange={setCurrentQties}
-                          />
-                        </div>
+                        <SizeMatrix
+                          key={matrixKey}
+                          sizes={selectedArt.sizes.filter(s => s.articleId === selectedColor.articleId)}
+                          quantities={currentQties}
+                          onChange={setCurrentQties}
+                        />
 
                         {/* Error for this section */}
                         {error && (
                           <p className="text-sm text-red-600 bg-red-50 dark:bg-red-900/20 rounded-lg px-3 py-2">{error}</p>
                         )}
 
-                        {/* Add to Order + Next Article */}
-                        <div className="flex items-center justify-end gap-2">
+                        {/* Add to Order + Next Article — full-width on mobile, auto-width on wider */}
+                        <div className="flex items-center gap-2 pt-1">
                           <button
                             type="button"
                             onClick={handleNextArticle}
-                            className="flex items-center gap-1.5 rounded-xl border border-border bg-background px-4 py-2.5 text-sm font-semibold text-foreground hover:bg-muted transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 rounded-xl border border-border bg-background px-4 py-2.5 text-sm font-semibold text-foreground hover:bg-muted transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                           >
                             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
@@ -1870,7 +1873,7 @@ ${bills}
                             type="button"
                             onClick={handleAddToOrder}
                             disabled={currentColorTotal === 0}
-                            className="flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            className="flex-1 sm:flex-none flex items-center justify-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                           >
                             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -2082,20 +2085,20 @@ ${bills}
 
       {/* ── Sticky bottom actions (new order only) ── */}
       {view === 'new' && (
-        <div className="fixed bottom-0 left-0 right-0 z-20 bg-background/95 backdrop-blur border-t border-border pb-4">
-          <div className="max-w-4xl mx-auto px-4 py-3 flex gap-3 items-center">
+        <div className="fixed bottom-0 left-0 right-0 z-20 bg-background/95 backdrop-blur border-t border-border pb-safe">
+          <div className="max-w-4xl mx-auto px-3 sm:px-4 py-2.5 sm:py-3 flex gap-2 items-center">
             {lines.length > 0 && (
-              <div className="flex gap-4 mr-auto text-sm">
-                <span className="text-muted-foreground">{lines.length} line{lines.length !== 1 ? 's' : ''}</span>
-                <span className="font-semibold text-foreground">{totalPairs} pairs</span>
+              <div className="flex gap-2 sm:gap-4 mr-auto text-xs sm:text-sm min-w-0 shrink">
+                <span className="text-muted-foreground whitespace-nowrap">{lines.length} line{lines.length !== 1 ? 's' : ''}</span>
+                <span className="font-semibold text-foreground whitespace-nowrap">{totalPairs} pairs</span>
               </div>
             )}
             <button type="button" onClick={() => { setView('list'); resetForm() }}
-              className="rounded-xl border border-border px-5 py-2.5 text-sm font-medium hover:bg-muted transition-colors">
+              className="shrink-0 rounded-xl border border-border px-3 sm:px-5 py-2.5 text-sm font-medium hover:bg-muted transition-colors">
               Cancel
             </button>
             <button type="submit" form="new-order-form" disabled={!canSubmit}
-              className="rounded-xl bg-primary px-6 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+              className="shrink-0 rounded-xl bg-primary px-4 sm:px-6 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring">
               {isPending ? (editingOrderId != null ? 'Saving…' : 'Creating…') : (editingOrderId != null ? 'Save Changes' : 'Create Order')}
             </button>
           </div>

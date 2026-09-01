@@ -151,16 +151,15 @@ export function AdminHub({
 
         {/* Tabs */}
         <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
-          <TabsList
-            className="grid w-full mb-6"
-            style={{ gridTemplateColumns: `repeat(${VALID_TABS.length}, minmax(0, 1fr))` }}
-          >
-            <TabsTrigger value="overview"    className="text-xs sm:text-sm">Overview</TabsTrigger>
-              <TabsTrigger value="salesman"    className="text-xs sm:text-sm">Salesman</TabsTrigger>
-              {showPicker     && <TabsTrigger value="picker"      className="text-xs sm:text-sm">Picker</TabsTrigger>}
-              {showDispatcher && <TabsTrigger value="dispatcher"  className="text-xs sm:text-sm">Dispatcher</TabsTrigger>}
-              <TabsTrigger value="procurement" className="text-xs sm:text-sm">Procurement</TabsTrigger>
+          <div className="overflow-x-auto mb-6">
+          <TabsList className="flex w-max min-w-full h-auto p-[3px]">
+            <TabsTrigger value="overview"    className="flex-1 text-xs px-3 py-1.5 whitespace-nowrap">Overview</TabsTrigger>
+            <TabsTrigger value="salesman"    className="flex-1 text-xs px-3 py-1.5 whitespace-nowrap">Salesman</TabsTrigger>
+            {showPicker     && <TabsTrigger value="picker"      className="flex-1 text-xs px-3 py-1.5 whitespace-nowrap">Picker</TabsTrigger>}
+            {showDispatcher && <TabsTrigger value="dispatcher"  className="flex-1 text-xs px-3 py-1.5 whitespace-nowrap">Dispatcher</TabsTrigger>}
+            <TabsTrigger value="procurement" className="flex-1 text-xs px-3 py-1.5 whitespace-nowrap">Procurement</TabsTrigger>
           </TabsList>
+          </div>
 
           {/* ── Overview ── */}
           <TabsContent value="overview">

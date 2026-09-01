@@ -64,16 +64,15 @@ export function MultiRoleOrdersHub({
         </div>
 
         <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
-          <TabsList 
-            className="grid w-full mb-6" 
-            style={{ gridTemplateColumns: `repeat(${availableTabs.length}, minmax(0, 1fr))` }}
-          >
+          <div className="overflow-x-auto mb-6">
+          <TabsList className="flex w-max min-w-full h-auto p-[3px]">
             {availableTabs.map(tab => (
-              <TabsTrigger key={tab.value} value={tab.value} className="text-xs sm:text-sm">
+              <TabsTrigger key={tab.value} value={tab.value} className="flex-1 text-xs px-3 py-1.5 whitespace-nowrap">
                 {tab.label}
               </TabsTrigger>
             ))}
           </TabsList>
+          </div>
 
           {hasSalesman && (
             <TabsContent value="salesman">
