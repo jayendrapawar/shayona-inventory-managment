@@ -2,6 +2,7 @@
 
 import {
   useState, useTransition, useRef, useEffect, useMemo, useId, useCallback,
+  forwardRef, useImperativeHandle,
 } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAutoRefresh } from '@/lib/use-auto-refresh'
@@ -87,15 +88,29 @@ interface SearchComboboxProps<T> {
   disabled?: boolean
 }
 
-function SearchCombobox<T>({
-  id, label, required, placeholder, inputValue, onInputChange,
-  onSelect, onClear, results, loading, renderOption, getKey, disabled,
-}: SearchComboboxProps<T>) {
+export interface SearchComboboxHandle {
+  focus: () => void
+}
+
+const SearchCombobox = forwardRef(function SearchComboboxInner<T>(
+  {
+    id, label, required, placeholder, inputValue, onInputChange,
+    onSelect, onClear, results, loading, renderOption, getKey, disabled,
+  }: SearchComboboxProps<T>,
+  ref: React.Ref<SearchComboboxHandle>,
+) {
   const [open, setOpen] = useState(false)
   const [activeIdx, setActiveIdx] = useState(0)
   const containerRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const listId = useId()
+
+  useImperativeHandle(ref, () => ({
+    focus: () => {
+      inputRef.current?.focus()
+      inputRef.current?.select()
+    },
+  }))
 
   useEffect(() => {
     function outside(e: MouseEvent) {
@@ -189,7 +204,7 @@ function SearchCombobox<T>({
       )}
     </div>
   )
-}
+}) as <T>(props: SearchComboboxProps<T> & { ref?: React.Ref<SearchComboboxHandle> }) => React.ReactElement
 
 // ─────────────────────────────────────────────────────────────────────────────
 // OrderItemsCard — consolidated table view matching the screenshot layout
@@ -588,6 +603,7 @@ export function SalesmanDashboard({ orders, userName, embedded, catalogue: serve
   const [artResults, setArtResults] = useState<ArticleResult[]>([])
   const [artLoading, setArtLoading] = useState(false)
   const [selectedArt, setSelectedArt] = useState<ArticleDetail | null>(null)
+  const artSearchRef = useRef<SearchComboboxHandle>(null)
 
   // ── Per-color entry state ──
   // selectedColorId: which color chip is active
@@ -816,6 +832,42 @@ export function SalesmanDashboard({ orders, userName, embedded, catalogue: serve
     setSelectedColorId(null)
     // Force SizeMatrix remount so manualActive state is cleared
     setMatrixKey(k => k + 1)
+  }
+
+  // ── Next Article — save current color (if any qty entered) then jump to article search ──
+  function handleNextArticle() {
+    // Save current color to the order if a color is selected and has qty > 0
+    if (selectedArt && selectedColorId != null && selectedColor && currentColorTotal > 0) {
+      const qties = { ...currentQties }
+      const existingIdx = lines.findIndex(
+        l => l.articleId === selectedArt.id && l.colorId === selectedColorId
+      )
+      const editIdx = editingLineId ? lines.findIndex(l => l.id === editingLineId) : -1
+      if (editIdx !== -1) {
+        setLines(prev => prev.map(l => l.id === editingLineId ? { ...l, quantities: qties } : l))
+        setEditingLineId(null)
+      } else if (existingIdx !== -1) {
+        setLines(prev => prev.map((l, i) => i !== existingIdx ? l : { ...l, quantities: qties }))
+      } else {
+        setLines(prev => [...prev, {
+          id: uid(), articleId: selectedArt.id, artNumber: selectedArt.artNumber,
+          colorId: selectedColorId, colorName: selectedColor.colorName,
+          colorHex: selectedColor.colorHex, sizes: selectedArt.sizes, quantities: qties,
+        }])
+      }
+      setLastUsedSet(qties)
+    }
+    // Clear article and focus the search input
+    setArtQuery('')
+    setArtResults([])
+    setSelectedArt(null)
+    setSelectedColorId(null)
+    setColorQuantities({})
+    setEditingLineId(null)
+    setError('')
+    setMatrixKey(k => k + 1)
+    // Small timeout so the input is visible/enabled before focus
+    setTimeout(() => artSearchRef.current?.focus(), 50)
   }
 
   // ── Edit a line (open it in the matrix for modification) ──
@@ -1652,6 +1704,7 @@ ${bills}
               <div className="p-4 space-y-4">
                 {/* Article search */}
                 <SearchCombobox<ArticleResult>
+                  ref={artSearchRef}
                   id="art-search"
                   label="Search Article Number"
                   required
@@ -1801,8 +1854,18 @@ ${bills}
                           <p className="text-sm text-red-600 bg-red-50 dark:bg-red-900/20 rounded-lg px-3 py-2">{error}</p>
                         )}
 
-                        {/* Add to Order */}
-                        <div className="flex justify-end">
+                        {/* Add to Order + Next Article */}
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={handleNextArticle}
+                            className="flex items-center gap-1.5 rounded-xl border border-border bg-background px-4 py-2.5 text-sm font-semibold text-foreground hover:bg-muted transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          >
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                            </svg>
+                            Next Article
+                          </button>
                           <button
                             type="button"
                             onClick={handleAddToOrder}
