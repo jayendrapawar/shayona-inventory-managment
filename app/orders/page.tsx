@@ -6,6 +6,7 @@ import { user, vendors } from '@/lib/db/schema'
 import { eq } from 'drizzle-orm'
 import { isRedirectError } from 'next/dist/client/components/redirect-error'
 import { getSalesmanOrders, getPickerQueue, getPackedOrders } from '@/app/actions/orders'
+import { loadCatalogue } from '@/app/actions/catalogue'
 import { MultiRoleOrdersHub } from './_components/multi-role-hub'
 
 export const metadata = {
@@ -82,7 +83,10 @@ export default async function OrdersPage() {
       )
     }
 
-    await Promise.all(promises)
+    const [catalogue] = await Promise.all([
+      loadCatalogue(),
+      ...promises,
+    ])
 
     return (
       <MultiRoleOrdersHub
@@ -92,6 +96,7 @@ export default async function OrdersPage() {
         pickerQueue={pickerQueue}
         currentPickerId={u?.id ?? session.user.id}
         dispatcherOrders={dispatcherOrders}
+        catalogue={catalogue}
       />
     )
   } catch (err) {

@@ -8,8 +8,9 @@ import { useAutoRefresh } from '@/lib/use-auto-refresh'
 import { StatusPill, fmt, PageHeader, StatCard } from '../_components/shared'
 import { createOrder, updateOrder, cancelOrder, getSalesmanOrderWithItems } from '@/app/actions/orders'
 import { PageNav } from '@/components/page-nav'
-import { searchShopkeepers, searchArticles, getArticleDetailByName, getArticleDetailByNumber } from '@/app/actions/catalogue'
-import type { ShopkeeperResult, ArticleResult, ArticleDetail } from '@/app/actions/catalogue'
+import { fuzzyFilter } from '@/lib/fuzzy'
+import type { ArticleDetail, CatalogueData } from '@/app/actions/catalogue'
+import { useCatalogueCache } from '@/lib/use-catalogue-cache'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -33,7 +34,12 @@ interface Props {
   orders: ExistingOrder[]
   userName: string
   embedded?: boolean
+  catalogue: CatalogueData
 }
+
+// Alias types that were previously imported from catalogue actions
+type ShopkeeperResult = CatalogueData['vendors'][number]
+type ArticleResult = { artNumber: string }
 
 // One line in the current order cart (article + color + per-size quantities)
 interface OrderLine {
@@ -539,7 +545,11 @@ interface DetailItem {
   status: string
 }
 
-export function SalesmanDashboard({ orders, userName, embedded }: Props) {
+export function SalesmanDashboard({ orders, userName, embedded, catalogue: serverCatalogue }: Props) {
+  // Use cache-first catalogue: returns serverCatalogue immediately on first render,
+  // then silently hydrates from Cache API / re-fetches in background
+  const catalogue = useCatalogueCache(serverCatalogue)
+
   const [view, setView] = useState<'list' | 'new' | 'detail' | 'print'>('new')
   const router = useRouter()
 
@@ -578,7 +588,6 @@ export function SalesmanDashboard({ orders, userName, embedded }: Props) {
   const [artResults, setArtResults] = useState<ArticleResult[]>([])
   const [artLoading, setArtLoading] = useState(false)
   const [selectedArt, setSelectedArt] = useState<ArticleDetail | null>(null)
-  const [artDetailLoading, setArtDetailLoading] = useState(false)
 
   // ── Per-color entry state ──
   // selectedColorId: which color chip is active
@@ -626,29 +635,42 @@ export function SalesmanDashboard({ orders, userName, embedded }: Props) {
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
 
-  // ── Debounced shopkeeper search ──
-  const skSeq = useRef(0)
-  useEffect(() => {
-    const seq = ++skSeq.current
-    setSkLoading(true)
-    const t = setTimeout(async () => {
-      const res = await searchShopkeepers(skQuery)
-      if (seq === skSeq.current) { setSkResults(res); setSkLoading(false) }
-    }, 150)
-    return () => clearTimeout(t)
-  }, [skQuery])
+  // ── Preloaded catalogue lookup map (artNumber → ArticleDetail) ──
+  const artCatalogueMap = useMemo(() => {
+    const m = new Map<string, ArticleDetail>()
+    for (const a of catalogue.articles) m.set(a.artNumber, a)
+    return m
+  }, [catalogue.articles])
 
-  // ── Debounced article search ──
-  const artSeq = useRef(0)
+  // ── Vendor search — purely client-side, instant ──
   useEffect(() => {
-    const seq = ++artSeq.current
-    setArtLoading(true)
-    const t = setTimeout(async () => {
-      const res = await searchArticles(artQuery)
-      if (seq === artSeq.current) { setArtResults(res); setArtLoading(false) }
-    }, 150)
-    return () => clearTimeout(t)
-  }, [artQuery])
+    setSkLoading(false)
+    if (!skQuery.trim()) {
+      setSkResults(catalogue.vendors.slice(0, 20))
+      return
+    }
+    const results = fuzzyFilter(
+      catalogue.vendors,
+      skQuery,
+      v => [v.name, v.code, v.phone, v.address],
+    )
+    setSkResults(results.slice(0, 20))
+  }, [skQuery, catalogue.vendors])
+
+  // ── Article search — purely client-side, instant ──
+  useEffect(() => {
+    setArtLoading(false)
+    if (!artQuery.trim()) {
+      setArtResults(catalogue.articles.slice(0, 20).map(a => ({ artNumber: a.artNumber })))
+      return
+    }
+    const results = fuzzyFilter(
+      catalogue.articles,
+      artQuery,
+      a => [a.artNumber],
+    )
+    setArtResults(results.slice(0, 20).map(a => ({ artNumber: a.artNumber })))
+  }, [artQuery, catalogue.articles])
 
   // ── Derived: currently selected color object ──
   const selectedColor = useMemo(
@@ -671,16 +693,13 @@ export function SalesmanDashboard({ orders, userName, embedded }: Props) {
     [currentQties],
   )
 
-  // ── Select an article from search ──
-  async function handleSelectArticle(art: ArticleResult) {
+  // ── Select an article from search — instant Map lookup, no network ──
+  function handleSelectArticle(art: ArticleResult) {
     setArtQuery(art.artNumber)
-    setArtDetailLoading(true)
-    setSelectedArt(null)
+    const detail = artCatalogueMap.get(art.artNumber) ?? null
+    setSelectedArt(detail)
     setSelectedColorId(null)
     setColorQuantities({})
-    const detail = await getArticleDetailByName(art.artNumber)
-    setSelectedArt(detail)
-    setArtDetailLoading(false)
   }
 
   function clearArticle() {
@@ -802,15 +821,11 @@ export function SalesmanDashboard({ orders, userName, embedded }: Props) {
   // ── Edit a line (open it in the matrix for modification) ──
   function handleEditLine(line: OrderLine) {
     if (!selectedArt || selectedArt.id !== line.articleId) {
-      setArtDetailLoading(true)
-      setSelectedArt(null)
       setArtQuery(line.artNumber)
-      getArticleDetailByName(line.artNumber).then(detail => {
-        setSelectedArt(detail)
-        setArtDetailLoading(false)
-        setSelectedColorId(line.colorId)
-        setColorQuantities(prev => ({ ...prev, [line.colorId]: { ...line.quantities } }))
-      })
+      const detail = artCatalogueMap.get(line.artNumber) ?? null
+      setSelectedArt(detail)
+      setSelectedColorId(line.colorId)
+      setColorQuantities(prev => ({ ...prev, [line.colorId]: { ...line.quantities } }))
     } else {
       setSelectedColorId(line.colorId)
       setColorQuantities(prev => ({ ...prev, [line.colorId]: { ...line.quantities } }))
@@ -900,11 +915,8 @@ export function SalesmanDashboard({ orders, userName, embedded }: Props) {
     try {
       const { order: o, items } = await getSalesmanOrderWithItems(order.id)
 
-      // Collect unique artNumbers and fetch their full details in parallel
-      const artNumbers = [...new Set(items.map(i => i.artNumber))]
-      const detailResults = await Promise.all(artNumbers.map(n => getArticleDetailByNumber(n)))
-      const detailMap = new Map<string, NonNullable<Awaited<ReturnType<typeof getArticleDetailByNumber>>>>()
-      detailResults.forEach(d => { if (d) detailMap.set(d.artNumber, d) })
+      // Use preloaded catalogue map — no extra DB round-trips
+      const detailMap = artCatalogueMap
 
       // Build OrderLines with real articleId, colorId, colorHex, sizes
       const lineMap = new Map<string, OrderLine>()
@@ -930,7 +942,7 @@ export function SalesmanDashboard({ orders, userName, embedded }: Props) {
         if (item.sizeNumber) line.quantities[item.sizeNumber] = item.quantityOrdered
       }
       setLines(Array.from(lineMap.values()))
-      setSelectedSk({ id: -1, name: o.shopkeeperName, code: null, phone: null, address: null })
+      setSelectedSk({ id: '', name: o.shopkeeperName, code: null, phone: null, address: null })
       setSkQuery(o.shopkeeperName)
       setNotes(o.notes ?? '')
       setEditingOrderId(order.id)
@@ -1657,10 +1669,6 @@ ${bills}
                     </div>
                   )}
                 />
-
-                {artDetailLoading && (
-                  <p className="text-sm text-muted-foreground">Loading article…</p>
-                )}
 
                 {selectedArt && (
                   <>

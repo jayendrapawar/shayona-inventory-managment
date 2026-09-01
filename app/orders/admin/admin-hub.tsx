@@ -9,6 +9,7 @@ import { PickerDashboard } from '../picker/picker-dashboard'
 import { DispatcherDashboard } from '../dispatcher/dispatcher-dashboard'
 import { ProcurementSummary } from './procurement-summary'
 import type { ProcurementRow } from '@/app/actions/orders'
+import type { CatalogueData } from '@/app/actions/catalogue'
 
 // ── Prop types (mirroring what each dashboard expects) ────────────────────────
 
@@ -77,6 +78,7 @@ interface Props {
   pickerQueue: QueueItem[]
   dispatchOrders: DispatchOrder[]
   procurementRows: ProcurementRow[]
+  catalogue: CatalogueData
 }
 
 export function AdminHub({
@@ -91,6 +93,7 @@ export function AdminHub({
   pickerQueue,
   dispatchOrders,
   procurementRows,
+  catalogue,
 }: Props) {
   // Shared picker assignment map — owned here so Overview + Picker tab stay in sync
   const [sharedPickerMap, setSharedPickerMap] = useState<Record<number, string>>(() =>
@@ -173,7 +176,7 @@ export function AdminHub({
           </TabsContent>
 
           <TabsContent value="salesman">
-            <SalesmanDashboard orders={salesmanOrders} userName={adminName} embedded />
+            <SalesmanDashboard orders={salesmanOrders} userName={adminName} embedded catalogue={catalogue} />
           </TabsContent>
 
           {showPicker && (

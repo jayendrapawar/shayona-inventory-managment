@@ -6,6 +6,7 @@ import { user } from '@/lib/db/schema'
 import { eq } from 'drizzle-orm'
 import { isRedirectError } from 'next/dist/client/components/redirect-error'
 import { getSalesmanOrders } from '@/app/actions/orders'
+import { loadCatalogue } from '@/app/actions/catalogue'
 import { SalesmanDashboard } from './salesman-dashboard'
 
 export const metadata = { title: 'Salesman — Orders | Shayona' }
@@ -24,7 +25,17 @@ export default async function SalesmanPage() {
     redirect('/sign-in')
   }
 
-  const myOrders = await getSalesmanOrders()
+  // Load orders + catalogue in parallel — one round-trip total
+  const [myOrders, catalogue] = await Promise.all([
+    getSalesmanOrders(),
+    loadCatalogue(),
+  ])
 
-  return <SalesmanDashboard orders={myOrders} userName={sessionUser?.name ?? ''} />
+  return (
+    <SalesmanDashboard
+      orders={myOrders}
+      userName={sessionUser?.name ?? ''}
+      catalogue={catalogue}
+    />
+  )
 }

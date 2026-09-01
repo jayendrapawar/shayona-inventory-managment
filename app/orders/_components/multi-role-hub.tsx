@@ -6,6 +6,7 @@ import { PageNav } from '@/components/page-nav'
 import { SalesmanDashboard } from '../salesman/salesman-dashboard'
 import { PickerDashboard } from '../picker/picker-dashboard'
 import { DispatcherDashboard } from '../dispatcher/dispatcher-dashboard'
+import type { CatalogueData } from '@/app/actions/catalogue'
 
 interface Props {
   roles: string[]
@@ -14,6 +15,7 @@ interface Props {
   pickerQueue: any[]
   currentPickerId: string
   dispatcherOrders: any[]
+  catalogue: CatalogueData
 }
 
 export function MultiRoleOrdersHub({
@@ -23,6 +25,7 @@ export function MultiRoleOrdersHub({
   pickerQueue,
   currentPickerId,
   dispatcherOrders,
+  catalogue,
 }: Props) {
   const hasSalesman = roles.includes('salesman')
   const hasPicker = roles.includes('picker')
@@ -74,7 +77,7 @@ export function MultiRoleOrdersHub({
 
           {hasSalesman && (
             <TabsContent value="salesman">
-              <SalesmanDashboard orders={salesmanOrders} userName={userName} embedded />
+              <SalesmanDashboard orders={salesmanOrders} userName={userName} embedded catalogue={catalogue} />
             </TabsContent>
           )}
 

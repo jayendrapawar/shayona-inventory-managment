@@ -5,7 +5,7 @@ import { db } from '@/lib/db'
 import { articles, articleColors, articleSizes } from '@/lib/db/schema'
 import { ilike, asc, eq, sql } from 'drizzle-orm'
 import { headers } from 'next/headers'
-import { searchVendors } from '@/app/actions/vendors'
+import { searchVendors, getVendors } from '@/app/actions/vendors'
 import { fuzzyScore } from '@/lib/fuzzy'
 
 async function requireAuth() {
@@ -158,6 +158,68 @@ export async function getArticleDetail(articleId: number): Promise<ArticleDetail
     .limit(1)
   if (!row) return null
   return getArticleDetailByName(row.artName)
+}
+
+// ── Bulk catalogue — load everything once for client-side search ──────────────
+
+export interface CatalogueVendor {
+  id: string
+  name: string
+  code: string | null
+  phone: string | null
+  address: string | null
+}
+
+export interface CatalogueData {
+  vendors: CatalogueVendor[]
+  articles: ArticleDetail[]
+}
+
+export async function loadCatalogue(): Promise<CatalogueData> {
+  await requireAuth()
+
+  // All vendors (active) and all article data in parallel
+  const [vendorRows, artRows, colorRows, sizeRows] = await Promise.all([
+    getVendors(),
+    db.select({ id: articles.id, artName: articles.artName }).from(articles).orderBy(asc(articles.artName)),
+    db.select({ id: articleColors.id, articleId: articleColors.articleId, colorName: articleColors.colorName, colorHex: articleColors.colorHex }).from(articleColors).orderBy(asc(articleColors.articleId), asc(articleColors.id)),
+    db.select({ id: articleSizes.id, articleId: articleSizes.articleId, sizeLabel: articleSizes.sizeLabel, sortOrder: articleSizes.sortOrder }).from(articleSizes).orderBy(asc(articleSizes.articleId), asc(articleSizes.sortOrder)),
+  ])
+
+  // Group colors and sizes by articleId
+  const colorsByArt = new Map<number, { id: number; articleId: number; colorName: string; colorHex: string | null }[]>()
+  for (const c of colorRows) {
+    if (!colorsByArt.has(c.articleId)) colorsByArt.set(c.articleId, [])
+    colorsByArt.get(c.articleId)!.push(c)
+  }
+  const sizesByArt = new Map<number, { id: number; articleId: number; sizeLabel: string; sortOrder: number }[]>()
+  for (const s of sizeRows) {
+    if (!sizesByArt.has(s.articleId)) sizesByArt.set(s.articleId, [])
+    sizesByArt.get(s.articleId)!.push(s)
+  }
+
+  // Build one ArticleDetail per unique artName (first article id = stable key)
+  const artDetailMap = new Map<string, ArticleDetail>()
+  for (const row of artRows) {
+    if (!artDetailMap.has(row.artName)) {
+      artDetailMap.set(row.artName, { id: row.id, artNumber: row.artName, colors: [], sizes: [] })
+    }
+    const detail = artDetailMap.get(row.artName)!
+    for (const c of colorsByArt.get(row.id) ?? []) detail.colors.push(c)
+    for (const s of sizesByArt.get(row.id) ?? []) detail.sizes.push(s)
+  }
+
+  const vendors: CatalogueVendor[] = vendorRows
+    .filter(v => v.status === 'active')
+    .map(v => ({
+      id: v.id,
+      name: v.partyName,
+      code: v.area || null,
+      phone: v.phone || null,
+      address: [v.address, v.city].filter(Boolean).join(', ') || null,
+    }))
+
+  return { vendors, articles: Array.from(artDetailMap.values()) }
 }
 
 // ── Ranking helper ────────────────────────────────────────────────────────────

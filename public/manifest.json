@@ -2,7 +2,7 @@
   "name": "Shayona Inventory",
   "short_name": "Shayona",
   "description": "Warehouse inventory scanning and management",
-  "start_url": "/scanner",
+  "start_url": "/orders",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait",
@@ -23,6 +23,13 @@
     }
   ],
   "shortcuts": [
+    {
+      "name": "My Orders",
+      "short_name": "Orders",
+      "description": "Create and manage salesman orders",
+      "url": "/orders/salesman",
+      "icons": [{ "src": "/icons/icon-192x192.png", "sizes": "192x192" }]
+    },
     {
       "name": "Scanner",
       "short_name": "Scan",
