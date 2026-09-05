@@ -221,24 +221,9 @@ interface OrderItemsCardProps {
   editingLineId: string | null
   onEdit: (line: OrderLine) => void
   onDeselect: () => void
-  onDelete: (lineId: string) => void
 }
 
-function OrderItemsCard({ lines, editingLineId, onEdit, onDeselect, onDelete }: OrderItemsCardProps) {
-  const tableRef = useRef<HTMLTableElement>(null)
-
-  // Click outside the table → deselect
-  useEffect(() => {
-    if (!editingLineId) return
-    function handleOutside(e: MouseEvent) {
-      if (tableRef.current && !tableRef.current.contains(e.target as Node)) {
-        onDeselect()
-      }
-    }
-    document.addEventListener('mousedown', handleOutside)
-    return () => document.removeEventListener('mousedown', handleOutside)
-  }, [editingLineId, onDeselect])
-
+function OrderItemsCard({ lines, editingLineId, onEdit, onDeselect }: OrderItemsCardProps) {
   // Group lines by artNumber preserving insertion order
   const groups: { artNumber: string; lines: OrderLine[] }[] = []
   const seen = new Map<string, OrderLine[]>()
@@ -255,14 +240,13 @@ function OrderItemsCard({ lines, editingLineId, onEdit, onDeselect, onDelete }: 
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-sm border-collapse" ref={tableRef}>
+      <table className="w-full text-sm border-collapse">
         {/* Header */}
         <thead>
           <tr className="border-b border-border/50 bg-muted/20">
             <th className="text-left px-3 py-2 text-xs font-medium text-muted-foreground border-r border-border/40 whitespace-nowrap">Article</th>
             <th className="text-left px-3 py-2 text-xs font-medium text-muted-foreground border-r border-border/40 whitespace-nowrap">Color</th>
-            <th className="text-left px-3 py-2 text-xs font-medium text-muted-foreground border-r border-border/40 whitespace-nowrap">Size / Qty</th>
-            <th className="w-8" />
+            <th className="text-left px-3 py-2 text-xs font-medium text-muted-foreground whitespace-nowrap">Size / Qty</th>
           </tr>
         </thead>
 
@@ -279,7 +263,7 @@ function OrderItemsCard({ lines, editingLineId, onEdit, onDeselect, onDelete }: 
                 <tr
                   key={line.id}
                   onClick={() => isEditing ? onDeselect() : onEdit(line)}
-                  className={`border-b border-border/40 transition-colors cursor-pointer group ${
+                  className={`border-b border-border/40 transition-colors cursor-pointer ${
                     isEditing ? 'bg-amber-50/40 dark:bg-amber-900/10' : 'hover:bg-primary/5'
                   }`}
                 >
@@ -305,7 +289,7 @@ function OrderItemsCard({ lines, editingLineId, onEdit, onDeselect, onDelete }: 
                   </td>
 
                   {/* Size / Qty */}
-                  <td className="px-3 py-2.5 align-middle border-r border-border/40">
+                  <td className="px-3 py-2.5 align-middle">
                     <span className="flex flex-wrap gap-x-2 gap-y-0.5">
                       {sizeCols.map(sz => (
                         <span key={sz.sizeLabel} className="text-xs text-muted-foreground whitespace-nowrap">
@@ -313,20 +297,6 @@ function OrderItemsCard({ lines, editingLineId, onEdit, onDeselect, onDelete }: 
                         </span>
                       ))}
                     </span>
-                  </td>
-
-                  {/* Delete — stop propagation so row click doesn't also fire */}
-                  <td className="px-2 py-2.5 align-middle text-center" onClick={e => e.stopPropagation()}>
-                    <button
-                      type="button"
-                      onClick={() => onDelete(line.id)}
-                      className="text-muted-foreground hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
-                      aria-label={`Remove ${line.artNumber} ${line.colorName}`}
-                    >
-                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                      </svg>
-                    </button>
                   </td>
                 </tr>
               )
@@ -336,8 +306,7 @@ function OrderItemsCard({ lines, editingLineId, onEdit, onDeselect, onDelete }: 
           {/* Total row */}
           <tr className="border-t border-border/60 bg-muted/20">
             <td colSpan={2} className="px-3 py-2 text-right text-xs text-muted-foreground border-r border-border/40">Total</td>
-            <td className="px-3 py-2 text-sm font-bold text-foreground border-r border-border/40">{totalPairs}</td>
-            <td />
+            <td className="px-3 py-2 text-sm font-bold text-foreground">{totalPairs}</td>
           </tr>
         </tbody>
       </table>
@@ -612,6 +581,8 @@ export function SalesmanDashboard({ orders, userName, embedded, catalogue: serve
   const [artLoading, setArtLoading] = useState(false)
   const [selectedArt, setSelectedArt] = useState<ArticleDetail | null>(null)
   const artSearchRef = useRef<SearchComboboxHandle>(null)
+  const artSectionRef = useRef<HTMLElement>(null)
+  const currentOrderSectionRef = useRef<HTMLElement>(null)
 
   // ── Per-color entry state ──
   // selectedColorId: which color chip is active
@@ -630,9 +601,27 @@ export function SalesmanDashboard({ orders, userName, embedded, catalogue: serve
 
   // ── Edit state ──
   const [editingLineId, setEditingLineId] = useState<string | null>(null)
+  // Ref mirror so event-handler callbacks always read the latest value without stale closure issues
+  const editingLineIdRef = useRef<string | null>(null)
+  useEffect(() => { editingLineIdRef.current = editingLineId }, [editingLineId])
 
-  // ── Delete confirm (cart line) ──
-  const [deleteLineId, setDeleteLineId] = useState<string | null>(null)
+  // ── Outside-click deselect: clear selection when clicking outside BOTH the
+  //    Current Order card AND the Article section (user may be editing quantities there)
+  useEffect(() => {
+    if (!editingLineId) return
+    function handleOutside(e: MouseEvent) {
+      const inOrderCard  = currentOrderSectionRef.current?.contains(e.target as Node) ?? false
+      const inArtSection = artSectionRef.current?.contains(e.target as Node) ?? false
+      if (!inOrderCard && !inArtSection) {
+        setEditingLineId(null)
+        setSelectedColorId(null)
+      }
+    }
+    document.addEventListener('mousedown', handleOutside)
+    return () => document.removeEventListener('mousedown', handleOutside)
+  // Only re-register when editingLineId transitions null ↔ non-null, not on every render
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editingLineId != null])
 
   // ── Editing an existing order (vs creating new) ──
   const [editingOrderId, setEditingOrderId] = useState<number | null>(null)
@@ -905,28 +894,41 @@ export function SalesmanDashboard({ orders, userName, embedded, catalogue: serve
     setTimeout(() => artSearchRef.current?.focus(), 50)
   }
 
-  // ── Edit a line (open it in the matrix for modification) ──
-  function handleEditLine(line: OrderLine) {
-    if (!selectedArt || selectedArt.id !== line.articleId) {
-      setArtQuery(line.artNumber)
-      const detail = artCatalogueMap.get(line.artNumber) ?? null
-      setSelectedArt(detail)
-      setSelectedColorId(line.colorId)
-      setColorQuantities(prev => ({ ...prev, [line.colorId]: { ...line.quantities } }))
-    } else {
-      setSelectedColorId(line.colorId)
-      setColorQuantities(prev => ({ ...prev, [line.colorId]: { ...line.quantities } }))
-    }
-    setEditingLineId(line.id)
-  }
+  // ── Deselect current line (clear editing state) ──
+  const handleDeselectLine = useCallback(() => {
+    setEditingLineId(null)
+    setSelectedColorId(null)
+  }, [])
 
-  // ── Delete a line ──
-  function confirmDeleteLine() {
-    if (!deleteLineId) return
-    setLines(prev => prev.filter(l => l.id !== deleteLineId))
-    setDeleteLineId(null)
-    if (editingLineId === deleteLineId) setEditingLineId(null)
-  }
+  // ── Edit a line (open it in the matrix for modification) ──
+  const handleEditLine = useCallback((line: OrderLine) => {
+    const detail = artCatalogueMap.get(line.artNumber) ?? null
+    // Set selectedArt + color + quantities atomically.
+    // Do NOT call setArtQuery here — changing the search input value fires the article
+    // search effect, populates the dropdown, and risks handleSelectArticle being triggered
+    // which resets selectedColorId and colorQuantities. The article name is shown as a
+    // heading inside the section so the search field can safely stay as-is.
+    setSelectedArt(detail)
+    setSelectedColorId(line.colorId)
+    setColorQuantities(prev => ({ ...prev, [line.colorId]: { ...line.quantities } }))
+    setEditingLineId(line.id)
+    // Scroll the Article section into view after React has committed the state
+    setTimeout(() => {
+      artSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }, 80)
+  }, [artCatalogueMap])
+
+  // ── Delete the currently selected line directly ──
+  const handleDeleteSelectedLine = useCallback(() => {
+    const id = editingLineIdRef.current
+    if (!id) return
+    setLines(prev => prev.filter(l => l.id !== id))
+    setEditingLineId(null)
+    setSelectedColorId(null)
+    setSelectedArt(null)
+    setArtQuery('')
+    setColorQuantities({})
+  }, [])
 
   // ── Reset everything ──
   function resetForm() {
@@ -1729,7 +1731,7 @@ ${bills}
             </section>
 
             {/* ── 2. ARTICLE ENTRY ── */}
-            <section aria-labelledby="art-heading" className="rounded-2xl border border-border bg-card">
+            <section ref={artSectionRef} aria-labelledby="art-heading" className="rounded-2xl border border-border bg-card">
               <div className="flex items-center justify-between px-4 py-3 bg-muted/30 border-b border-border rounded-t-2xl">
                 <div className="flex items-center gap-2">
                   <svg className="w-4 h-4 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" /></svg>
@@ -1926,18 +1928,34 @@ ${bills}
 
             {/* ── 3. CURRENT ORDER ── */}
             {lines.length > 0 && (
-              <section aria-labelledby="order-heading" className="rounded-2xl border border-border bg-card overflow-hidden">
+              <section
+                ref={currentOrderSectionRef}
+                aria-labelledby="order-heading"
+                className="rounded-2xl border border-border bg-card overflow-hidden"
+              >
                 <div className="px-4 py-3 bg-muted/30 border-b border-border flex items-center gap-2">
                   <svg className="w-4 h-4 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>
                   <h2 id="order-heading" className="text-sm font-semibold text-foreground">Current Order</h2>
                   <span className="ml-auto text-xs text-muted-foreground">{lines.length} line{lines.length !== 1 ? 's' : ''}</span>
+                  {editingLineId && (
+                    <button
+                      type="button"
+                      onClick={handleDeleteSelectedLine}
+                      className="flex items-center gap-1 rounded-lg border border-red-300 bg-red-50 dark:bg-red-900/20 px-2.5 py-1 text-xs font-medium text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors"
+                      aria-label="Delete selected line"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                      Delete
+                    </button>
+                  )}
                 </div>
                 <OrderItemsCard
                   lines={lines}
                   editingLineId={editingLineId}
                   onEdit={handleEditLine}
-                  onDeselect={() => { setEditingLineId(null); setSelectedColorId(null) }}
-                  onDelete={setDeleteLineId}
+                  onDeselect={handleDeselectLine}
                 />
               </section>
             )}
@@ -2355,19 +2373,6 @@ ${bills}
         ) : null
       })()}
 
-      {/* ── Delete line confirmation ── */}
-      {deleteLineId && (() => {
-        const line = lines.find(l => l.id === deleteLineId)
-        return line ? (
-          <ConfirmDialog
-            title="Remove this item?"
-            message={<><strong>{line.artNumber} · {line.colorName}</strong> · {linePairs(line)} pairs</>}
-            confirmLabel="Remove"
-            onCancel={() => setDeleteLineId(null)}
-            onConfirm={confirmDeleteLine}
-          />
-        ) : null
-      })()}
     </div>
   )
 }
