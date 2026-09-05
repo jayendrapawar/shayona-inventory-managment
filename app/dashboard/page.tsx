@@ -15,7 +15,7 @@ export default async function Dashboard() {
     if (!session?.user) redirect('/sign-in')
   } catch (err) {
     if (isRedirectError(err)) throw err
-    redirect('/scanner')
+    redirect('/sign-in')
   }
 
   return <DashboardPage />

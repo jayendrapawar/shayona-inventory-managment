@@ -86,6 +86,8 @@ interface SearchComboboxProps<T> {
   renderOption: (item: T, active: boolean) => React.ReactNode
   getKey: (item: T) => string | number
   disabled?: boolean
+  inputMode?: React.HTMLAttributes<HTMLInputElement>['inputMode']
+  pattern?: string
 }
 
 export interface SearchComboboxHandle {
@@ -96,6 +98,7 @@ const SearchCombobox = forwardRef(function SearchComboboxInner<T>(
   {
     id, label, required, placeholder, inputValue, onInputChange,
     onSelect, onClear, results, loading, renderOption, getKey, disabled,
+    inputMode, pattern,
   }: SearchComboboxProps<T>,
   ref: React.Ref<SearchComboboxHandle>,
 ) {
@@ -149,6 +152,8 @@ const SearchCombobox = forwardRef(function SearchComboboxInner<T>(
           id={id}
           ref={inputRef}
           type="text"
+          inputMode={inputMode}
+          pattern={pattern}
           role="combobox"
           aria-expanded={open}
           aria-controls={open ? listId : undefined}
@@ -181,7 +186,7 @@ const SearchCombobox = forwardRef(function SearchComboboxInner<T>(
           id={listId}
           role="listbox"
           aria-label={label}
-          className="absolute z-50 mt-1 w-full rounded-xl border border-border bg-card shadow-xl overflow-hidden max-h-60 overflow-y-auto"
+          className="absolute z-50 bottom-full mb-1 w-full rounded-xl border border-border bg-card shadow-xl overflow-hidden max-h-60 overflow-y-auto"
         >
           {loading && <li className="px-4 py-3 text-sm text-muted-foreground">Searching…</li>}
           {!loading && results.length === 0 && (
@@ -1742,6 +1747,8 @@ ${bills}
                   required
                   placeholder="Search article number..."
                   inputValue={artQuery}
+                  inputMode="numeric"
+                  pattern="[0-9]*"
                   onInputChange={setArtQuery}
                   onSelect={handleSelectArticle}
                   onClear={clearArticle}
