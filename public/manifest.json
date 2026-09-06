@@ -27,7 +27,7 @@
       "name": "My Orders",
       "short_name": "Orders",
       "description": "Create and manage salesman orders",
-      "url": "/orders/salesman",
+      "url": "/orders",
       "icons": [{ "src": "/icons/icon-192x192.png", "sizes": "192x192" }]
     },
     {

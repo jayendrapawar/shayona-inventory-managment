@@ -33,24 +33,29 @@ function GridTabBar({ tabs, active, onChange }: { tabs: Tab[]; active: string; o
   const mobileGrid = gridColsClass(tabs.length)
   return (
     <>
-      {/* Mobile: grid */}
-      <div className={`grid ${mobileGrid} gap-1.5 mb-5 sm:hidden`}>
-        {tabs.map(tab => {
-          const isActive = tab.value === active
-          return (
-            <button key={tab.value} type="button" onClick={() => onChange(tab.value)}
-              className={`rounded-xl border py-2.5 px-2 text-xs font-semibold text-center transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-                isActive
-                  ? 'border-primary bg-primary text-primary-foreground shadow-sm'
-                  : 'border-border bg-card text-muted-foreground hover:bg-muted hover:text-foreground'
-              }`}
-            >
-              {tab.label}
-            </button>
-          )
-        })}
+      {/* Mobile: segmented pill style arranged in grid / 2 rows */}
+      <div className="sm:hidden mb-5">
+        <div className={`grid ${mobileGrid} w-full items-center justify-center rounded-lg bg-muted p-[3px] gap-1 text-muted-foreground`}>
+          {tabs.map(tab => {
+            const isActive = tab.value === active
+            return (
+              <button
+                key={tab.value}
+                type="button"
+                onClick={() => onChange(tab.value)}
+                className={`inline-flex items-center justify-center whitespace-nowrap rounded-md border border-transparent px-2 py-2 text-xs font-medium transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                  isActive
+                    ? 'bg-background text-foreground shadow-sm'
+                    : 'text-foreground/60 hover:text-foreground'
+                }`}
+              >
+                {tab.label}
+              </button>
+            )
+          })}
+        </div>
       </div>
-      {/* Desktop: pill/segment control (matches TabsList/TabsTrigger visuals) */}
+      {/* Desktop: single row pill/segment control */}
       <div className="hidden sm:block mb-6">
         <div
           className="grid w-full items-center justify-center rounded-lg bg-muted p-[3px] text-muted-foreground"

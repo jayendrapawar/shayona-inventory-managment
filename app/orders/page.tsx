@@ -54,13 +54,7 @@ export default async function OrdersPage() {
       redirect('/orders/pending-role')
     }
 
-    // If they have only ONE role, redirect directly to their standalone workflow as before.
-    if (orderRoles.length === 1) {
-      const singleRole = orderRoles[0]
-      redirect(`/orders/${singleRole}`)
-    }
-
-    // If they have MULTIPLE order roles, load all needed data in parallel and show the multi-role tab layout!
+    // Load data for all assigned order roles and render the multi-tab Order Hub (Role Tab(s) + Notes Tab)
     let salesmanOrders: any[] = []
     let pickerQueue: any[] = []
     let dispatcherOrders: any[] = []

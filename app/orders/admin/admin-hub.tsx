@@ -84,8 +84,8 @@ interface Props {
 }
 
 // ── Grid-based tab bar ────────────────────────────────────────────────────────
-// Mobile (<sm): responsive grid — 1→1col, 2→2col, 3→3col, 4→2×2, 5→3+2, 6→2×3
-// Desktop (sm+): original muted-pill segment control (TabsList/TabsTrigger)
+// Mobile (<sm): 2-row segment container matching desktop pill style
+// Desktop (sm+): single row muted-pill segment control
 function gridColsClass(n: number): string {
   if (n <= 3) return `grid-cols-${n}`
   if (n === 4) return 'grid-cols-2'
@@ -106,28 +106,30 @@ function GridTabBar({
   const mobileGrid = gridColsClass(tabs.length)
   return (
     <>
-      {/* Mobile: grid layout */}
-      <div className={`grid ${mobileGrid} gap-1.5 mb-5 sm:hidden`}>
-        {tabs.map(tab => {
-          const isActive = tab.value === active
-          return (
-            <button
-              key={tab.value}
-              type="button"
-              onClick={() => onChange(tab.value)}
-              className={`rounded-xl border py-2.5 px-2 text-xs font-semibold text-center transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-                isActive
-                  ? 'border-primary bg-primary text-primary-foreground shadow-sm'
-                  : 'border-border bg-card text-muted-foreground hover:bg-muted hover:text-foreground'
-              }`}
-            >
-              {tab.label}
-            </button>
-          )
-        })}
+      {/* Mobile: segmented pill style arranged in grid / 2 rows */}
+      <div className="sm:hidden mb-5">
+        <div className={`grid ${mobileGrid} w-full items-center justify-center rounded-lg bg-muted p-[3px] gap-1 text-muted-foreground`}>
+          {tabs.map(tab => {
+            const isActive = tab.value === active
+            return (
+              <button
+                key={tab.value}
+                type="button"
+                onClick={() => onChange(tab.value)}
+                className={`inline-flex items-center justify-center whitespace-nowrap rounded-md border border-transparent px-2 py-2 text-xs font-medium transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                  isActive
+                    ? 'bg-background text-foreground shadow-sm'
+                    : 'text-foreground/60 hover:text-foreground'
+                }`}
+              >
+                {tab.label}
+              </button>
+            )
+          })}
+        </div>
       </div>
 
-      {/* Desktop: pill/segment control (matches TabsList/TabsTrigger visuals) */}
+      {/* Desktop: single row pill/segment control */}
       <div className="hidden sm:block mb-6">
         <div
           className="grid w-full items-center justify-center rounded-lg bg-muted p-[3px] text-muted-foreground"
