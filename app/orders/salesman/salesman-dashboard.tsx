@@ -106,6 +106,7 @@ const SearchCombobox = forwardRef(function SearchComboboxInner<T>(
   const [activeIdx, setActiveIdx] = useState(0)
   const containerRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const listRef = useRef<HTMLUListElement>(null)
   const listId = useId()
 
   useImperativeHandle(ref, () => ({
@@ -123,18 +124,45 @@ const SearchCombobox = forwardRef(function SearchComboboxInner<T>(
     return () => document.removeEventListener('mousedown', outside)
   }, [])
 
-  useEffect(() => { setActiveIdx(0) }, [results])
+  // Auto-scroll the active item into view when activeIdx changes or list opens
+  useEffect(() => {
+    if (!open || !listRef.current) return
+    const activeEl = listRef.current.children[activeIdx] as HTMLElement | undefined
+    if (activeEl) {
+      activeEl.scrollIntoView({ block: 'nearest' })
+    }
+  }, [activeIdx, open])
+
+  // In a dropup popup (bottom-full), the items visually flow upward from the input:
+  // Item 0 (most accurate / best match) sits right above the input (at the bottom of the list box).
+  // Thus, when results change or list opens, default active selection is item 0 (bottom).
+  // ArrowUp moves towards less accurate items (index increases, visually moving upward).
+  // ArrowDown moves towards more accurate items (index decreases, visually moving downward towards input).
+  const displayedResults = results
+
+  useEffect(() => {
+    if (displayedResults.length > 0) {
+      setActiveIdx(0)
+      if (listRef.current) {
+        listRef.current.scrollTop = listRef.current.scrollHeight
+      }
+    }
+  }, [displayedResults])
 
   function handleKey(e: React.KeyboardEvent<HTMLInputElement>) {
     if (!open) {
-      if (e.key === 'ArrowDown') { setOpen(true); e.preventDefault() }
+      if (e.key === 'ArrowUp' || e.key === 'ArrowDown') { setOpen(true); e.preventDefault() }
       return
     }
-    if (e.key === 'ArrowDown') { e.preventDefault(); setActiveIdx(i => Math.min(i + 1, results.length - 1)) }
-    else if (e.key === 'ArrowUp') { e.preventDefault(); setActiveIdx(i => Math.max(i - 1, 0)) }
-    else if (e.key === 'Enter') {
+    if (e.key === 'ArrowUp') {
       e.preventDefault()
-      const item = results[activeIdx]
+      setActiveIdx(i => Math.min(i + 1, displayedResults.length - 1))
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      setActiveIdx(i => Math.max(i - 1, 0))
+    } else if (e.key === 'Enter') {
+      e.preventDefault()
+      const item = displayedResults[activeIdx]
       if (item) { onSelect(item); setOpen(false); inputRef.current?.blur() }
     } else if (e.key === 'Escape') { setOpen(false); inputRef.current?.blur() }
   }
@@ -158,7 +186,7 @@ const SearchCombobox = forwardRef(function SearchComboboxInner<T>(
           aria-expanded={open}
           aria-controls={open ? listId : undefined}
           aria-autocomplete="list"
-          aria-activedescendant={open && results[activeIdx] ? `${listId}-${activeIdx}` : undefined}
+          aria-activedescendant={open && displayedResults[activeIdx] ? `${listId}-${activeIdx}` : undefined}
           value={inputValue}
           placeholder={placeholder}
           autoComplete="off"
@@ -184,15 +212,16 @@ const SearchCombobox = forwardRef(function SearchComboboxInner<T>(
       {open && (
         <ul
           id={listId}
+          ref={listRef}
           role="listbox"
           aria-label={label}
-          className="absolute z-50 bottom-full mb-1 w-full rounded-xl border border-border bg-card shadow-xl overflow-hidden max-h-60 overflow-y-auto"
+          className="absolute z-50 bottom-full mb-1 w-full rounded-xl border border-border bg-card shadow-xl overflow-hidden max-h-60 overflow-y-auto flex flex-col-reverse"
         >
           {loading && <li className="px-4 py-3 text-sm text-muted-foreground">Searching…</li>}
-          {!loading && results.length === 0 && (
+          {!loading && displayedResults.length === 0 && (
             <li className="px-4 py-3 text-sm text-muted-foreground">No results found</li>
           )}
-          {!loading && results.map((item, i) => (
+          {!loading && displayedResults.map((item, i) => (
             <li
               key={getKey(item)}
               id={`${listId}-${i}`}
