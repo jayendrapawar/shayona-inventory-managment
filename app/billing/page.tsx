@@ -2,13 +2,14 @@ import { headers } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
-import { user } from '@/lib/db/schema'
-import { eq } from 'drizzle-orm'
+import { user, vendors } from '@/lib/db/schema'
+import { eq, asc } from 'drizzle-orm'
 import { isRedirectError } from 'next/dist/client/components/redirect-error'
+import { BillingScannerPage, type BillingVendor } from '@/components/billing-scanner-page'
 
 export const metadata = {
   title: 'Billing - Shayona Inventory',
-  description: 'Invoices and payment records',
+  description: 'Scan boxes and generate vendor bills',
 }
 
 export default async function BillingPage() {
@@ -23,10 +24,20 @@ export default async function BillingPage() {
     redirect('/sign-in')
   }
 
-  return (
-    <div className="min-h-screen bg-background flex flex-col items-center justify-center px-4">
-      <h1 className="text-2xl font-bold text-foreground">Billing</h1>
-      <p className="mt-2 text-sm text-muted-foreground">Coming soon</p>
-    </div>
-  )
+  // Fetch all active vendors — same data shape as CatalogueVendor used in salesman dashboard
+  const vendorRows = await db
+    .select()
+    .from(vendors)
+    .where(eq(vendors.status, 'active'))
+    .orderBy(asc(vendors.partyName))
+
+  const billingVendors: BillingVendor[] = vendorRows.map(v => ({
+    id:      v.id,
+    name:    v.partyName,
+    code:    v.area   || null,
+    phone:   v.phone  || null,
+    address: [v.address, v.city].filter(Boolean).join(', ') || null,
+  }))
+
+  return <BillingScannerPage vendors={billingVendors} />
 }
