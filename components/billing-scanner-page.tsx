@@ -101,7 +101,7 @@ const SearchCombobox = forwardRef(function SearchComboboxInner<T>(
   useEffect(() => {
     if (results.length > 0) {
       setActiveIdx(0)
-      if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight
+      if (listRef.current) listRef.current.scrollTop = 0
     }
   }, [results])
 
@@ -171,7 +171,7 @@ const SearchCombobox = forwardRef(function SearchComboboxInner<T>(
           ref={listRef}
           role="listbox"
           aria-label={label}
-          className="absolute z-50 bottom-full mb-1 w-full rounded-xl border border-border bg-card shadow-xl overflow-hidden max-h-60 overflow-y-auto flex flex-col-reverse"
+          className="absolute z-50 top-full mt-1 w-full rounded-xl border border-border bg-card shadow-xl overflow-hidden max-h-60 overflow-y-auto"
         >
           {loading && <li className="px-4 py-3 text-sm text-muted-foreground">Searching…</li>}
           {!loading && results.length === 0 && (
