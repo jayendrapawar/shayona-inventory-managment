@@ -186,7 +186,7 @@ const SearchCombobox = forwardRef(function SearchComboboxInner<T>(
           aria-expanded={open}
           aria-controls={open ? listId : undefined}
           aria-autocomplete="list"
-          aria-activedescendant={open && results[activeIdx] ? `${listId}-${activeIdx}` : undefined}
+          aria-activedescendant={open && displayedResults[activeIdx] ? `${listId}-${activeIdx}` : undefined}
           value={inputValue}
           placeholder={placeholder}
           autoComplete="off"
@@ -212,15 +212,16 @@ const SearchCombobox = forwardRef(function SearchComboboxInner<T>(
       {open && (
         <ul
           id={listId}
+          ref={listRef}
           role="listbox"
           aria-label={label}
-          className="absolute z-50 bottom-full mb-1 w-full rounded-xl border border-border bg-card shadow-xl overflow-hidden max-h-60 overflow-y-auto"
+          className="absolute z-50 bottom-full mb-1 w-full rounded-xl border border-border bg-card shadow-xl overflow-hidden max-h-60 overflow-y-auto flex flex-col-reverse"
         >
           {loading && <li className="px-4 py-3 text-sm text-muted-foreground">Searching…</li>}
-          {!loading && results.length === 0 && (
+          {!loading && displayedResults.length === 0 && (
             <li className="px-4 py-3 text-sm text-muted-foreground">No results found</li>
           )}
-          {!loading && results.map((item, i) => (
+          {!loading && displayedResults.map((item, i) => (
             <li
               key={getKey(item)}
               id={`${listId}-${i}`}
