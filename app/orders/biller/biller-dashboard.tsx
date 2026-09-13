@@ -56,6 +56,9 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
   const [scanItems, setScanItems] = useState<DetailItem[]>([])
   // scannedMap: itemKey → scanned count
   const [scannedMap, setScannedMap] = useState<Record<string, number>>({})
+  const [scannedQrs, setScannedQrs] = useState<string[]>([])
+  const [showDevTracking, setShowDevTracking] = useState(false)
+  const [expandedArticle, setExpandedArticle] = useState<string | null>(null)
   const [scanMsg, setScanMsg] = useState<{ type: 'ok' | 'warn' | 'err'; text: string } | null>(null)
   const scanMsgTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -136,6 +139,7 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
     }
 
     setScannedMap(prev => ({ ...prev, [key]: current + 1 }))
+    setScannedQrs(prev => [...prev, raw])
     triggerFeedback()
     showMsg('ok', `${art} / size ${size} — ${current + 1}/${packed}`)
   }
@@ -253,6 +257,9 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
     setDetailOrder(null)
     setScanOrder(order)
     setScannedMap({})
+    setScannedQrs([])
+    setShowDevTracking(false)
+    setExpandedArticle(null)
     setScanMsg(null)
 
     // load items if not already in detailItems for this order
@@ -275,6 +282,9 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
     setScanOrder(null)
     setScanItems([])
     setScannedMap({})
+    setScannedQrs([])
+    setShowDevTracking(false)
+    setExpandedArticle(null)
     setScanMsg(null)
   }
 
@@ -689,10 +699,24 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
             )}
 
             {/* ── Item verification checklist ── */}
-            <div className="px-4 pt-4 pb-28 space-y-2">
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Order items
-              </p>
+            <div className="px-4 pt-4 pb-28 space-y-3">
+              <div className="flex items-center justify-between mb-3 select-none">
+                <p className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground/80">
+                  Order items
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setShowDevTracking(!showDevTracking)}
+                  className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[10px] font-semibold transition-all border ${
+                    showDevTracking
+                      ? 'bg-blue-500/10 border-blue-500/30 text-blue-600 dark:text-blue-400 shadow-sm'
+                      : 'bg-muted/50 border-border text-muted-foreground hover:bg-muted'
+                  }`}
+                >
+                  <span className={`w-1.5 h-1.5 rounded-full transition-colors ${showDevTracking ? 'bg-blue-500 animate-pulse' : 'bg-muted-foreground/40'}`} />
+                  Developer Mode
+                </button>
+              </div>
 
               {scanArticleGroups.map(({ artNumber, colorGroups }) => {
                 const allItems   = colorGroups.flatMap(cg => cg.items)
@@ -700,65 +724,237 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
                   if (i.status === 'out_of_stock') return true
                   return (scannedMap[itemKey(i.artNumber, i.sizeNumber)] ?? 0) >= i.quantityPacked
                 })
+                const isExpanded = expandedArticle === artNumber
+
+                const totalPackedPairs = allItems.reduce((sum, item) => sum + (item.status === 'out_of_stock' ? 0 : item.quantityPacked), 0)
+                const totalVerifiedPairs = allItems.reduce((sum, item) => {
+                  if (item.status === 'out_of_stock') return sum
+                  const key = itemKey(item.artNumber, item.sizeNumber)
+                  const totalScans = scannedMap[key] ?? 0
+                  const siblingItems = scanItems.filter(i => itemKey(i.artNumber, i.sizeNumber) === key)
+                  const currentItemIndex = siblingItems.findIndex(i => i.id === item.id)
+
+                  let assignedScannedCount = 0
+                  let scansLeft = totalScans
+
+                  for (let idx = 0; idx < siblingItems.length; idx++) {
+                    const sibling = siblingItems[idx]
+                    const sibPacked = sibling.status === 'out_of_stock' ? 0 : sibling.quantityPacked
+                    
+                    if (idx === currentItemIndex) {
+                      if (idx === siblingItems.length - 1) {
+                        assignedScannedCount = scansLeft
+                      } else {
+                        assignedScannedCount = Math.min(scansLeft, sibPacked)
+                      }
+                      break
+                    } else {
+                      scansLeft -= Math.min(scansLeft, sibPacked)
+                    }
+                  }
+                  return sum + Math.min(assignedScannedCount, item.quantityPacked)
+                }, 0)
+
                 return (
-                  <div key={artNumber} className={`rounded-xl border overflow-hidden ${artDone ? 'border-blue-200 dark:border-blue-800' : 'border-border'}`}>
+                  <div key={artNumber} className={`rounded-xl border transition-all duration-200 overflow-hidden ${
+                    artDone
+                      ? 'border-emerald-200 dark:border-emerald-800 bg-emerald-50/5 dark:bg-emerald-950/5'
+                      : isExpanded
+                      ? 'border-blue-300 dark:border-blue-700 shadow-md shadow-blue-500/5'
+                      : 'border-border bg-card'
+                  }`}>
                     {/* Article header */}
-                    <div className={`flex items-center justify-between px-3.5 py-2 border-b ${artDone ? 'border-blue-100 dark:border-blue-900 bg-blue-50/50 dark:bg-blue-950/20' : 'border-border bg-muted/30'}`}>
-                      <span className="text-xs font-bold font-mono text-foreground">{artNumber}</span>
-                      {artDone && (
-                        <svg className="w-4 h-4 text-blue-600 dark:text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-                        </svg>
-                      )}
+                    <div
+                      onClick={() => setExpandedArticle(isExpanded ? null : artNumber)}
+                      className={`px-4 py-3.5 border-b cursor-pointer transition-colors select-none ${
+                        artDone
+                          ? 'border-emerald-100/60 dark:border-emerald-900/40 bg-emerald-50/20 dark:bg-emerald-950/10 hover:bg-emerald-50/40'
+                          : isExpanded
+                          ? 'border-blue-100 dark:border-blue-900/40 bg-blue-50/10 dark:bg-blue-950/5 hover:bg-blue-50/20'
+                          : 'border-border bg-muted/20 hover:bg-muted/30'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-4">
+                        {/* Article Code */}
+                        <div className="flex items-center gap-2 min-w-0">
+                          <svg
+                            className={`w-3.5 h-3.5 text-muted-foreground transition-transform duration-200 shrink-0 ${isExpanded ? 'rotate-180' : ''}`}
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                          >
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7" />
+                          </svg>
+                          <span className="text-xs font-bold font-mono text-foreground truncate">{artNumber}</span>
+                        </div>
+
+                        {/* Verified Pairs / Total Packed Pairs */}
+                        <div className="flex items-center gap-1.5 font-mono text-xs shrink-0">
+                          <span className={`px-2.5 py-0.5 rounded-full text-xs font-extrabold tracking-tight leading-none ${
+                            artDone
+                              ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300'
+                              : totalVerifiedPairs > 0
+                              ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400'
+                              : 'bg-muted text-muted-foreground'
+                          }`}>
+                            {totalVerifiedPairs}&thinsp;/&thinsp;{totalPackedPairs}
+                          </span>
+                          {artDone && (
+                            <svg className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                            </svg>
+                          )}
+                        </div>
+                      </div>
                     </div>
 
-                    {/* Items */}
-                    <div className="divide-y divide-border bg-card">
-                      {colorGroups.map(({ color, items }) =>
-                        items.map(item => {
-                          const isOOS   = item.status === 'out_of_stock'
-                          const packed  = isOOS ? 0 : item.quantityPacked
-                          const key     = itemKey(item.artNumber, item.sizeNumber)
-                          const scanned = scannedMap[key] ?? 0
-                          const done    = isOOS || scanned >= packed
-                          const partial = !done && scanned > 0
+                    {/* Table of items inside article */}
+                    {isExpanded ? (
+                      <div className="overflow-x-auto bg-card border-t border-border/50 scrollbar-none touch-pan-x">
+                        <table className="w-full text-xs text-left border-collapse table-auto">
+                          <thead className="bg-muted/10 border-b border-border text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
+                            <tr>
+                              <th className="px-3.5 py-2.5 min-w-[80px] whitespace-nowrap">Color</th>
+                              <th className="px-2 py-2.5 text-center min-w-[48px] w-12 whitespace-nowrap">SZ</th>
+                              <th className="px-2 py-2.5 text-center min-w-[56px] w-14 whitespace-nowrap">ORD</th>
+                              <th className="px-2 py-2.5 text-center min-w-[56px] w-14 text-green-600 dark:text-green-400 whitespace-nowrap">PKD</th>
+                              <th className="px-2 py-2.5 text-center min-w-[64px] w-16 text-blue-600 dark:text-blue-400 whitespace-nowrap">SCAN</th>
+                              <th className="px-3.5 py-2.5 text-right min-w-[80px] w-24 whitespace-nowrap">Price</th>
+                              {showDevTracking && (
+                                <th className="px-3.5 py-2.5 text-left min-w-[140px] whitespace-nowrap">rawCode</th>
+                              )}
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-border bg-card/40">
+                            {colorGroups.map(({ color, items }) =>
+                              items.map(item => {
+                                const isOOS   = item.status === 'out_of_stock'
+                                const packed  = isOOS ? 0 : item.quantityPacked
+                                const key     = itemKey(item.artNumber, item.sizeNumber)
+                                const totalScans = scannedMap[key] ?? 0
 
-                          return (
-                            <div key={item.id} className="flex items-center justify-between px-3.5 py-3">
-                              {/* Left — dot + label */}
-                              <div className="flex items-center gap-2.5 min-w-0">
-                                <div className={`shrink-0 w-2 h-2 rounded-full ${
-                                  isOOS ? 'bg-red-400' : done ? 'bg-blue-500' : partial ? 'bg-yellow-400' : 'bg-border'
-                                }`} />
-                                <div className="min-w-0">
-                                  <span className="text-xs font-medium text-foreground">{color}</span>
-                                  {item.sizeNumber && (
-                                    <span className="ml-1.5 text-xs text-muted-foreground">Size {item.sizeNumber}</span>
-                                  )}
-                                </div>
-                              </div>
+                                // Sibling items under the same key to distribute counts sequentially
+                                const siblingItems = scanItems.filter(i => itemKey(i.artNumber, i.sizeNumber) === key)
+                                const currentItemIndex = siblingItems.findIndex(i => i.id === item.id)
 
-                              {/* Right — status */}
-                              <div className="shrink-0 flex items-center gap-2">
-                                {isOOS ? (
-                                  <span className="text-[11px] font-medium text-red-500">Out of stock</span>
-                                ) : (
-                                  <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold tabular-nums ${
-                                    done
-                                      ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300'
-                                      : partial
-                                      ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400'
-                                      : 'bg-muted text-muted-foreground'
+                                let assignedScannedCount = 0
+                                let scansLeft = totalScans
+
+                                for (let idx = 0; idx < siblingItems.length; idx++) {
+                                  const sibling = siblingItems[idx]
+                                  const sibPacked = sibling.status === 'out_of_stock' ? 0 : sibling.quantityPacked
+                                  
+                                  if (idx === currentItemIndex) {
+                                    if (idx === siblingItems.length - 1) {
+                                      assignedScannedCount = scansLeft
+                                    } else {
+                                      assignedScannedCount = Math.min(scansLeft, sibPacked)
+                                    }
+                                    break
+                                  } else {
+                                    scansLeft -= Math.min(scansLeft, sibPacked)
+                                  }
+                                }
+
+                                const done    = isOOS || assignedScannedCount >= packed
+                                const partial = !done && assignedScannedCount > 0
+
+                                // Find matching scans for this article + size
+                                const matchingScans = scannedQrs.filter(raw => {
+                                  if (!isValidWarehouseQr(raw)) return false
+                                  const p = parseQr(raw)
+                                  return p.articleCode.toUpperCase() === item.artNumber.toUpperCase() &&
+                                         String(p.size).toUpperCase() === (item.sizeNumber ?? '').toUpperCase()
+                                })
+
+                                // Distribute matching QR codes sequentially to current item
+                                let itemScans: string[] = []
+                                let qrScansLeft = [...matchingScans]
+
+                                for (let idx = 0; idx < siblingItems.length; idx++) {
+                                  const sibling = siblingItems[idx]
+                                  const sibPacked = sibling.status === 'out_of_stock' ? 0 : sibling.quantityPacked
+                                  
+                                  if (idx === currentItemIndex) {
+                                    if (idx === siblingItems.length - 1) {
+                                      itemScans = qrScansLeft
+                                    } else {
+                                      itemScans = qrScansLeft.slice(0, sibPacked)
+                                    }
+                                    break
+                                  } else {
+                                    qrScansLeft = qrScansLeft.slice(sibPacked)
+                                  }
+                                }
+
+                                // Unique prices parsed from scanned QR codes
+                                const prices = Array.from(new Set(itemScans.map(raw => parseQr(raw).mrp)))
+
+                                return (
+                                  <tr key={item.id} className={`transition-colors select-none ${
+                                    isOOS
+                                      ? 'bg-red-50/10 dark:bg-red-950/5 hover:bg-red-50/15'
+                                      : done
+                                      ? 'bg-emerald-50/10 dark:bg-emerald-950/5 hover:bg-emerald-50/15'
+                                      : 'hover:bg-muted/10 odd:bg-card/30 even:bg-muted/5'
                                   }`}>
-                                    {scanned}&thinsp;/&thinsp;{packed}
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                          )
-                        })
-                      )}
-                    </div>
+                                    <td className="px-3.5 py-2.5 font-medium text-foreground text-xs sm:text-sm">{color}</td>
+                                    <td className="px-2 py-2.5 font-mono text-center text-foreground text-xs sm:text-sm font-semibold">{item.sizeNumber ?? '—'}</td>
+                                    <td className="px-2 py-2.5 font-mono text-center text-muted-foreground text-xs sm:text-sm">{item.quantityOrdered}</td>
+                                    <td className="px-2 py-2.5 font-mono text-center text-green-600 dark:text-green-400 text-xs sm:text-sm font-bold">
+                                      {isOOS ? <span className="text-red-500 font-normal text-[10px] bg-red-50 dark:bg-red-950/30 px-1.5 py-0.5 rounded">OOS</span> : packed}
+                                    </td>
+                                    <td className="px-2 py-2.5 font-mono text-center text-xs sm:text-sm">
+                                      {isOOS ? (
+                                        <span className="text-muted-foreground font-normal text-[10px]">—</span>
+                                      ) : (
+                                        <span className={`inline-flex items-center justify-center min-w-8 px-2.5 py-0.5 rounded-full text-xs font-bold leading-none ${
+                                          done
+                                            ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300'
+                                            : partial
+                                            ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-450'
+                                            : 'bg-muted text-muted-foreground'
+                                        }`}>
+                                          {assignedScannedCount}
+                                        </span>
+                                      )}
+                                    </td>
+                                    <td className="px-3.5 py-2.5 text-right font-mono text-foreground text-xs sm:text-sm font-semibold whitespace-nowrap">
+                                      {prices.length > 0 ? (
+                                        <div className="flex flex-wrap gap-1 justify-end max-w-[120px] ml-auto">
+                                          {prices.map((p, pIdx) => (
+                                            <span key={pIdx} className="bg-muted px-1.5 py-0.5 rounded text-[10px] font-semibold text-foreground border border-border/30 shadow-xs">
+                                              ₹{p.toFixed(2)}
+                                            </span>
+                                          ))}
+                                        </div>
+                                      ) : (
+                                        <span className="text-muted-foreground">—</span>
+                                      )}
+                                    </td>
+                                    {showDevTracking && (
+                                      <td className="px-3.5 py-2.5 font-mono text-[9px] text-muted-foreground max-w-[220px]">
+                                        {itemScans.length > 0 ? (
+                                          <div className="flex flex-col gap-1 max-h-[80px] overflow-y-auto pr-1">
+                                            {itemScans.map((raw, rIdx) => (
+                                              <span key={rIdx} className="bg-muted/80 px-1.5 py-1 rounded truncate select-all block border border-border/40 text-[8.5px]" title={raw}>
+                                                {raw}
+                                              </span>
+                                            ))}
+                                          </div>
+                                        ) : (
+                                          <span className="text-muted-foreground">—</span>
+                                        )}
+                                      </td>
+                                    )}
+                                  </tr>
+                                )
+                              })
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : null}
                   </div>
                 )
               })}
