@@ -6,7 +6,8 @@ import { StatusPill, fmt, PageHeader, StatCard } from '../_components/shared'
 import { markBilled, getOrderWithItems } from '@/app/actions/orders'
 import { PageNav } from '@/components/page-nav'
 import { parseQr, isValidWarehouseQr } from '@/lib/qr-parser'
-import { SCAN_MAX_DIM, SCAN_INTERVAL_MS } from '@/components/scanner/constants'
+import { SCAN_INTERVAL_MS } from '@/components/scanner/constants'
+import { articlesMatch } from '@/lib/billing-verification'
 
 interface BillerOrder {
   id: number
@@ -60,6 +61,7 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
   const [showDevTracking, setShowDevTracking] = useState(false)
   const [expandedArticle, setExpandedArticle] = useState<string | null>(null)
   const [scanMsg, setScanMsg] = useState<{ type: 'ok' | 'warn' | 'err'; text: string } | null>(null)
+  const [lastScannedMsg, setLastScannedMsg] = useState<string | null>(null)
   const scanMsgTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const videoRef            = useRef<HTMLVideoElement>(null)
@@ -71,6 +73,18 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
   const scanningRef         = useRef(false)
   const scanPausedRef       = useRef(false)
   const fileInputRef        = useRef<HTMLInputElement>(null)
+
+  // Scanner states refs to bypass Next.js/React stale closure issues inside startCamera/scanLoop callbacks
+  const scanItemsRef        = useRef<DetailItem[]>([])
+  const scannedMapRef       = useRef<Record<string, number>>({})
+  const scannedQrsRef       = useRef<string[]>([])
+  const showDevTrackingRef  = useRef<boolean>(false)
+
+  // Synchronize refs with the latest state values across render cycles
+  useEffect(() => { scanItemsRef.current = scanItems }, [scanItems])
+  useEffect(() => { scannedMapRef.current = scannedMap }, [scannedMap])
+  useEffect(() => { scannedQrsRef.current = scannedQrs }, [scannedQrs])
+  useEffect(() => { showDevTrackingRef.current = showDevTracking }, [showDevTracking])
 
   const [isCameraActive, setIsCameraActive] = useState(false)
   const [isFlashlightOn, setIsFlashlightOn] = useState(false)
@@ -85,11 +99,89 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
     flashlightStreamRef.current?.getTracks().forEach(t => t.stop())
   }, [])
 
+  // ── LocalStorage State Restoration on Mount ──
+  useEffect(() => {
+    try {
+      const savedDetailOrder = localStorage.getItem('biller_detailOrder')
+      if (savedDetailOrder) {
+        const parsed = JSON.parse(savedDetailOrder)
+        setDetailOrder(parsed)
+        setDetailLoading(true)
+        getOrderWithItems(parsed.id).then(({ items }) => {
+          setDetailItems(items as DetailItem[])
+        }).catch(() => {}).finally(() => setDetailLoading(false))
+      }
+
+      const savedScanOrder = localStorage.getItem('biller_scanOrder')
+      if (savedScanOrder) {
+        const parsed = JSON.parse(savedScanOrder)
+        setScanOrder(parsed)
+        
+        const savedScanItems = localStorage.getItem('biller_scanItems')
+        if (savedScanItems) setScanItems(JSON.parse(savedScanItems))
+        
+        const savedScannedMap = localStorage.getItem('biller_scannedMap')
+        if (savedScannedMap) setScannedMap(JSON.parse(savedScannedMap))
+        
+        const savedScannedQrs = localStorage.getItem('biller_scannedQrs')
+        if (savedScannedQrs) setScannedQrs(JSON.parse(savedScannedQrs))
+        
+        const savedExpandedArticle = localStorage.getItem('biller_expandedArticle')
+        if (savedExpandedArticle) setExpandedArticle(savedExpandedArticle)
+        
+        const savedShowDev = localStorage.getItem('biller_showDevTracking')
+        if (savedShowDev) setShowDevTracking(savedShowDev === 'true')
+
+        const savedLastScan = localStorage.getItem('biller_lastScannedMsg')
+        if (savedLastScan) setLastScannedMsg(savedLastScan)
+      }
+    } catch (e) {
+      console.error('Failed to restore biller local storage state', e)
+    }
+  }, [])
+
+  // ── LocalStorage State Syncing on Change ──
+  useEffect(() => {
+    if (detailOrder) {
+      localStorage.setItem('biller_detailOrder', JSON.stringify(detailOrder))
+    } else {
+      localStorage.removeItem('biller_detailOrder')
+    }
+  }, [detailOrder])
+
+  useEffect(() => {
+    if (scanOrder) {
+      localStorage.setItem('biller_scanOrder', JSON.stringify(scanOrder))
+      localStorage.setItem('biller_scanItems', JSON.stringify(scanItems))
+      localStorage.setItem('biller_scannedMap', JSON.stringify(scannedMap))
+      localStorage.setItem('biller_scannedQrs', JSON.stringify(scannedQrs))
+      if (expandedArticle) {
+        localStorage.setItem('biller_expandedArticle', expandedArticle)
+      } else {
+        localStorage.removeItem('biller_expandedArticle')
+      }
+      localStorage.setItem('biller_showDevTracking', String(showDevTracking))
+      if (lastScannedMsg) {
+        localStorage.setItem('biller_lastScannedMsg', lastScannedMsg)
+      } else {
+        localStorage.removeItem('biller_lastScannedMsg')
+      }
+    } else {
+      localStorage.removeItem('biller_scanOrder')
+      localStorage.removeItem('biller_scanItems')
+      localStorage.removeItem('biller_scannedMap')
+      localStorage.removeItem('biller_scannedQrs')
+      localStorage.removeItem('biller_expandedArticle')
+      localStorage.removeItem('biller_showDevTracking')
+      localStorage.removeItem('biller_lastScannedMsg')
+    }
+  }, [scanOrder, scanItems, scannedMap, scannedQrs, expandedArticle, showDevTracking, lastScannedMsg])
+
   // ── banner helpers ───────────────────────────────────────────────────────────
   function showMsg(type: 'ok' | 'warn' | 'err', text: string) {
     if (scanMsgTimer.current) clearTimeout(scanMsgTimer.current)
     setScanMsg({ type, text })
-    scanMsgTimer.current = setTimeout(() => setScanMsg(null), type === 'err' ? 0 : 3000)
+    scanMsgTimer.current = setTimeout(() => setScanMsg(null), 3000)
   }
 
   // ── audio / haptic ───────────────────────────────────────────────────────────
@@ -107,35 +199,9 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
     try { if (navigator.vibrate) navigator.vibrate(60) } catch { /* ignore */ }
   }
 
-  // Helper for matching article codes (e.g. A1SF0204G matches SFG-204, or FL0548L matches FL-548L)
-  function articlesMatch(a: string, b: string): boolean {
-    const normA = a.toUpperCase().replace(/[^A-Z0-9]/g, '');
-    const normB = b.toUpperCase().replace(/[^A-Z0-9]/g, '');
-
-    if (normA === normB) return true;
-
-    // Strip leading single-letter + single-digit prefix (like A1, B1, etc.)
-    const cleanA = normA.replace(/^[A-Z]\d/, '');
-    const cleanB = normB.replace(/^[A-Z]\d/, '');
-
-    if (cleanA === cleanB) return true;
-
-    // Extract sorted letter parts and numeric parts
-    const lettersA = cleanA.replace(/[^A-Z]/g, '').split('').sort().join('');
-    const lettersB = cleanB.replace(/[^A-Z]/g, '').split('').sort().join('');
-
-    const digitsA = cleanA.replace(/[^0-9]/g, '');
-    const digitsB = cleanB.replace(/[^0-9]/g, '');
-
-    const numA = digitsA ? parseInt(digitsA, 10) : null;
-    const numB = digitsB ? parseInt(digitsB, 10) : null;
-
-    return lettersA === lettersB && numA === numB;
-  }
-
   // ── handle a decoded QR string ───────────────────────────────────────────────
   function handleQrDecode(raw: string) {
-    const devSuffix = showDevTracking ? ` (${raw})` : ''
+    const devSuffix = showDevTrackingRef.current ? ` (${raw})` : ''
     
     if (!isValidWarehouseQr(raw)) {
       showMsg('warn', 'Unrecognised QR code format' + devSuffix)
@@ -146,7 +212,7 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
     const size   = String(parsed.size).toUpperCase()
 
     // find the matching packed item (artNumber matches, sizeNumber matches)
-    const match = scanItems.find(i => {
+    const match = scanItemsRef.current.find(i => {
       const iArt  = i.artNumber.toUpperCase()
       const iSize = (i.sizeNumber ?? '').toUpperCase()
       return articlesMatch(iArt, art) && iSize === size
@@ -158,18 +224,23 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
     }
 
     const key     = itemKey(match.artNumber, match.sizeNumber)
-    const current = scannedMap[key] ?? 0
+    const current = scannedMapRef.current[key] ?? 0
     const packed  = match.status === 'out_of_stock' ? 0 : match.quantityPacked
 
     if (current >= packed) {
-      showMsg('warn', `${art} Sz ${size} — Already fully scanned (${packed} pkd)` + devSuffix)
+      showMsg('warn', `${art} Size : ${size} — Already fully scanned (${packed} pkd)` + devSuffix)
       return
     }
 
+    const extArt   = parsed.articleCode.toUpperCase()
+    const extColor = parsed.colorCode.toUpperCase()
+    const extSize  = String(parsed.size).toUpperCase()
+    const successText = `${extArt} / ${extColor} / SZ(${extSize}) — ${current + 1}/${packed}`
     setScannedMap(prev => ({ ...prev, [key]: current + 1 }))
     setScannedQrs(prev => [...prev, raw])
+    setLastScannedMsg(successText)
     triggerFeedback()
-    showMsg('ok', `${art} Sz ${size} — Scanned ${current + 1}/${packed}` + devSuffix)
+    showMsg('ok', successText + devSuffix)
   }
 
   // ── camera ───────────────────────────────────────────────────────────────────
@@ -213,7 +284,8 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
     lastScanTimeRef.current = now
 
     let sc = scanCanvasRef.current
-    const scale = Math.min(1, SCAN_MAX_DIM / Math.max(video.videoWidth, video.videoHeight))
+    // Use 1080px max dimension instead of 480px to retain 4x more detail for small/dense QR barcodes
+    const scale = Math.min(1, 1080 / Math.max(video.videoWidth, video.videoHeight))
     const sw = Math.round(video.videoWidth * scale)
     const sh = Math.round(video.videoHeight * scale)
     if (!sc || sc.width !== sw || sc.height !== sh) {
@@ -289,6 +361,7 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
     setShowDevTracking(false)
     setExpandedArticle(null)
     setScanMsg(null)
+    setLastScannedMsg(null)
 
     // load items if not already in detailItems for this order
     let items = detailItems
@@ -314,6 +387,7 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
     setShowDevTracking(false)
     setExpandedArticle(null)
     setScanMsg(null)
+    setLastScannedMsg(null)
   }
 
   // ── save bill ────────────────────────────────────────────────────────────────
@@ -726,6 +800,18 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
               </div>
             )}
 
+            {/* ── Persistent Last Scanned display ── */}
+            {lastScannedMsg && (
+              <div className="mx-4 mt-3 flex items-center justify-between gap-3 rounded-xl bg-card border border-border px-3.5 py-3 text-xs select-none shadow-sm">
+                <div className="shrink-0 flex items-center">
+                  <span className="bg-emerald-500 text-white font-bold px-2.5 py-1 rounded-md text-[10px] tracking-wide uppercase shadow-sm shadow-emerald-500/10">
+                    Last Scanned
+                  </span>
+                </div>
+                <span className="font-bold text-foreground font-mono text-right text-xs sm:text-sm pl-2">{lastScannedMsg}</span>
+              </div>
+            )}
+
             {/* ── Item verification checklist ── */}
             <div className="px-4 pt-4 pb-28 space-y-3">
               <div className="flex items-center justify-between mb-3 select-none">
@@ -915,8 +1001,13 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
                                   }
                                 }
 
-                                // Unique prices parsed from scanned QR codes
-                                const prices = Array.from(new Set(itemScans.map(raw => parseQr(raw).mrp)))
+                                // Unique prices and their scan count parsed from scanned QR codes
+                                const priceCounts: Record<number, number> = {}
+                                itemScans.forEach(raw => {
+                                  const p = parseQr(raw).mrp
+                                  priceCounts[p] = (priceCounts[p] ?? 0) + 1
+                                })
+                                const priceEntries = Object.entries(priceCounts)
 
                                 return (
                                   <tr key={item.id} className={`transition-colors select-none ${
@@ -948,11 +1039,11 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
                                       )}
                                     </td>
                                     <td className="px-3.5 py-2.5 text-right font-mono text-foreground text-xs sm:text-sm font-semibold whitespace-nowrap">
-                                      {prices.length > 0 ? (
-                                        <div className="flex flex-wrap gap-1 justify-end max-w-[120px] ml-auto">
-                                          {prices.map((p, pIdx) => (
-                                            <span key={pIdx} className="bg-muted px-1.5 py-0.5 rounded text-[10px] font-semibold text-foreground border border-border/30 shadow-xs">
-                                              ₹{p.toFixed(2)}
+                                      {priceEntries.length > 0 ? (
+                                        <div className="flex flex-wrap gap-1 justify-end max-w-[140px] ml-auto">
+                                          {priceEntries.map(([mrp, qty]) => (
+                                            <span key={mrp} className="bg-muted px-1.5 py-0.5 rounded text-[10px] font-semibold text-foreground border border-border/30 shadow-xs">
+                                              ₹{parseFloat(mrp).toFixed(2)}*{qty}
                                             </span>
                                           ))}
                                         </div>
@@ -963,9 +1054,9 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
                                     {showDevTracking && (
                                       <td className="px-3.5 py-2.5 font-mono text-[9px] text-muted-foreground min-w-[350px]">
                                         {itemScans.length > 0 ? (
-                                          <div className="flex flex-col gap-1 max-h-[100px] overflow-y-auto pr-1">
+                                          <div className="flex flex-col gap-1 max-h-[100px] overflow-y-auto pr-1 items-start">
                                             {itemScans.map((raw, rIdx) => (
-                                              <span key={rIdx} className="bg-muted/80 px-1.5 py-1 rounded select-all block border border-border/40 text-[8.5px] whitespace-nowrap" title={raw}>
+                                              <span key={rIdx} className="bg-muted/80 px-2 py-0.5 rounded select-all inline-block w-fit border border-border/40 text-[8.5px] whitespace-nowrap" title={raw}>
                                                 {raw}
                                               </span>
                                             ))}
