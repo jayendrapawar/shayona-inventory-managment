@@ -12,9 +12,9 @@
 const DB_NAME      = 'shayona-offline'
 const CACHE_STORE  = 'flag-cache'
 const PENDING_STORE = 'flag-pending'
-// Bump version so IDB upgrades and creates the new stores alongside the
-// existing 'pending-scans' store.
-const VERSION = 2
+// Keep in sync with offline-queue.ts — both share the same IDB database.
+// Bumped to 3 to avoid VersionError for browsers that already have the DB at v3.
+const VERSION = 3
 
 function openDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {

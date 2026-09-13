@@ -107,10 +107,38 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
     try { if (navigator.vibrate) navigator.vibrate(60) } catch { /* ignore */ }
   }
 
+  // Helper for matching article codes (e.g. A1SF0204G matches SFG-204, or FL0548L matches FL-548L)
+  function articlesMatch(a: string, b: string): boolean {
+    const normA = a.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const normB = b.toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+    if (normA === normB) return true;
+
+    // Strip leading single-letter + single-digit prefix (like A1, B1, etc.)
+    const cleanA = normA.replace(/^[A-Z]\d/, '');
+    const cleanB = normB.replace(/^[A-Z]\d/, '');
+
+    if (cleanA === cleanB) return true;
+
+    // Extract sorted letter parts and numeric parts
+    const lettersA = cleanA.replace(/[^A-Z]/g, '').split('').sort().join('');
+    const lettersB = cleanB.replace(/[^A-Z]/g, '').split('').sort().join('');
+
+    const digitsA = cleanA.replace(/[^0-9]/g, '');
+    const digitsB = cleanB.replace(/[^0-9]/g, '');
+
+    const numA = digitsA ? parseInt(digitsA, 10) : null;
+    const numB = digitsB ? parseInt(digitsB, 10) : null;
+
+    return lettersA === lettersB && numA === numB;
+  }
+
   // ── handle a decoded QR string ───────────────────────────────────────────────
   function handleQrDecode(raw: string) {
+    const devSuffix = showDevTracking ? ` (${raw})` : ''
+    
     if (!isValidWarehouseQr(raw)) {
-      showMsg('warn', 'Unrecognised QR — only warehouse box QR codes accepted')
+      showMsg('warn', 'Unrecognised QR code format' + devSuffix)
       return
     }
     const parsed = parseQr(raw)
@@ -121,11 +149,11 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
     const match = scanItems.find(i => {
       const iArt  = i.artNumber.toUpperCase()
       const iSize = (i.sizeNumber ?? '').toUpperCase()
-      return iArt === art && iSize === size
+      return articlesMatch(iArt, art) && iSize === size
     })
 
     if (!match) {
-      showMsg('warn', `${art} / size ${size} — not in this order`)
+      showMsg('warn', `${art} Sz ${size} — Not in this order` + devSuffix)
       return
     }
 
@@ -134,14 +162,14 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
     const packed  = match.status === 'out_of_stock' ? 0 : match.quantityPacked
 
     if (current >= packed) {
-      showMsg('warn', `${art} / size ${size} — already fully scanned (${packed} pkd)`)
+      showMsg('warn', `${art} Sz ${size} — Already fully scanned (${packed} pkd)` + devSuffix)
       return
     }
 
     setScannedMap(prev => ({ ...prev, [key]: current + 1 }))
     setScannedQrs(prev => [...prev, raw])
     triggerFeedback()
-    showMsg('ok', `${art} / size ${size} — ${current + 1}/${packed}`)
+    showMsg('ok', `${art} Sz ${size} — Scanned ${current + 1}/${packed}` + devSuffix)
   }
 
   // ── camera ───────────────────────────────────────────────────────────────────
@@ -821,7 +849,7 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
                               <th className="px-2 py-2.5 text-center min-w-[64px] w-16 text-blue-600 dark:text-blue-400 whitespace-nowrap">SCAN</th>
                               <th className="px-3.5 py-2.5 text-right min-w-[80px] w-24 whitespace-nowrap">Price</th>
                               {showDevTracking && (
-                                <th className="px-3.5 py-2.5 text-left min-w-[140px] whitespace-nowrap">rawCode</th>
+                                <th className="px-3.5 py-2.5 text-left min-w-[280px] whitespace-nowrap">rawCode</th>
                               )}
                             </tr>
                           </thead>
@@ -863,7 +891,7 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
                                 const matchingScans = scannedQrs.filter(raw => {
                                   if (!isValidWarehouseQr(raw)) return false
                                   const p = parseQr(raw)
-                                  return p.articleCode.toUpperCase() === item.artNumber.toUpperCase() &&
+                                  return articlesMatch(p.articleCode, item.artNumber) &&
                                          String(p.size).toUpperCase() === (item.sizeNumber ?? '').toUpperCase()
                                 })
 
@@ -933,11 +961,11 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
                                       )}
                                     </td>
                                     {showDevTracking && (
-                                      <td className="px-3.5 py-2.5 font-mono text-[9px] text-muted-foreground max-w-[220px]">
+                                      <td className="px-3.5 py-2.5 font-mono text-[9px] text-muted-foreground min-w-[350px]">
                                         {itemScans.length > 0 ? (
-                                          <div className="flex flex-col gap-1 max-h-[80px] overflow-y-auto pr-1">
+                                          <div className="flex flex-col gap-1 max-h-[100px] overflow-y-auto pr-1">
                                             {itemScans.map((raw, rIdx) => (
-                                              <span key={rIdx} className="bg-muted/80 px-1.5 py-1 rounded truncate select-all block border border-border/40 text-[8.5px]" title={raw}>
+                                              <span key={rIdx} className="bg-muted/80 px-1.5 py-1 rounded select-all block border border-border/40 text-[8.5px] whitespace-nowrap" title={raw}>
                                                 {raw}
                                               </span>
                                             ))}

@@ -35,8 +35,8 @@ export interface OfflineEntry {
 const DB_NAME = 'shayona-offline'
 const STORE   = 'pending-scans'
 // Must match the version in offline-flags.ts — both files share the same IDB database.
-// offline-flags.ts created version 2 with the flag stores; keep in sync.
-const VERSION = 2
+// Bumped to 3 to avoid VersionError for browsers that already have the DB at v3.
+const VERSION = 3
 
 function openDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
