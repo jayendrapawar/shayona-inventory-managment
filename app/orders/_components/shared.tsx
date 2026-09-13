@@ -6,6 +6,7 @@ export const STATUS_BADGE: Record<string, { label: string; color: string }> = {
   pending:    { label: 'Pending',     color: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400' },
   assigned:   { label: 'Assigned',    color: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400' },
   packed:     { label: 'Packed',      color: 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400' },
+  billed:     { label: 'Billed',      color: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400' },
   dispatched: { label: 'Dispatched',  color: 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400' },
   delivered:  { label: 'Delivered',   color: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400' },
   cancelled:  { label: 'Cancelled',   color: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400' },
@@ -17,6 +18,7 @@ export const ROLE_BADGE: Record<string, { label: string; color: string }> = {
   accountant: { label: 'Accountant',  color: 'bg-teal-100 text-teal-800 dark:bg-teal-900/30 dark:text-teal-400' },
   salesman:   { label: 'Salesman',    color: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400' },
   picker:     { label: 'Picker',      color: 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400' },
+  biller:     { label: 'Biller',      color: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400' },
   dispatcher: { label: 'Dispatcher',  color: 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400' },
   user:       { label: 'No Role',     color: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400' },
 }

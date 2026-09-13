@@ -4,10 +4,9 @@ import { useState, useEffect } from 'react'
 import { PageNav } from '@/components/page-nav'
 import { SalesmanDashboard } from '../salesman/salesman-dashboard'
 import { PickerDashboard } from '../picker/picker-dashboard'
+import { BillerDashboard } from '../biller/biller-dashboard'
 import { DispatcherDashboard } from '../dispatcher/dispatcher-dashboard'
-import { NotesDashboard } from '../_components/notes-dashboard'
 import type { CatalogueData } from '@/app/actions/catalogue'
-import type { NoteRow } from '@/app/actions/notes'
 
 interface Props {
   roles: string[]
@@ -15,9 +14,10 @@ interface Props {
   userName: string
   pickerQueue: any[]
   currentPickerId: string
+  billerOrders: any[]
+  currentBillerId: string
   dispatcherOrders: any[]
   catalogue: CatalogueData
-  initialNotes: NoteRow[]
 }
 
 // ── Shared GridTabBar ─────────────────────────────────────────────────────────
@@ -92,22 +92,24 @@ export function MultiRoleOrdersHub({
   userName,
   pickerQueue,
   currentPickerId,
+  billerOrders,
+  currentBillerId,
   dispatcherOrders,
   catalogue,
-  initialNotes,
 }: Props) {
   const hasSalesman   = roles.includes('salesman')
   const hasPicker     = roles.includes('picker')
+  const hasBiller     = roles.includes('biller')
   const hasDispatcher = roles.includes('dispatcher')
 
   const TABS: Tab[] = [
     ...(hasSalesman   ? [{ value: 'salesman',   label: 'Salesman' }]   : []),
     ...(hasPicker     ? [{ value: 'picker',     label: 'Picker' }]     : []),
+    ...(hasBiller     ? [{ value: 'biller',     label: 'Biller' }]     : []),
     ...(hasDispatcher ? [{ value: 'dispatcher', label: 'Dispatcher' }] : []),
-    { value: 'notes', label: 'Notes' },
   ]
 
-  const defaultTab = TABS[0]?.value || 'notes'
+  const defaultTab = TABS[0]?.value || 'salesman'
   const [activeTab, setActiveTab] = useState(defaultTab)
 
   useEffect(() => {
@@ -142,20 +144,12 @@ export function MultiRoleOrdersHub({
           <PickerDashboard queue={pickerQueue} currentPickerId={currentPickerId} embedded />
         )}
 
-        {hasDispatcher && activeTab === 'dispatcher' && (
-          <DispatcherDashboard orders={dispatcherOrders} embedded />
+        {hasBiller && activeTab === 'biller' && (
+          <BillerDashboard orders={billerOrders} currentBillerId={currentBillerId} embedded />
         )}
 
-        {activeTab === 'notes' && (
-          <div className="rounded-xl border border-border bg-card p-4">
-            <div className="mb-4">
-              <h2 className="text-sm font-semibold text-foreground">Notes</h2>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                Shared notes visible to all users and roles. Pin important items to keep them at the top.
-              </p>
-            </div>
-            <NotesDashboard initialNotes={initialNotes} />
-          </div>
+        {hasDispatcher && activeTab === 'dispatcher' && (
+          <DispatcherDashboard orders={dispatcherOrders} embedded />
         )}
       </div>
     </div>

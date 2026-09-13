@@ -7,7 +7,7 @@ import { eq, like } from 'drizzle-orm'
 import { headers } from 'next/headers'
 import { revalidatePath } from 'next/cache'
 
-export type AppRole = 'admin' | 'accountant' | 'salesman' | 'picker' | 'dispatcher' | 'user'
+export type AppRole = 'admin' | 'accountant' | 'salesman' | 'picker' | 'biller' | 'dispatcher' | 'user'
 
 async function requireAdmin() {
   const session = await auth.api.getSession({ headers: await headers() })

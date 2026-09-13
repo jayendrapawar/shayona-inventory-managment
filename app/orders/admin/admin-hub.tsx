@@ -5,12 +5,11 @@ import { PageNav } from '@/components/page-nav'
 import { AdminDashboard } from './admin-dashboard'
 import { SalesmanDashboard } from '../salesman/salesman-dashboard'
 import { PickerDashboard } from '../picker/picker-dashboard'
+import { BillerDashboard } from '../biller/biller-dashboard'
 import { DispatcherDashboard } from '../dispatcher/dispatcher-dashboard'
 import { ProcurementSummary } from './procurement-summary'
-import { NotesDashboard } from '../_components/notes-dashboard'
 import type { ProcurementRow } from '@/app/actions/orders'
 import type { CatalogueData } from '@/app/actions/catalogue'
-import type { NoteRow } from '@/app/actions/notes'
 
 // ── Prop types (mirroring what each dashboard expects) ────────────────────────
 
@@ -77,10 +76,10 @@ interface Props {
   pickers: Picker[]
   salesmanOrders: SalesmanOrder[]
   pickerQueue: QueueItem[]
+  billerOrders: any[]
   dispatchOrders: DispatchOrder[]
   procurementRows: ProcurementRow[]
   catalogue: CatalogueData
-  initialNotes: NoteRow[]
 }
 
 // ── Grid-based tab bar ────────────────────────────────────────────────────────
@@ -170,10 +169,10 @@ export function AdminHub({
   pickers,
   salesmanOrders,
   pickerQueue,
+  billerOrders,
   dispatchOrders,
   procurementRows,
   catalogue,
-  initialNotes,
 }: Props) {
   // Shared picker assignment map — owned here so Overview + Picker tab stay in sync
   const [sharedPickerMap, setSharedPickerMap] = useState<Record<number, string>>(() =>
@@ -189,17 +188,18 @@ export function AdminHub({
     })
   }, [])
 
-  // For accountants: show picker/dispatcher tabs only if those roles are explicitly assigned
+  // For accountants: show picker/biller/dispatcher tabs only if those roles are explicitly assigned
   const showPicker     = !isAccountant || userRoles.includes('picker')
+  const showBiller     = !isAccountant || userRoles.includes('biller')
   const showDispatcher = !isAccountant || userRoles.includes('dispatcher')
 
   const TABS: Tab[] = [
     { value: 'overview',     label: 'Overview' },
     { value: 'salesman',     label: 'Salesman' },
     ...(showPicker     ? [{ value: 'picker',      label: 'Picker' }]      : []),
+    ...(showBiller     ? [{ value: 'biller',      label: 'Biller' }]      : []),
     ...(showDispatcher ? [{ value: 'dispatcher',  label: 'Dispatcher' }]  : []),
     { value: 'procurement',  label: 'Procurement' },
-    { value: 'notes',        label: 'Notes' },
   ]
 
   const VALID_TABS = TABS.map(t => t.value)
@@ -261,6 +261,10 @@ export function AdminHub({
           />
         )}
 
+        {showBiller && activeTab === 'biller' && (
+          <BillerDashboard orders={billerOrders} currentBillerId={adminId} embedded />
+        )}
+
         {showDispatcher && activeTab === 'dispatcher' && (
           <DispatcherDashboard orders={dispatchOrders} currentDispatcherId={adminId} embedded />
         )}
@@ -274,18 +278,6 @@ export function AdminHub({
               </p>
             </div>
             <ProcurementSummary initialRows={procurementRows} />
-          </div>
-        )}
-
-        {activeTab === 'notes' && (
-          <div className="rounded-xl border border-border bg-card p-4">
-            <div className="mb-4">
-              <h2 className="text-sm font-semibold text-foreground">Notes</h2>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                Shared notes visible to all users and roles. Pin important items to keep them at the top.
-              </p>
-            </div>
-            <NotesDashboard initialNotes={initialNotes} />
           </div>
         )}
 

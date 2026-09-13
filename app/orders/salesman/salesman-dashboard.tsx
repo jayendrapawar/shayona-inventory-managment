@@ -29,7 +29,8 @@ interface ExistingOrder {
 }
 
 // Statuses the salesman can still edit or cancel
-const EDITABLE_STATUSES = ['pending', 'assigned']
+// packed and billed are included so the salesman can edit after biller sends back
+const EDITABLE_STATUSES = ['pending', 'assigned', 'packed', 'billed']
 
 interface Props {
   orders: ExistingOrder[]

@@ -46,7 +46,7 @@ export function DispatcherDashboard({ orders: initialOrders, currentDispatcherId
 
   const counts = {
     active:         orders.length,
-    packed:         orders.filter(o => o.status === 'packed').length,
+    billed:         orders.filter(o => o.status === 'billed').length,
     dispatched:     orders.filter(o => o.status === 'dispatched').length,
     myBundlesOut:   orders
       .filter(o => o.status === 'dispatched' && o.dispatcherId === currentDispatcherId)
@@ -134,9 +134,9 @@ export function DispatcherDashboard({ orders: initialOrders, currentDispatcherId
 
         <div className="grid grid-cols-4 gap-3 mb-6">
           <StatCard label="Active" value={counts.active} />
-          <StatCard label="Ready" value={counts.packed} color="text-purple-600" />
+          <StatCard label="Ready" value={counts.billed} color="text-blue-600" />
           <StatCard label="Out for Delivery" value={counts.dispatched} color="text-orange-600" />
-          <StatCard label="My Bundles" value={counts.myBundlesOut} color="text-blue-600" />
+          <StatCard label="My Bundles" value={counts.myBundlesOut} color="text-orange-600" />
         </div>
 
         <div className="space-y-3">
@@ -166,7 +166,7 @@ export function DispatcherDashboard({ orders: initialOrders, currentDispatcherId
                   <p className="text-xs text-muted-foreground">Packed: {fmt(order.packedAt)}</p>
                 </div>
                 <div className="flex gap-2" onClick={e => e.stopPropagation()}>
-                  {order.status === 'packed' && (
+                  {order.status === 'billed' && (
                     <button
                       type="button"
                       onClick={() => openPickupModal(order)}
@@ -341,15 +341,15 @@ export function DispatcherDashboard({ orders: initialOrders, currentDispatcherId
 
               {/* Actions */}
               <div className="flex gap-3">
-                {detailOrder.status === 'packed' && (
-                  <button
-                    type="button"
-                    onClick={() => { setDetailOrder(null); openPickupModal(detailOrder) }}
-                    className="flex-1 rounded-xl bg-orange-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-orange-600 transition-colors"
-                  >
-                    Pick Up
-                  </button>
-                )}
+                {detailOrder.status === 'billed' && (
+                    <button
+                      type="button"
+                      onClick={() => { setDetailOrder(null); openPickupModal(detailOrder) }}
+                      className="flex-1 rounded-xl bg-orange-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-orange-600 transition-colors"
+                    >
+                      Pick Up
+                    </button>
+                  )}
                 {detailOrder.status === 'dispatched' && (
                   <button
                     type="button"

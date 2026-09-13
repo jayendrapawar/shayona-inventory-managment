@@ -35,7 +35,7 @@ const MENU_ITEMS: MenuItem[] = [
     color: 'bg-green-50 text-green-600 dark:bg-green-950 dark:text-green-400',
     border: 'border-green-200 dark:border-green-800',
     badge: 'New',
-    roles: ['admin', 'accountant', 'salesman', 'picker', 'dispatcher'],
+    roles: ['admin', 'accountant', 'salesman', 'picker', 'biller', 'dispatcher'],
   },
   {
     label: 'Billing',

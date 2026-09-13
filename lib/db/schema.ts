@@ -159,6 +159,7 @@ export const orderStatusEnum = pgEnum('order_status', [
   'pending',
   'assigned',
   'packed',
+  'billed',
   'dispatched',
   'delivered',
   'cancelled',
@@ -178,6 +179,7 @@ export const orders = pgTable('orders', {
   shopkeeperAddress: text('shopkeeperAddress'),
   salesmanId:        text('salesmanId').references(() => user.id, { onDelete: 'set null' }),
   pickerId:          text('pickerId').references(() => user.id, { onDelete: 'set null' }),
+  billerId:          text('billerId').references(() => user.id, { onDelete: 'set null' }),
   dispatcherId:      text('dispatcherId').references(() => user.id, { onDelete: 'set null' }),
   status:            orderStatusEnum('status').notNull().default('pending'),
   notes:             text('notes'),
@@ -185,6 +187,7 @@ export const orders = pgTable('orders', {
   deliveryAgentName: text('deliveryAgentName'),
   orderedAt:         timestamp('orderedAt').notNull().defaultNow(),
   packedAt:          timestamp('packedAt'),
+  billedAt:          timestamp('billedAt'),
   dispatchedAt:      timestamp('dispatchedAt'),
   deliveredAt:       timestamp('deliveredAt'),
   createdAt:         timestamp('createdAt').notNull().defaultNow(),
@@ -203,23 +206,6 @@ export const orderItems = pgTable('order_items', {
   createdAt:        timestamp('createdAt').notNull().defaultNow(),
   updatedAt:        timestamp('updatedAt').notNull().defaultNow(),
 })
-
-// --- Global Notes (shared bulletin board, visible to all roles) ---
-
-export const globalNotes = pgTable('global_notes', {
-  id:        serial('id').primaryKey(),
-  content:   text('content').notNull(),
-  authorId:  text('authorId').references(() => user.id, { onDelete: 'set null' }),
-  authorName: text('authorName'),
-  pinned:    boolean('pinned').notNull().default(false),
-  createdAt: timestamp('createdAt').notNull().defaultNow(),
-  updatedAt: timestamp('updatedAt').notNull().defaultNow(),
-}, (t) => [
-  index('global_notes_created_at_idx').on(t.createdAt),
-])
-
-export type GlobalNote = typeof globalNotes.$inferSelect
-export type NewGlobalNote = typeof globalNotes.$inferInsert
 
 export type Order = typeof orders.$inferSelect
 export type NewOrder = typeof orders.$inferInsert

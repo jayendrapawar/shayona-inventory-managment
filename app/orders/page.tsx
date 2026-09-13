@@ -5,9 +5,8 @@ import { db } from '@/lib/db'
 import { user, vendors } from '@/lib/db/schema'
 import { eq } from 'drizzle-orm'
 import { isRedirectError } from 'next/dist/client/components/redirect-error'
-import { getSalesmanOrders, getPickerQueue, getPackedOrders } from '@/app/actions/orders'
+import { getSalesmanOrders, getPickerQueue, getBillerQueue, getPackedOrders } from '@/app/actions/orders'
 import { loadCatalogue } from '@/app/actions/catalogue'
-import { getGlobalNotes } from '@/app/actions/notes'
 import { MultiRoleOrdersHub } from './_components/multi-role-hub'
 
 export const metadata = {
@@ -48,15 +47,16 @@ export default async function OrdersPage() {
       redirect('/orders/admin')
     }
 
-    const orderRoles = roles.filter(r => ['salesman', 'picker', 'dispatcher'].includes(r))
+    const orderRoles = roles.filter(r => ['salesman', 'picker', 'biller', 'dispatcher'].includes(r))
 
     if (orderRoles.length === 0) {
       redirect('/orders/pending-role')
     }
 
-    // Load data for all assigned order roles and render the multi-tab Order Hub (Role Tab(s) + Notes Tab)
+    // Load data for all assigned order roles and render the multi-tab Order Hub
     let salesmanOrders: any[] = []
     let pickerQueue: any[] = []
+    let billerOrders: any[] = []
     let dispatcherOrders: any[] = []
 
     const promises: Promise<any>[] = []
@@ -66,6 +66,9 @@ export default async function OrdersPage() {
     }
     if (orderRoles.includes('picker')) {
       promises.push(getPickerQueue().then(res => { pickerQueue = res }))
+    }
+    if (orderRoles.includes('biller')) {
+      promises.push(getBillerQueue().then(res => { billerOrders = res }))
     }
     if (orderRoles.includes('dispatcher')) {
       promises.push(
@@ -78,9 +81,8 @@ export default async function OrdersPage() {
       )
     }
 
-    const [catalogue, initialNotes] = await Promise.all([
+    const [catalogue] = await Promise.all([
       loadCatalogue(),
-      getGlobalNotes(),
       ...promises,
     ])
 
@@ -91,9 +93,10 @@ export default async function OrdersPage() {
         userName={session.user.name ?? ''}
         pickerQueue={pickerQueue}
         currentPickerId={u?.id ?? session.user.id}
+        billerOrders={billerOrders}
+        currentBillerId={u?.id ?? session.user.id}
         dispatcherOrders={dispatcherOrders}
         catalogue={catalogue}
-        initialNotes={initialNotes}
       />
     )
   } catch (err) {

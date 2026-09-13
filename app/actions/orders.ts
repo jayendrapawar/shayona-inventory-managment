@@ -87,11 +87,25 @@ export async function updateOrder(orderId: number, input: CreateOrderInput) {
   if (!order) throw new Error('Order not found')
   const userRoles = u.role.split(',').map(r => r.trim())
   if (order.salesmanId !== u.id && !userRoles.includes('admin')) throw new Error('Forbidden')
-  if (!['pending', 'assigned'].includes(order.status)) throw new Error('Only pending or assigned orders can be edited')
+  if (!['pending', 'assigned', 'packed', 'billed'].includes(order.status)) throw new Error('Only pending, assigned, packed, or billed orders can be edited')
 
-  // Replace shopkeeper name + notes
+  // Reset order to pending so it re-enters the picker queue
+  const statusPatch: Record<string, unknown> = {
+    shopkeeperName: input.shopkeeperName,
+    notes: input.notes ?? null,
+    updatedAt: sql`now()`,
+  }
+  if (['packed', 'billed'].includes(order.status)) {
+    // Send back to pending — clear picker/biller assignment so it re-queues
+    statusPatch.status = 'pending'
+    statusPatch.pickerId = null
+    statusPatch.billerId = null
+    statusPatch.packedAt = null
+    statusPatch.billedAt = null
+  }
+  // Replace shopkeeper name + notes + reset if needed
   await db.update(orders)
-    .set({ shopkeeperName: input.shopkeeperName, notes: input.notes ?? null, updatedAt: sql`now()` })
+    .set(statusPatch)
     .where(eq(orders.id, orderId))
 
   // Replace all items: delete old, insert new
@@ -298,8 +312,66 @@ export async function bulkSaveAndPackOrder(
   revalidatePath('/orders/picker')
 }
 
+// ── Biller actions ────────────────────────────────────────────────────────────
+
+/** Returns all orders the biller can verify (status = packed) */
+export async function getBillerQueue() {
+  await requireRole('biller', 'admin', 'accountant')
+  return db
+    .select({
+      id: orders.id,
+      orderNumber: orders.orderNumber,
+      shopkeeperName: orders.shopkeeperName,
+      status: orders.status,
+      packedAt: orders.packedAt,
+      billedAt: orders.billedAt,
+      billerId: orders.billerId,
+      salesmanId: orders.salesmanId,
+    })
+    .from(orders)
+    .where(inArray(orders.status, ['packed', 'billed']))
+    .orderBy(desc(orders.packedAt))
+}
+
+/** Biller marks an order as billed — moves it to the dispatcher queue */
+export async function markBilled(orderId: number) {
+  const u = await requireRole('biller', 'admin')
+  await db.update(orders)
+    .set({
+      status: 'billed',
+      billerId: u.id,
+      billedAt: sql`now()`,
+      updatedAt: sql`now()`,
+    })
+    .where(eq(orders.id, orderId))
+  revalidatePath('/orders')
+  revalidatePath('/orders/admin')
+  revalidatePath('/orders/biller')
+  revalidatePath('/orders/dispatcher')
+}
+
+/** Biller sends order back to salesman for editing (resets to pending) */
+export async function sendBackToEdit(orderId: number) {
+  await requireRole('biller', 'admin')
+  await db.update(orders)
+    .set({
+      status: 'pending',
+      pickerId: null,
+      billerId: null,
+      packedAt: null,
+      billedAt: null,
+      updatedAt: sql`now()`,
+    })
+    .where(eq(orders.id, orderId))
+  revalidatePath('/orders')
+  revalidatePath('/orders/admin')
+  revalidatePath('/orders/biller')
+  revalidatePath('/orders/picker')
+}
+
 // ── Dispatcher actions ────────────────────────────────────────────────────────
 
+/** Returns all orders ready for dispatch (status = billed or dispatched) */
 export async function getPackedOrders() {
   await requireRole('dispatcher', 'admin', 'accountant')
   return db
@@ -313,7 +385,7 @@ export async function getPackedOrders() {
       dispatcherId: orders.dispatcherId,
     })
     .from(orders)
-    .where(inArray(orders.status, ['packed', 'dispatched']))
+    .where(inArray(orders.status, ['billed', 'dispatched']))
     .orderBy(desc(orders.packedAt))
 }
 
@@ -364,10 +436,12 @@ export async function getAllOrders() {
       orderedAt: orders.orderedAt,
       updatedAt: orders.updatedAt,
       packedAt: orders.packedAt,
+      billedAt: orders.billedAt,
       dispatchedAt: orders.dispatchedAt,
       deliveredAt: orders.deliveredAt,
       salesmanId: orders.salesmanId,
       pickerId: orders.pickerId,
+      billerId: orders.billerId,
       dispatcherId: orders.dispatcherId,
     })
     .from(orders)
@@ -378,14 +452,16 @@ export async function adminUpdateOrderStatus(orderId: number, status: OrderStatu
   await requireRole('admin')
   const patch: Record<string, unknown> = { status, updatedAt: sql`now()` }
   if (status === 'packed') patch.packedAt = sql`now()`
+  if (status === 'billed') patch.billedAt = sql`now()`
   if (status === 'dispatched') patch.dispatchedAt = sql`now()`
   if (status === 'delivered') patch.deliveredAt = sql`now()`
-  // Clear picker assignment when manually reverting to pending
-  if (status === 'pending') patch.pickerId = null
+  // Clear picker/biller assignment when manually reverting to pending
+  if (status === 'pending') { patch.pickerId = null; patch.billerId = null }
   await db.update(orders).set(patch).where(eq(orders.id, orderId))
   revalidatePath('/orders')
   revalidatePath('/orders/admin')
   revalidatePath('/orders/picker')
+  revalidatePath('/orders/biller')
 }
 
 export async function adminAssignPicker(orderId: number, pickerId: string) {
