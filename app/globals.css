@@ -168,6 +168,14 @@
     text-size-adjust: 100%;
     overflow-x: hidden;
   }
+  /* Prevent automatic zoom on focus across mobile devices by ensuring at least 16px font-size */
+  @media (max-width: 768px) {
+    input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]),
+    select,
+    textarea {
+      font-size: 16px !important;
+    }
+  }
 
   body {
     @apply bg-background text-foreground;
