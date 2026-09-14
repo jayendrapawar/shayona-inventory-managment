@@ -3,7 +3,7 @@
 import { useState, useTransition, useRef, useCallback, useEffect } from 'react'
 import jsQR from 'jsqr'
 import { StatusPill, fmt, PageHeader, StatCard } from '../_components/shared'
-import { markBilled, getOrderWithItems } from '@/app/actions/orders'
+import { markBilled, getOrderWithItems, saveBillLines, getBillLines } from '@/app/actions/orders'
 import { PageNav } from '@/components/page-nav'
 import { parseQr, isValidWarehouseQr } from '@/lib/qr-parser'
 import { SCAN_INTERVAL_MS } from '@/components/scanner/constants'
@@ -66,6 +66,9 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
   const [detailItems, setDetailItems] = useState<DetailItem[]>([])
   const [detailLoading, setDetailLoading] = useState(false)
   const [detailError, setDetailError] = useState('')
+  // DB-fetched bill lines for detail panel (fallback when mrpLinesMap has no entry)
+  const [detailBillLines, setDetailBillLines] = useState<{ artNumber: string; mrp: number; qty: number; lineDiscPct: number }[] | null>(null)
+  const [detailBillLinesLoading, setDetailBillLinesLoading] = useState(false)
 
   // ── Scanner modal ────────────────────────────────────────────────────────────
   const [scanOrder, setScanOrder] = useState<BillerOrder | null>(null)
@@ -569,10 +572,13 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
     const builtLines = merged
     setMrpLinesMap(prev => ({ ...prev, [orderId]: builtLines }))
 
+    const discPct = typeof lineDiscPct === 'number' ? lineDiscPct : 30
     closeScanner()
     setActiveId(orderId)
     startTransition(async () => {
       await markBilled(orderId)
+      // Persist bill lines to DB so they survive across sessions and devices
+      await saveBillLines(orderId, builtLines, discPct)
       setOrders(prev =>
         prev.map(o => o.id === orderId ? { ...o, status: 'billed', billerId: currentBillerId, billedAt: new Date() } : o)
       )
@@ -637,6 +643,7 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
     setDetailOrder(order)
     setDetailItems([])
     setDetailError('')
+    setDetailBillLines(null)
     setDetailLoading(true)
     try {
       const { items } = await getOrderWithItems(order.id)
@@ -645,6 +652,24 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
       setDetailError(e instanceof Error ? e.message : 'Failed to load order details.')
     } finally {
       setDetailLoading(false)
+    }
+    // Fetch bill lines from DB if not already in session mrpLinesMap
+    if (order.status === 'billed' && !mrpLinesMap[order.id]) {
+      setDetailBillLinesLoading(true)
+      try {
+        const rows = await getBillLines(order.id)
+        if (rows.length > 0) {
+          // Cache into mrpLinesMap so print/mail also picks it up
+          setMrpLinesMap(prev => ({ ...prev, [order.id]: rows }))
+          setDetailBillLines(rows)
+        } else {
+          setDetailBillLines([])
+        }
+      } catch {
+        setDetailBillLines([])
+      } finally {
+        setDetailBillLinesLoading(false)
+      }
     }
   }
 
@@ -1109,18 +1134,37 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
               {detailOrder.status === 'billed' && (() => {
                 const lines = mrpLinesMap[detailOrder.id] ?? []
 
+                // Still loading from DB
+                if (detailBillLinesLoading) return (
+                  <div className="rounded-xl border border-border bg-card overflow-hidden">
+                    <div className="px-4 py-3 bg-muted/30 border-b border-border">
+                      <p className="text-sm font-semibold text-foreground">Bill Items</p>
+                    </div>
+                    <div className="px-4 py-6 flex items-center justify-center gap-2 text-xs text-muted-foreground">
+                      <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+                      </svg>
+                      Loading bill data…
+                    </div>
+                  </div>
+                )
+
+                // No lines in session cache or DB
                 if (lines.length === 0) return (
                   <div className="rounded-xl border border-border bg-card overflow-hidden">
                     <div className="px-4 py-3 bg-muted/30 border-b border-border">
                       <p className="text-sm font-semibold text-foreground">Bill Items</p>
                     </div>
                     <div className="px-4 py-6 text-center text-xs text-muted-foreground">
-                      Bill data not available — only bills scanned in this session are shown here.
+                      Bill data not available for this order.
                     </div>
                   </div>
                 )
 
-                const LINE_DISC_PCT = typeof lineDiscPct === 'number' ? lineDiscPct : 30
+                // Use lineDiscPct stored in DB lines if available, else fall back to current UI value
+                const LINE_DISC_PCT = (lines[0] as { lineDiscPct?: number }).lineDiscPct
+                  ?? (typeof lineDiscPct === 'number' ? lineDiscPct : 30)
                 const DISC_PCT = 4.75
                 const CGST_PCT = 2.50
                 const SGST_PCT = 2.50

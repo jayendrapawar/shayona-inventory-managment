@@ -2,7 +2,7 @@
 
 import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
-import { orders, orderItems, user } from '@/lib/db/schema'
+import { orders, orderItems, billLines, user } from '@/lib/db/schema'
 import type { OrderStatus } from '@/lib/db/schema'
 import { eq, desc, inArray, sql, and, ilike } from 'drizzle-orm'
 import { headers } from 'next/headers'
@@ -241,6 +241,45 @@ export async function unassignOrder(orderId: number): Promise<{ orderId: number 
   revalidatePath('/orders/picker')
   revalidatePath('/orders/admin')
   return { orderId }
+}
+
+// ── Bill lines ────────────────────────────────────────────────────────────────
+
+/** Persist MRP lines for a billed order. Replaces any existing lines. */
+export async function saveBillLines(
+  orderId: number,
+  lines: { artNumber: string; mrp: number; qty: number }[],
+  lineDiscPct: number,
+) {
+  await requireRole('biller', 'admin')
+  // Delete existing lines then re-insert (idempotent re-save)
+  await db.delete(billLines).where(eq(billLines.orderId, orderId))
+  if (lines.length > 0) {
+    await db.insert(billLines).values(
+      lines.map(l => ({
+        orderId,
+        artNumber:   l.artNumber,
+        mrp:         String(l.mrp),
+        qty:         l.qty,
+        lineDiscPct: String(lineDiscPct),
+      }))
+    )
+  }
+}
+
+/** Fetch persisted MRP lines for a billed order. */
+export async function getBillLines(orderId: number) {
+  await requireRole('biller', 'admin', 'accountant')
+  const rows = await db
+    .select()
+    .from(billLines)
+    .where(eq(billLines.orderId, orderId))
+  return rows.map(r => ({
+    artNumber:   r.artNumber,
+    mrp:         parseFloat(r.mrp as string),
+    qty:         r.qty,
+    lineDiscPct: parseFloat(r.lineDiscPct as string),
+  }))
 }
 
 export async function getOrderWithItems(orderId: number) {

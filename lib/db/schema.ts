@@ -194,6 +194,16 @@ export const orders = pgTable('orders', {
   updatedAt:         timestamp('updatedAt').notNull().defaultNow(),
 })
 
+export const billLines = pgTable('bill_lines', {
+  id:          serial('id').primaryKey(),
+  orderId:     integer('orderId').notNull().references(() => orders.id, { onDelete: 'cascade' }),
+  artNumber:   text('artNumber').notNull(),
+  mrp:         numeric('mrp', { precision: 10, scale: 2 }).notNull(),
+  qty:         integer('qty').notNull(),
+  lineDiscPct: numeric('lineDiscPct', { precision: 5, scale: 2 }).notNull().default('30'),
+  createdAt:   timestamp('createdAt').notNull().defaultNow(),
+})
+
 export const orderItems = pgTable('order_items', {
   id:               serial('id').primaryKey(),
   orderId:          integer('orderId').notNull().references(() => orders.id, { onDelete: 'cascade' }),
@@ -206,6 +216,9 @@ export const orderItems = pgTable('order_items', {
   createdAt:        timestamp('createdAt').notNull().defaultNow(),
   updatedAt:        timestamp('updatedAt').notNull().defaultNow(),
 })
+
+export type BillLine    = typeof billLines.$inferSelect
+export type NewBillLine = typeof billLines.$inferInsert
 
 export type Order = typeof orders.$inferSelect
 export type NewOrder = typeof orders.$inferInsert
