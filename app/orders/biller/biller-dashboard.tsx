@@ -79,6 +79,16 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
   const [lastScannedMsg, setLastScannedMsg] = useState<string | null>(null)
   const scanMsgTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  // ── Manual verification entries: itemKey → { qty, mrp }[] ───────────────────
+  // Accumulates manual overrides that fill the remaining gap after QR scans.
+  const [manualEntries, setManualEntries] = useState<Record<string, { qty: number; mrp: number }[]>>({})
+
+  // ── Manual verify modal state ────────────────────────────────────────────────
+  interface ManualVerifyTarget { item: DetailItem; artNumber: string; color: string; remaining: number }
+  const [manualTarget, setManualTarget] = useState<ManualVerifyTarget | null>(null)
+  const [manualQty,   setManualQty]   = useState<number | ''>(1)
+  const [manualPrice, setManualPrice] = useState<number | ''>('')
+
   const videoRef            = useRef<HTMLVideoElement>(null)
   const canvasRef           = useRef<HTMLCanvasElement>(null)
   const scanCanvasRef       = useRef<HTMLCanvasElement | null>(null)
@@ -141,6 +151,9 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
         const savedScannedQrs = localStorage.getItem('biller_scannedQrs')
         if (savedScannedQrs) setScannedQrs(JSON.parse(savedScannedQrs))
 
+        const savedManualEntries = localStorage.getItem('biller_manualEntries')
+        if (savedManualEntries) setManualEntries(JSON.parse(savedManualEntries))
+
         const savedExpandedArticle = localStorage.getItem('biller_expandedArticle')
         if (savedExpandedArticle) setExpandedArticle(savedExpandedArticle)
 
@@ -178,6 +191,7 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
       localStorage.setItem('biller_scanItems', JSON.stringify(scanItems))
       localStorage.setItem('biller_scannedMap', JSON.stringify(scannedMap))
       localStorage.setItem('biller_scannedQrs', JSON.stringify(scannedQrs))
+      localStorage.setItem('biller_manualEntries', JSON.stringify(manualEntries))
       if (expandedArticle) {
         localStorage.setItem('biller_expandedArticle', expandedArticle)
       } else {
@@ -194,11 +208,12 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
       localStorage.removeItem('biller_scanItems')
       localStorage.removeItem('biller_scannedMap')
       localStorage.removeItem('biller_scannedQrs')
+      localStorage.removeItem('biller_manualEntries')
       localStorage.removeItem('biller_expandedArticle')
       localStorage.removeItem('biller_showDevTracking')
       localStorage.removeItem('biller_lastScannedMsg')
     }
-  }, [scanOrder, scanItems, scannedMap, scannedQrs, expandedArticle, showDevTracking, lastScannedMsg])
+  }, [scanOrder, scanItems, scannedMap, scannedQrs, manualEntries, expandedArticle, showDevTracking, lastScannedMsg])
 
   useEffect(() => {
     localStorage.setItem('biller_mrpLinesMap', JSON.stringify(mrpLinesMap))
@@ -444,10 +459,41 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
     setScanItems([])
     setScannedMap({})
     setScannedQrs([])
+    setManualEntries({})
     setShowDevTracking(false)
     setExpandedArticle(null)
     setScanMsg(null)
     setLastScannedMsg(null)
+  }
+
+  // ── manual verify confirm ────────────────────────────────────────────────────
+  function handleManualConfirm() {
+    if (!manualTarget) return
+    const qty   = typeof manualQty   === 'number' && manualQty   > 0 ? manualQty   : 0
+    const price = typeof manualPrice === 'number' && manualPrice > 0 ? manualPrice : 0
+    if (qty <= 0 || price <= 0) return
+
+    const key = itemKey(manualTarget.item.artNumber, manualTarget.item.sizeNumber)
+
+    // Clamp to remaining capacity — cannot exceed what hasn't been scanned yet
+    const clamped = Math.min(qty, manualTarget.remaining)
+    if (clamped <= 0) return
+
+    // Accumulate into manualEntries for MRP line building at save time
+    setManualEntries(prev => {
+      const existing = prev[key] ?? []
+      return { ...prev, [key]: [...existing, { qty: clamped, mrp: price }] }
+    })
+
+    // Increment scannedMap so allVerified / progress pill update immediately
+    setScannedMap(prev => ({ ...prev, [key]: (prev[key] ?? 0) + clamped }))
+
+    // Update last scanned message
+    const msg = `${manualTarget.artNumber} / MANUAL / SZ(${manualTarget.item.sizeNumber ?? '?'}) — ${clamped} verified`
+    setLastScannedMsg(msg)
+    showMsg('ok', msg)
+
+    setManualTarget(null)
   }
 
   // ── save bill ────────────────────────────────────────────────────────────────
@@ -465,6 +511,18 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
         mrpMap.get(key)!.qty++
       } else {
         mrpMap.set(key, { artNumber: p.articleCode.toUpperCase(), mrp: p.mrp, qty: 1 })
+      }
+    }
+    // Merge manual entries into MRP lines
+    for (const [iKey, entries] of Object.entries(manualEntries)) {
+      const artNumber = iKey.split('|')[0].toUpperCase()
+      for (const e of entries) {
+        const key = `${artNumber}__${e.mrp}`
+        if (mrpMap.has(key)) {
+          mrpMap.get(key)!.qty += e.qty
+        } else {
+          mrpMap.set(key, { artNumber, mrp: e.mrp, qty: e.qty })
+        }
       }
     }
     const builtLines = Array.from(mrpMap.values())
@@ -1452,22 +1510,41 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
                                   }
                                 }
 
-                                // Unique prices and their scan count parsed from scanned QR codes
+                                // Unique prices and their scan count: from QR scans + manual entries
                                 const priceCounts: Record<number, number> = {}
                                 itemScans.forEach(raw => {
                                   const p = parseQr(raw).mrp
                                   priceCounts[p] = (priceCounts[p] ?? 0) + 1
                                 })
+                                // Merge manual entries for this item into price display
+                                ;(manualEntries[key] ?? []).forEach(e => {
+                                  priceCounts[e.mrp] = (priceCounts[e.mrp] ?? 0) + e.qty
+                                })
                                 const priceEntries = Object.entries(priceCounts)
 
+                                // Remaining capacity for manual verify (packed minus already in scannedMap)
+                                const remaining = Math.max(0, packed - (scannedMap[key] ?? 0))
+
                                 return (
-                                  <tr key={item.id} className={`transition-colors select-none ${
-                                    isOOS
-                                      ? 'bg-red-50/10 dark:bg-red-950/5 hover:bg-red-50/15'
-                                      : done
-                                      ? 'bg-blue-50/10 dark:bg-blue-950/5 hover:bg-blue-50/15'
-                                      : 'hover:bg-muted/10 odd:bg-card/30 even:bg-muted/5'
-                                  }`}>
+                                  <tr
+                                    key={item.id}
+                                    onClick={isOOS ? undefined : () => {
+                                      const rem = Math.max(0, packed - (scannedMap[key] ?? 0))
+                                      if (rem <= 0) return
+                                      setManualTarget({ item, artNumber, color, remaining: rem })
+                                      setManualQty(rem)
+                                      setManualPrice('')
+                                    }}
+                                    className={`transition-colors select-none ${
+                                      isOOS
+                                        ? 'bg-red-50/10 dark:bg-red-950/5'
+                                        : done
+                                        ? 'bg-blue-50/10 dark:bg-blue-950/5 hover:bg-blue-50/15'
+                                        : remaining > 0
+                                        ? 'hover:bg-amber-50/30 dark:hover:bg-amber-950/10 odd:bg-card/30 even:bg-muted/5 cursor-pointer active:bg-amber-100/40'
+                                        : 'hover:bg-muted/10 odd:bg-card/30 even:bg-muted/5'
+                                    }`}
+                                  >
                                     <td className="px-3.5 py-2.5 font-medium text-foreground text-xs sm:text-sm">{color}</td>
                                     <td className="px-2 py-2.5 font-mono text-center text-foreground text-xs sm:text-sm font-semibold">{item.sizeNumber ?? '—'}</td>
                                     <td className="px-2 py-2.5 font-mono text-center text-muted-foreground text-xs sm:text-sm">{item.quantityOrdered}</td>
@@ -1567,6 +1644,98 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
                 : `Scan all items to enable Save (${Object.values(scannedMap).reduce((a, b) => a + b, 0)} / ${scanItems.filter(i => i.status !== 'out_of_stock').reduce((s, i) => s + i.quantityPacked, 0)})`
               }
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Manual verify bottom sheet ── */}
+      {manualTarget && (
+        <div
+          className="fixed inset-0 z-[60] flex flex-col justify-end bg-black/50 backdrop-blur-sm"
+          onClick={() => setManualTarget(null)}
+        >
+          <div
+            className="bg-background rounded-t-2xl border-t border-border shadow-2xl"
+            onClick={e => e.stopPropagation()}
+          >
+            {/* drag handle */}
+            <div className="flex justify-center pt-3 pb-1">
+              <div className="w-10 h-1 rounded-full bg-border" />
+            </div>
+
+            {/* Header */}
+            <div className="px-5 pt-2 pb-3 border-b border-border">
+              <p className="text-sm font-bold text-foreground">
+                Manual Verify — <span className="font-mono">{manualTarget.artNumber}</span>
+              </p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {manualTarget.color} · Size {manualTarget.item.sizeNumber ?? '—'} ·{' '}
+                <span className="text-amber-600 dark:text-amber-400 font-semibold">{manualTarget.remaining} remaining</span>
+              </p>
+            </div>
+
+            {/* Inputs */}
+            <div className="px-5 py-4 space-y-4">
+
+              {/* Price */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-foreground">
+                  MRP Price <span className="text-red-500">*</span>
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground font-semibold">₹</span>
+                  <input
+                    type="number"
+                    min="1"
+                    step="0.01"
+                    placeholder="e.g. 499"
+                    value={manualPrice}
+                    onChange={e => setManualPrice(e.target.value === '' ? '' : parseFloat(e.target.value) || '')}
+                    autoFocus
+                    className="w-full h-11 rounded-xl border border-input bg-background pl-7 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  />
+                </div>
+              </div>
+
+              {/* Qty */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-foreground">
+                  Qty to Verify <span className="text-red-500">*</span>
+                  <span className="ml-1.5 text-muted-foreground font-normal">(max {manualTarget.remaining})</span>
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  max={manualTarget.remaining}
+                  step="1"
+                  value={manualQty}
+                  onChange={e => {
+                    const v = parseInt(e.target.value)
+                    setManualQty(isNaN(v) ? '' : Math.min(v, manualTarget.remaining))
+                  }}
+                  className="w-full h-11 rounded-xl border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                />
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="px-5 pb-6 flex gap-3">
+              <button
+                type="button"
+                onClick={() => setManualTarget(null)}
+                className="flex-1 h-11 rounded-xl border border-border bg-card text-sm font-semibold text-foreground hover:bg-muted transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={!manualPrice || !manualQty || Number(manualPrice) <= 0 || Number(manualQty) <= 0}
+                onClick={handleManualConfirm}
+                className="flex-1 h-11 rounded-xl bg-blue-600 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                Confirm
+              </button>
+            </div>
           </div>
         </div>
       )}
