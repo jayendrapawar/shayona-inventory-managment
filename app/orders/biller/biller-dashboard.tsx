@@ -276,10 +276,11 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
       return
     }
 
-    // Duplicate QR check — same physical box already scanned in this session
-    const boxCode = raw.split('-').pop() ?? raw
+    // Duplicate QR check — compare full normalized QR string to avoid false
+    // positives from boxes that share a common last segment suffix.
+    const normalizedRaw = raw.trim().toUpperCase()
     const alreadyScanned = scannedQrsRef.current.some(
-      q => (q.split('-').pop() ?? q) === boxCode
+      q => q.trim().toUpperCase() === normalizedRaw
     )
     if (alreadyScanned) {
       showMsg('warn', `${art} Sz ${size} — Duplicate QR, already scanned` + devSuffix)
@@ -500,24 +501,37 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
   function handleSaveBill() {
     if (!scanOrder) return
     const orderId  = scanOrder.id
-    // Build MrpLine[] from scannedQrs before clearing scanner state
+    // Build MrpLine[] from scannedQrs before clearing scanner state.
+    // Use the canonical article name from scanItems (matched via articlesMatch)
+    // so that QR code variants (e.g. "SF0204G") are normalised to the registered
+    // article name (e.g. "SFG-204") on the invoice — raw code matching is unchanged.
+    // Stable map key: canonical-article-name + MRP rounded to 2dp (avoids float string mismatches)
+    const mrpKey = (art: string, mrp: number) => `${art}__${mrp.toFixed(2)}`
+
     const qrsCopy  = [...scannedQrs]
     const mrpMap   = new Map<string, MrpLine>()
+
+    // ── QR scans → resolve canonical article name from DB order items ──────────
     for (const raw of qrsCopy) {
       if (!isValidWarehouseQr(raw)) continue
-      const p   = parseQr(raw)
-      const key = `${p.articleCode.toUpperCase()}__${p.mrp}`
+      const p = parseQr(raw)
+      const canonicalItem = scanItemsRef.current.find(i =>
+        articlesMatch(i.artNumber.toUpperCase(), p.articleCode.toUpperCase())
+      )
+      const artName = canonicalItem ? canonicalItem.artNumber.toUpperCase() : p.articleCode.toUpperCase()
+      const key = mrpKey(artName, p.mrp)
       if (mrpMap.has(key)) {
         mrpMap.get(key)!.qty++
       } else {
-        mrpMap.set(key, { artNumber: p.articleCode.toUpperCase(), mrp: p.mrp, qty: 1 })
+        mrpMap.set(key, { artNumber: artName, mrp: p.mrp, qty: 1 })
       }
     }
-    // Merge manual entries into MRP lines
+
+    // ── Manual entries → artNumber already comes from DB (canonical) ───────────
     for (const [iKey, entries] of Object.entries(manualEntries)) {
       const artNumber = iKey.split('|')[0].toUpperCase()
       for (const e of entries) {
-        const key = `${artNumber}__${e.mrp}`
+        const key = mrpKey(artNumber, e.mrp)
         if (mrpMap.has(key)) {
           mrpMap.get(key)!.qty += e.qty
         } else {
@@ -525,7 +539,34 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
         }
       }
     }
-    const builtLines = Array.from(mrpMap.values())
+    // ── Post-build merge: collapse any residual article-name variants ──────────
+    // If two entries share the same MRP and one article matches the other via
+    // articlesMatch (e.g. "SF0204G" vs "SFG-204"), merge qty into the canonical
+    // DB name and drop the QR-code variant.
+    const raw2 = Array.from(mrpMap.values())
+    const merged: MrpLine[] = []
+    for (const line of raw2) {
+      const existing = merged.find(
+        m => m.mrp === line.mrp && (
+          m.artNumber === line.artNumber ||
+          articlesMatch(m.artNumber, line.artNumber) ||
+          articlesMatch(line.artNumber, m.artNumber)
+        )
+      )
+      if (existing) {
+        // Keep the DB canonical name (prefer the one that has a dash or matches scanItems)
+        const canonicalItem = scanItemsRef.current.find(i =>
+          articlesMatch(i.artNumber.toUpperCase(), existing.artNumber) ||
+          articlesMatch(i.artNumber.toUpperCase(), line.artNumber)
+        )
+        if (canonicalItem) existing.artNumber = canonicalItem.artNumber.toUpperCase()
+        existing.qty += line.qty
+      } else {
+        merged.push({ ...line })
+      }
+    }
+
+    const builtLines = merged
     setMrpLinesMap(prev => ({ ...prev, [orderId]: builtLines }))
 
     closeScanner()
