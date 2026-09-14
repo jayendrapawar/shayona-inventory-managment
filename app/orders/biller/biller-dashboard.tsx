@@ -9,6 +9,8 @@ import { parseQr, isValidWarehouseQr } from '@/lib/qr-parser'
 import { SCAN_INTERVAL_MS } from '@/components/scanner/constants'
 import { articlesMatch } from '@/lib/billing-verification'
 
+type BillerTab = 'verify' | 'generated'
+
 interface BillerOrder {
   id: number
   orderNumber: string
@@ -45,6 +47,17 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
   const [orders, setOrders] = useState(initialOrders)
   const [isPending, startTransition] = useTransition()
   const [activeId, setActiveId] = useState<number | null>(null)
+
+  // ── Tab state ────────────────────────────────────────────────────────────────
+  const [activeTab, setActiveTab] = useState<BillerTab>('verify')
+
+  // ── Print Bills state ────────────────────────────────────────────────────────
+  const [printSelectedIds, setPrintSelectedIds] = useState<Set<number>>(new Set())
+  const [printItemsMap, setPrintItemsMap] = useState<Record<number, DetailItem[]>>({})
+  const [printLoadingIds, setPrintLoadingIds] = useState<Set<number>>(new Set())
+  const [printConfigOpen, setPrintConfigOpen] = useState(false)
+  const [printPageSize, setPrintPageSize] = useState<'A4' | 'A5'>('A5')
+  const [printOrientation, setPrintOrientation] = useState<'portrait' | 'landscape'>('portrait')
 
   // Detail panel state
   const [detailOrder, setDetailOrder] = useState<BillerOrder | null>(null)
@@ -402,7 +415,159 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
         prev.map(o => o.id === orderId ? { ...o, status: 'billed', billerId: currentBillerId, billedAt: new Date() } : o)
       )
       setActiveId(null)
+      // After saving, switch to Generated Bills tab
+      setActiveTab('generated')
     })
+  }
+
+  // ── Print Bills: toggle selection & lazily load items ───────────────────────
+  async function handleTogglePrintBill(order: BillerOrder) {
+    const id = order.id
+    setPrintSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) { next.delete(id) } else { next.add(id) }
+      return next
+    })
+    if (!printItemsMap[id]) {
+      setPrintLoadingIds(prev => new Set(prev).add(id))
+      try {
+        const { items } = await getOrderWithItems(id)
+        setPrintItemsMap(prev => ({ ...prev, [id]: items as DetailItem[] }))
+      } finally {
+        setPrintLoadingIds(prev => { const s = new Set(prev); s.delete(id); return s })
+      }
+    }
+  }
+
+  // ── Build a bill HTML fragment for one billed order ─────────────────────────
+  function buildBillFragment(
+    order: BillerOrder,
+    items: DetailItem[],
+    biller: string,
+    orientation: 'portrait' | 'landscape',
+  ): string {
+    const artMap = new Map<string, Map<string, Record<string, number>>>()
+    for (const item of items) {
+      const art = item.artNumber
+      const col = item.colorNumber ?? ''
+      if (!artMap.has(art)) artMap.set(art, new Map())
+      const colMap = artMap.get(art)!
+      if (!colMap.has(col)) colMap.set(col, {})
+      const sz = item.sizeNumber ?? '?'
+      const qty = item.status === 'out_of_stock' ? 0 : item.quantityPacked
+      colMap.get(col)![sz] = (colMap.get(col)![sz] ?? 0) + qty
+    }
+    const grandTotal = items.reduce((s, i) => s + (i.status === 'out_of_stock' ? 0 : i.quantityPacked), 0)
+    const billedStr = order.billedAt
+      ? new Date(order.billedAt).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+      : '—'
+    let rows = ''
+    artMap.forEach((colMap, artNumber) => {
+      rows += `<div class="art-block"><div class="art-number">${artNumber}</div>`
+      colMap.forEach((sizes, color) => {
+        const sorted = Object.entries(sizes).sort(([a], [b]) => Number(a) - Number(b) || a.localeCompare(b))
+        const sizesStr = sorted.map(([sz, qty]) => `${sz}/${qty}`).join(', ')
+        const bracket = orientation === 'portrait'
+          ? '[&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;]'
+          : '[&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;]'
+        rows += `<div class="color-row"><span class="col-color">${color || '—'}</span><span class="col-sizes">${sizesStr}</span><span class="col-bracket">${bracket}</span></div>`
+      })
+      rows += `</div>`
+    })
+    return `<div class="bill${orientation === 'portrait' ? ' bill-portrait' : ''}">
+  <div class="bill-title">${order.shopkeeperName}</div>
+  <div class="bill-meta"><span class="meta-order">Order #${order.orderNumber}</span><span class="meta-sep">&nbsp;·&nbsp;</span><span class="meta-date">${billedStr}</span></div>
+  <div class="rule"></div>
+  ${rows}
+  <div class="rule"></div>
+  <div class="total-row"><span>Total</span><span>${grandTotal} pairs</span></div>
+  <div class="rule"></div>
+  <div class="picker-row"><span>Biller: ${biller}</span><span>Salesman: ${order.salesmanId ?? '—'}</span></div>
+</div>`
+  }
+
+  function estimateBillHeight(items: DetailItem[]): number {
+    const FIXED_LINES = 9
+    const artMap = new Map<string, Set<string>>()
+    for (const item of items) {
+      if (!artMap.has(item.artNumber)) artMap.set(item.artNumber, new Set())
+      artMap.get(item.artNumber)!.add(item.colorNumber ?? '')
+    }
+    let artLines = 0
+    artMap.forEach(colors => { artLines += 1 + colors.size })
+    return FIXED_LINES + artLines
+  }
+
+  // ── Open a print window for selected bills ───────────────────────────────────
+  function handlePrintBills(
+    selectedOrders: BillerOrder[],
+    pageSize: 'A4' | 'A5',
+    orientation: 'portrait' | 'landscape',
+  ) {
+    const pageDims = { A4: { w: 210, h: 297 }, A5: { w: 148, h: 210 } }
+    const { w: pw, h: ph } = pageDims[pageSize]
+    const [pageW, pageH] = orientation === 'landscape' ? [ph, pw] : [pw, ph]
+    const marginMm = 6
+    const usableW = pageW - marginMm * 2
+    const gapMm = 4
+    const cols = orientation === 'landscape' ? 2 : 1
+    const billWidthMm = (usableW - gapMm * (cols - 1)) / cols
+    const billWidthPx = Math.floor(billWidthMm * 3.7795)
+    const orderedOrders = cols === 1
+      ? [...selectedOrders]
+      : [...selectedOrders].sort(
+          (a, b) => estimateBillHeight(printItemsMap[b.id] ?? []) - estimateBillHeight(printItemsMap[a.id] ?? [])
+        )
+    const bills = orderedOrders
+      .map(o => buildBillFragment(o, printItemsMap[o.id] ?? [], currentBillerId, orientation))
+      .join('\n')
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<title>Bills</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 12px;
+    background: #fff;
+    color: #000;
+    display: flex;
+    flex-wrap: wrap;
+    align-content: flex-start;
+    gap: ${gapMm}mm;
+    padding: ${marginMm}mm;
+    width: ${pageW}mm;
+  }
+  .bill { width: ${billWidthPx}px; border: 1px solid #ccc; padding: 6px 8px 5px; break-inside: avoid; page-break-inside: avoid; }
+  .bill-title    { text-align: center; font-size: 13px; font-weight: bold; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .bill-meta     { text-align: center; font-size: 9px; color: #555; margin-bottom: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .rule          { border-top: 1px dashed #aaa; margin: 3px 0; }
+  .art-block     { margin: 4px 0 1px; }
+  .art-number    { font-weight: bold; font-size: 12px; margin-bottom: 1px; }
+  .color-row     { display: flex; align-items: baseline; gap: 6px; padding: 1px 0; font-size: 11px; }
+  .col-color     { width: 64px; flex-shrink: 0; }
+  .col-sizes     { flex: 1; font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden; min-width: 0; }
+  .bill-portrait .color-row { gap: 12px; }
+  .col-bracket   { white-space: nowrap; }
+  .total-row     { display: flex; justify-content: space-between; font-weight: bold; font-size: 13px; padding: 2px 0; }
+  .picker-row    { display: flex; justify-content: space-between; font-size: 10px; color: #555; padding: 2px 0; }
+  @media print {
+    @page { size: ${pageSize} ${orientation}; margin: ${marginMm}mm; }
+    body  { padding: 0; width: 100%; }
+  }
+</style>
+</head>
+<body>
+${bills}
+<script>window.onload = function(){ window.print(); }</` + `script>
+</body>
+</html>`
+    const winW = Math.round(pageW * 3.7795) + 40
+    const winH = Math.min(Math.round(pageH * 3.7795) + 80, screen.availHeight - 60)
+    const w = window.open('', '_blank', `width=${winW},height=${winH}`)
+    if (w) { w.document.write(html); w.document.close() }
   }
 
   // ── detail panel ─────────────────────────────────────────────────────────────
@@ -461,11 +626,15 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
     }))
   })()
 
+  // ── Derived lists ────────────────────────────────────────────────────────────
+  const verifyOrders = orders.filter(o => o.status === 'packed')
+  const billedOrders = orders.filter(o => o.status === 'billed')
+
   const counts = {
     total:   orders.length,
-    packed:  orders.filter(o => o.status === 'packed').length,
-    billed:  orders.filter(o => o.status === 'billed').length,
-    myBills: orders.filter(o => o.status === 'billed' && o.billerId === currentBillerId).length,
+    packed:  verifyOrders.length,
+    billed:  billedOrders.length,
+    myBills: billedOrders.filter(o => o.billerId === currentBillerId).length,
   }
 
   return (
@@ -485,52 +654,220 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
           <StatCard label="My Bills"  value={counts.myBills} color="text-blue-600" />
         </div>
 
-        <div className="space-y-3">
-          {orders.length === 0 && (
-            <div className="text-center py-12 text-muted-foreground text-sm">No orders to verify 🎉</div>
-          )}
-          {orders.map(order => {
-            const isProcessing = isPending && activeId === order.id
-            const isBilled = order.status === 'billed'
-            return (
-              <div
-                key={order.id}
-                onClick={() => handleViewOrder(order)}
-                className={`w-full text-left rounded-xl border bg-card p-4 hover:bg-muted/30 transition-colors cursor-pointer ${
-                  isBilled ? 'border-blue-200 dark:border-blue-800' : 'border-border'
-                }`}
-              >
-                <div className="flex items-start justify-between gap-2 mb-3">
-                  <div>
-                    <p className="font-medium text-sm">{order.shopkeeperName}</p>
-                    <p className="font-mono text-xs text-muted-foreground mt-0.5">{order.orderNumber}</p>
+        {/* ── Tabs ── */}
+        <div className="flex rounded-xl border border-border bg-muted/40 p-1 mb-4 gap-1">
+          {(['verify', 'generated'] as BillerTab[]).map(tab => (
+            <button
+              key={tab}
+              type="button"
+              onClick={() => { setActiveTab(tab); setPrintSelectedIds(new Set()) }}
+              className={`flex-1 flex items-center justify-center gap-1.5 rounded-lg py-2 text-xs font-semibold transition-colors ${
+                activeTab === tab
+                  ? 'bg-background text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              {tab === 'verify' ? 'Generate Bills' : 'Print Bills'}
+              <span className={`inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full px-1 text-[10px] font-bold tabular-nums ${
+                activeTab === tab ? 'bg-foreground text-background' : 'bg-muted-foreground/20 text-muted-foreground'
+              }`}>
+                {tab === 'verify' ? counts.packed : counts.billed}
+              </span>
+            </button>
+          ))}
+        </div>
+
+        {/* ── Verify Orders tab ── */}
+        {activeTab === 'verify' && (
+          <div className="space-y-3">
+            {verifyOrders.length === 0 && (
+              <div className="text-center py-12 text-muted-foreground text-sm">No orders to verify 🎉</div>
+            )}
+            {verifyOrders.map(order => {
+              const isProcessing = isPending && activeId === order.id
+              return (
+                <div
+                  key={order.id}
+                  onClick={() => handleViewOrder(order)}
+                  className="w-full text-left rounded-xl border border-border bg-card p-4 hover:bg-muted/30 transition-colors cursor-pointer"
+                >
+                  <div className="flex items-start justify-between gap-2 mb-3">
+                    <div>
+                      <p className="font-medium text-sm">{order.shopkeeperName}</p>
+                      <p className="font-mono text-xs text-muted-foreground mt-0.5">{order.orderNumber}</p>
+                    </div>
+                    <StatusPill status={order.status} />
                   </div>
-                  <StatusPill status={order.status} />
-                </div>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-xs text-muted-foreground">Packed: {fmt(order.packedAt)}</p>
-                    {isBilled && order.billedAt && (
-                      <p className="text-xs text-blue-600 dark:text-blue-400 font-medium">Billed: {fmt(order.billedAt)}</p>
-                    )}
-                  </div>
-                  <div onClick={e => e.stopPropagation()}>
-                    {order.status === 'packed' && (
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-xs text-muted-foreground">Packed: {fmt(order.packedAt)}</p>
+                    </div>
+                    <div onClick={e => e.stopPropagation()}>
                       <button
                         type="button"
                         onClick={() => openScanner(order)}
                         disabled={isProcessing}
                         className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
                       >
-                        {isProcessing ? '…' : 'Generate Bill'}
+                        {isProcessing ? '…' : 'Scan Items'}
                       </button>
-                    )}
+                    </div>
                   </div>
                 </div>
-              </div>
-            )
-          })}
-        </div>
+              )
+            })}
+          </div>
+        )}
+
+        {/* ── Print Bills tab ── */}
+        {activeTab === 'generated' && (() => {
+          const allSelected = billedOrders.length > 0 && billedOrders.every(o => printSelectedIds.has(o.id))
+          const selectedOrders = billedOrders.filter(o => printSelectedIds.has(o.id))
+          const allLoaded = selectedOrders.every(o => !!printItemsMap[o.id])
+
+          function toggleAll() {
+            if (allSelected) {
+              setPrintSelectedIds(new Set())
+              setPrintItemsMap({})
+            } else {
+              billedOrders.forEach(o => { if (!printSelectedIds.has(o.id)) handleTogglePrintBill(o) })
+            }
+          }
+
+          return (
+            <div className="space-y-3">
+
+              {/* ── Empty state ── */}
+              {billedOrders.length === 0 && (
+                <div className="flex flex-col items-center justify-center py-16 gap-3 text-muted-foreground">
+                  <svg className="w-10 h-10 opacity-30" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+                  </svg>
+                  <div className="text-center">
+                    <p className="text-sm font-medium">No bills generated yet</p>
+                    <p className="text-xs mt-0.5 text-muted-foreground">Bills appear here after scanning and saving orders.</p>
+                  </div>
+                </div>
+              )}
+
+              {/* ── Selection card ── */}
+              {billedOrders.length > 0 && (
+                <div className="rounded-xl border border-border bg-card overflow-hidden">
+
+                  {/* Card header */}
+                  <div className="px-3 py-3 sm:px-4 sm:py-3.5 bg-muted/30 border-b border-border">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <svg className="w-4 h-4 text-muted-foreground shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+                        </svg>
+                        <h2 className="text-sm font-semibold text-foreground">Select Bills to Print</h2>
+                        {printSelectedIds.size > 0 && (
+                          <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-[10px] font-bold text-primary-foreground">
+                            {printSelectedIds.size}
+                          </span>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={toggleAll}
+                        className="text-xs font-medium text-primary hover:underline shrink-0"
+                      >
+                        {allSelected ? 'Clear all' : 'Select all'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Rows */}
+                  <div className="divide-y divide-border">
+                    {billedOrders.map(order => {
+                      const checked = printSelectedIds.has(order.id)
+                      const loading = printLoadingIds.has(order.id)
+                      const pairs = printItemsMap[order.id]?.reduce((s, i) => s + (i.status === 'out_of_stock' ? 0 : i.quantityPacked), 0) ?? null
+
+                      return (
+                        <div
+                          key={order.id}
+                          onClick={() => handleViewOrder(order)}
+                          className={`flex items-center gap-3 px-3 py-3 sm:px-4 cursor-pointer transition-colors ${
+                            checked ? 'bg-primary/5' : 'hover:bg-muted/30 active:bg-muted/50'
+                          }`}
+                        >
+                          {/* Checkbox — click is independent from row, does NOT open preview */}
+                          <button
+                            type="button"
+                            aria-label={checked ? 'Deselect for print' : 'Select for print'}
+                            onClick={e => { e.stopPropagation(); handleTogglePrintBill(order) }}
+                            className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                              checked ? 'border-primary bg-primary' : 'border-border bg-background hover:border-primary/60'
+                            }`}
+                          >
+                            {checked && (
+                              <svg className="w-3 h-3 text-primary-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                              </svg>
+                            )}
+                          </button>
+
+                          {/* Text — clicking opens detail preview */}
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-foreground truncate leading-snug">{order.shopkeeperName}</p>
+                            <div className="flex items-center gap-2 mt-0.5">
+                              <span className="font-mono text-[11px] text-muted-foreground">{order.orderNumber}</span>
+                              <span className="text-[11px] text-muted-foreground">·</span>
+                              <span className="text-[11px] text-muted-foreground">{fmt(order.billedAt)}</span>
+                            </div>
+                          </div>
+
+                          {/* Right side */}
+                          <div className="flex items-center gap-2 shrink-0">
+                            {loading && (
+                              <svg className="w-3.5 h-3.5 text-muted-foreground animate-spin" fill="none" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+                              </svg>
+                            )}
+                            {checked && !loading && pairs !== null && (
+                              <span className="inline-flex items-center rounded-full bg-blue-100 dark:bg-blue-900/30 px-2 py-0.5 text-[10px] font-semibold text-blue-700 dark:text-blue-400">
+                                {pairs} pairs
+                              </span>
+                            )}
+                            {!checked && <StatusPill status={order.status} />}
+                            {/* Chevron hint */}
+                            <svg className="w-3.5 h-3.5 text-muted-foreground/50 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                            </svg>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+
+                  {/* Summary strip — shown when at least one selected */}
+                  {selectedOrders.length > 0 && (
+                    <div className="border-t border-border px-3 py-2.5 sm:px-4 bg-muted/20 flex items-center gap-4 flex-wrap">
+                      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                        </svg>
+                        <span><span className="font-semibold text-foreground">{selectedOrders.length}</span> bill{selectedOrders.length !== 1 ? 's' : ''} selected</span>
+                      </div>
+                      {!allLoaded && (
+                        <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                          <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+                          </svg>
+                          Loading items…
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )
+        })()}
       </div>
 
       {/* ── Order detail panel ── */}
@@ -590,39 +927,66 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
                         <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground w-24">Article</th>
                         <th className="text-left px-3 py-2.5 text-xs font-medium text-muted-foreground w-28">Color</th>
                         <th className="text-left px-3 py-2.5 text-xs font-medium text-muted-foreground">
-                          Size <span className="ml-1 text-[10px] font-normal opacity-60">ord→pkd</span>
+                          Size
+                          <span className="ml-1 text-[10px] font-normal text-muted-foreground/50">→</span>
+                          <span className="text-[10px] font-semibold text-muted-foreground/70">ord</span>
+                          <span className="mx-0.5 text-[10px] text-muted-foreground/40">→</span>
+                          <span className="text-[10px] font-semibold text-green-600 dark:text-green-400">pkd</span>
+                          {detailOrder?.status === 'billed' && (
+                            <>
+                              <span className="mx-0.5 text-[10px] text-muted-foreground/40">→</span>
+                              <span className="text-[10px] font-semibold text-blue-600 dark:text-blue-400">ver</span>
+                            </>
+                          )}
                         </th>
                       </tr>
                     </thead>
                     <tbody>
                       {articleGroups.map(({ artNumber, colorGroups }) =>
                         colorGroups.map(({ color, items }, ci) => {
-                          const allOrd = colorGroups.flatMap(cg => cg.items).reduce((s, i) => s + i.quantityOrdered, 0)
-                          const allPkd = colorGroups.flatMap(cg => cg.items).reduce((s, i) => s + i.quantityPacked, 0)
+                          const allItems = colorGroups.flatMap(cg => cg.items)
+                          const allOrd   = allItems.reduce((s, i) => s + i.quantityOrdered, 0)
+                          const allPkd   = allItems.reduce((s, i) => s + (i.status === 'out_of_stock' ? 0 : i.quantityPacked), 0)
+                          const isBilled = detailOrder?.status === 'billed'
+                          const allVer   = isBilled ? allPkd : 0
                           return (
                             <tr key={`${artNumber}-${color}`} className="border-b border-border hover:bg-muted/20">
                               {ci === 0 && (
                                 <td className="px-4 py-2.5 font-semibold text-xs align-top border-r border-border" rowSpan={colorGroups.length}>
                                   {artNumber}
+                                  {/* ord = salesman → muted */}
                                   <span className="block font-normal text-muted-foreground tabular-nums mt-0.5">{allOrd} ord</span>
-                                  <span className={`block font-semibold tabular-nums ${allPkd < allOrd ? 'text-yellow-500' : 'text-green-600 dark:text-green-400'}`}>{allPkd} pkd</span>
+                                  {/* pkd = picker → always green */}
+                                  <span className="block font-semibold tabular-nums text-green-600 dark:text-green-400">{allPkd} pkd</span>
+                                  {/* ver = biller → always blue, only when billed */}
+                                  {isBilled && <span className="block font-semibold tabular-nums text-blue-600 dark:text-blue-400">{allVer} ver</span>}
                                 </td>
                               )}
                               <td className="px-3 py-2.5 text-xs font-medium text-foreground align-top w-28 border-r border-border">{color}</td>
                               <td className="px-3 py-2.5 align-top">
                                 <div className="flex flex-wrap gap-x-2 gap-y-1">
                                   {items.map(item => {
-                                    const isOOS  = item.status === 'out_of_stock'
-                                    const isFull = !isOOS && item.quantityPacked >= item.quantityOrdered
+                                    const isOOS    = item.status === 'out_of_stock'
+                                    const pkd      = isOOS ? 0 : item.quantityPacked
+                                    const verified = isBilled ? pkd : 0
                                     return (
                                       <span key={item.id} className="inline-flex items-baseline gap-0.5 tabular-nums whitespace-nowrap">
-                                        <span className="text-xs text-foreground">{item.sizeNumber ?? '—'}</span>
+                                        <span className="text-xs text-muted-foreground">{item.sizeNumber ?? '—'}</span>
                                         <span className="text-[10px] text-muted-foreground/50 mx-px">/</span>
-                                        <span className="text-xs font-bold text-foreground">{item.quantityOrdered}</span>
+                                        {/* ord = salesman → always muted */}
+                                        <span className="text-xs font-bold text-muted-foreground">{item.quantityOrdered}</span>
                                         <span className="text-[10px] text-muted-foreground/40">→</span>
-                                        <span className={`text-xs font-bold ${isOOS ? 'text-red-500' : isFull ? 'text-green-600 dark:text-green-400' : 'text-yellow-500'}`}>
-                                          {isOOS ? 0 : item.quantityPacked}
+                                        {/* pkd = picker → always green (red if OOS) */}
+                                        <span className={`text-xs font-bold ${isOOS ? 'text-red-500' : 'text-green-600 dark:text-green-400'}`}>
+                                          {isOOS ? 'OOS' : pkd}
                                         </span>
+                                        {/* verified = biller → always blue, only when billed */}
+                                        {isBilled && !isOOS && (
+                                          <>
+                                            <span className="text-[10px] text-muted-foreground/40">→</span>
+                                            <span className="text-xs font-bold text-blue-600 dark:text-blue-400">{verified}</span>
+                                          </>
+                                        )}
                                       </span>
                                     )
                                   })}
@@ -637,12 +1001,30 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
                       <tr>
                         <td colSpan={2} className="px-4 py-2.5 text-xs font-medium text-muted-foreground text-right">Total</td>
                         <td className="px-3 py-2.5 text-xs">
-                          <span className="text-foreground font-medium tabular-nums">{detailItems.reduce((s, i) => s + i.quantityOrdered, 0)}</span>
-                          <span className="text-muted-foreground mx-1">ord /</span>
-                          <span className={`font-bold tabular-nums ${
-                            detailItems.reduce((s, i) => s + i.quantityPacked, 0) < detailItems.reduce((s, i) => s + i.quantityOrdered, 0) ? 'text-yellow-500' : 'text-green-600 dark:text-green-400'
-                          }`}>{detailItems.reduce((s, i) => s + i.quantityPacked, 0)}</span>
-                          <span className="text-muted-foreground ml-1">pkd</span>
+                          {(() => {
+                            const isBilled = detailOrder?.status === 'billed'
+                            const totalOrd = detailItems.reduce((s, i) => s + i.quantityOrdered, 0)
+                            const totalPkd = detailItems.reduce((s, i) => s + (i.status === 'out_of_stock' ? 0 : i.quantityPacked), 0)
+                            const totalVer = isBilled ? totalPkd : 0
+                            return (
+                              <>
+                                {/* ord = salesman → muted */}
+                                <span className="font-bold tabular-nums text-muted-foreground">{totalOrd}</span>
+                                <span className="text-muted-foreground mx-1">ord /</span>
+                                {/* pkd = picker → green */}
+                                <span className="font-bold tabular-nums text-green-600 dark:text-green-400">{totalPkd}</span>
+                                <span className="text-muted-foreground mx-1">pkd</span>
+                                {/* ver = biller → blue, only when billed */}
+                                {isBilled && (
+                                  <>
+                                    <span className="text-muted-foreground mx-0.5">/</span>
+                                    <span className="font-bold tabular-nums text-blue-600 dark:text-blue-400">{totalVer}</span>
+                                    <span className="text-muted-foreground ml-1">ver</span>
+                                  </>
+                                )}
+                              </>
+                            )
+                          })()}
                         </td>
                       </tr>
                     </tfoot>
@@ -657,7 +1039,7 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
                   onClick={() => openScanner(detailOrder)}
                   className="w-full rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
                 >
-                  Generate Bill
+                  Scan Items
                 </button>
               )}
             </div>
@@ -1102,6 +1484,168 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
           </div>
         </div>
       )}
+
+      {/* ── Sticky bottom bar — Print Bills ── */}
+      {activeTab === 'generated' && (() => {
+        const selectedOrders = billedOrders.filter(o => printSelectedIds.has(o.id))
+        const allLoaded = selectedOrders.every(o => !!printItemsMap[o.id])
+        const canPrint = selectedOrders.length > 0 && allLoaded
+        return (
+          <div className="fixed bottom-0 left-0 right-0 z-20 bg-background/95 backdrop-blur-sm border-t border-border">
+            <div className="max-w-2xl mx-auto px-3 sm:px-4 py-2.5 flex items-center gap-3">
+              {selectedOrders.length > 0 && (
+                <div className="flex items-center gap-2 mr-auto">
+                  <span className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/60 px-2.5 py-1 text-xs font-medium text-foreground">
+                    <svg className="w-3 h-3 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                    </svg>
+                    {selectedOrders.length} bill{selectedOrders.length !== 1 ? 's' : ''}
+                  </span>
+                  {!allLoaded && (
+                    <svg className="w-3.5 h-3.5 text-muted-foreground animate-spin" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+                    </svg>
+                  )}
+                </div>
+              )}
+              <button
+                type="button"
+                disabled={!canPrint}
+                onClick={() => setPrintConfigOpen(true)}
+                className={`flex items-center justify-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                  selectedOrders.length === 0 ? 'w-full sm:w-auto sm:ml-auto' : 'shrink-0'
+                }`}
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+                </svg>
+                {canPrint ? 'Print' : selectedOrders.length === 0 ? 'Select bills to print' : 'Loading…'}
+              </button>
+            </div>
+          </div>
+        )
+      })()}
+
+      {/* ── Print config modal ── */}
+      {printConfigOpen && (() => {
+        const selectedOrders = billedOrders.filter(o => printSelectedIds.has(o.id))
+        return (
+          <div
+            className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm"
+            onClick={e => { if (e.target === e.currentTarget) setPrintConfigOpen(false) }}
+          >
+            <div className="w-full sm:max-w-sm bg-card rounded-t-2xl sm:rounded-2xl border border-border shadow-2xl overflow-hidden">
+
+              {/* Modal header */}
+              <div className="flex items-center justify-between px-4 py-4 border-b border-border">
+                <div className="flex items-center gap-2">
+                  <svg className="w-4 h-4 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+                  </svg>
+                  <h2 className="text-sm font-semibold text-foreground">Print Settings</h2>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPrintConfigOpen(false)}
+                  className="flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+                  aria-label="Close"
+                >
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+
+              <div className="px-4 py-4 space-y-4">
+                {/* Page size */}
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Page Size</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {([
+                      { value: 'A4', label: 'A4', sub: '210 × 297 mm' },
+                      { value: 'A5', label: 'A5', sub: '148 × 210 mm' },
+                    ] as const).map(({ value, label, sub }) => (
+                      <button key={value} type="button"
+                        onClick={() => setPrintPageSize(value)}
+                        className={`flex items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                          printPageSize === value
+                            ? 'border-primary bg-primary/8 ring-1 ring-primary'
+                            : 'border-border bg-background hover:bg-muted'
+                        }`}>
+                        <span className={`flex h-8 w-6 shrink-0 items-center justify-center rounded-sm border-2 ${
+                          printPageSize === value ? 'border-primary bg-primary/10' : 'border-muted-foreground/40 bg-muted/40'
+                        }`}>
+                          <svg className={`w-2.5 h-3 ${printPageSize === value ? 'text-primary' : 'text-muted-foreground'}`} fill="currentColor" viewBox="0 0 8 10">
+                            <rect x="1" y="1" width="6" height="8" rx="0.5"/>
+                          </svg>
+                        </span>
+                        <div>
+                          <p className={`text-sm font-semibold leading-tight ${printPageSize === value ? 'text-foreground' : 'text-muted-foreground'}`}>{label}</p>
+                          <p className="text-[10px] text-muted-foreground mt-0.5">{sub}</p>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Orientation */}
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Orientation</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {([
+                      { value: 'portrait',  label: 'Portrait',  sub: '1 bill / row',  w: 24, h: 32 },
+                      { value: 'landscape', label: 'Landscape', sub: '2 bills / row', w: 32, h: 24 },
+                    ] as const).map(({ value, label, sub, w, h }) => (
+                      <button key={value} type="button"
+                        onClick={() => setPrintOrientation(value)}
+                        className={`flex items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                          printOrientation === value
+                            ? 'border-primary bg-primary/8 ring-1 ring-primary'
+                            : 'border-border bg-background hover:bg-muted'
+                        }`}>
+                        <span className={`shrink-0 rounded-sm border-2 ${
+                          printOrientation === value ? 'border-primary bg-primary/10' : 'border-muted-foreground/40 bg-muted/40'
+                        }`} style={{ width: w, height: h }} />
+                        <div>
+                          <p className={`text-sm font-semibold leading-tight ${printOrientation === value ? 'text-foreground' : 'text-muted-foreground'}`}>{label}</p>
+                          <p className="text-[10px] text-muted-foreground mt-0.5">{sub}</p>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Summary */}
+                <div className="rounded-lg bg-muted/40 border border-border px-3 py-2.5 flex items-center justify-between text-xs text-muted-foreground">
+                  <span><span className="font-semibold text-foreground">{selectedOrders.length}</span> bill{selectedOrders.length !== 1 ? 's' : ''} will be printed</span>
+                  <span className="font-mono text-[11px]">{printPageSize} · {printOrientation === 'portrait' ? '↕' : '↔'}</span>
+                </div>
+              </div>
+
+              {/* Modal footer */}
+              <div className="flex gap-2 px-4 pb-4 pt-0">
+                <button type="button"
+                  onClick={() => setPrintConfigOpen(false)}
+                  className="flex-1 rounded-xl border border-border px-4 py-2.5 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                  Cancel
+                </button>
+                <button type="button"
+                  onClick={() => {
+                    setPrintConfigOpen(false)
+                    handlePrintBills(selectedOrders, printPageSize, printOrientation)
+                  }}
+                  className="flex-1 flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+                  </svg>
+                  Print
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
     </div>
   )
 }

@@ -268,15 +268,23 @@ export function DispatcherDashboard({ orders: initialOrders, currentDispatcherId
                         <th className="text-left px-3 py-2.5 text-xs font-medium text-muted-foreground w-28">Color</th>
                         <th className="text-left px-3 py-2.5 text-xs font-medium text-muted-foreground">
                           Size
-                          <span className="ml-2 text-[10px] font-normal text-muted-foreground/60">ord→pkd</span>
+                          <span className="ml-1 text-[10px] font-normal text-muted-foreground/50">→</span>
+                          <span className="text-[10px] font-semibold text-muted-foreground/70">ord</span>
+                          <span className="mx-0.5 text-[10px] text-muted-foreground/40">→</span>
+                          <span className="text-[10px] font-semibold text-green-600 dark:text-green-400">pkd</span>
+                          <span className="mx-0.5 text-[10px] text-muted-foreground/40">→</span>
+                          <span className="text-[10px] font-semibold text-blue-600 dark:text-blue-400">ver</span>
                         </th>
                       </tr>
                     </thead>
                     <tbody>
                       {articleGroups.map(({ artNumber, colorGroups }) =>
                         colorGroups.map(({ color, items }, ci) => {
-                          const allOrd = colorGroups.flatMap(cg => cg.items).reduce((s, i) => s + i.quantityOrdered, 0)
-                          const allPkd = colorGroups.flatMap(cg => cg.items).reduce((s, i) => s + i.quantityPacked, 0)
+                          const allItems = colorGroups.flatMap(cg => cg.items)
+                          const allOrd   = allItems.reduce((s, i) => s + i.quantityOrdered, 0)
+                          const allPkd   = allItems.reduce((s, i) => s + (i.status === 'out_of_stock' ? 0 : i.quantityPacked), 0)
+                          // dispatcher always sees post-biller orders → ver always shown
+                          const allVer   = allPkd
                           return (
                             <tr key={`${artNumber}-${color}`} className="border-b border-border hover:bg-muted/20">
                               {ci === 0 && (
@@ -285,32 +293,42 @@ export function DispatcherDashboard({ orders: initialOrders, currentDispatcherId
                                   rowSpan={colorGroups.length}
                                 >
                                   {artNumber}
-                                  <span className="block font-normal text-muted-foreground tabular-nums mt-0.5">
-                                    {allOrd} ord
-                                  </span>
-                                  <span className={`block font-semibold tabular-nums ${allPkd < allOrd ? 'text-yellow-500' : 'text-green-600 dark:text-green-400'}`}>
-                                    {allPkd} pkd
-                                  </span>
+                                  {/* ord = salesman → muted */}
+                                  <span className="block font-normal text-muted-foreground tabular-nums mt-0.5">{allOrd} ord</span>
+                                  {/* pkd = picker → always green */}
+                                  <span className="block font-semibold tabular-nums text-green-600 dark:text-green-400">{allPkd} pkd</span>
+                                  {/* ver = biller → always blue */}
+                                  <span className="block font-semibold tabular-nums text-blue-600 dark:text-blue-400">{allVer} ver</span>
                                 </td>
                               )}
                               <td className="px-3 py-2.5 text-xs font-medium text-foreground align-top w-28 border-r border-border">{color}</td>
                               <td className="px-3 py-2.5 align-top">
                                 <div className="flex flex-wrap gap-x-2 gap-y-1">
                                   {items.map(item => {
-                                    const isOOS  = item.status === 'out_of_stock'
-                                    const isFull = !isOOS && item.quantityPacked >= item.quantityOrdered
+                                    const isOOS    = item.status === 'out_of_stock'
+                                    const pkd      = isOOS ? 0 : item.quantityPacked
+                                    const verified = pkd
                                     return (
                                       <span
                                         key={item.id}
                                         className="inline-flex items-baseline gap-0.5 tabular-nums whitespace-nowrap"
                                       >
-                                        <span className="text-xs text-foreground">{item.sizeNumber ?? '—'}</span>
+                                        <span className="text-xs text-muted-foreground">{item.sizeNumber ?? '—'}</span>
                                         <span className="text-[10px] text-muted-foreground/50 mx-px">/</span>
-                                        <span className="text-xs font-bold text-foreground">{item.quantityOrdered}</span>
+                                        {/* ord = salesman → always muted */}
+                                        <span className="text-xs font-bold text-muted-foreground">{item.quantityOrdered}</span>
                                         <span className="text-[10px] text-muted-foreground/40">→</span>
-                                        <span className={`text-xs font-bold ${isOOS ? 'text-red-500' : isFull ? 'text-green-600 dark:text-green-400' : 'text-yellow-500'}`}>
-                                          {isOOS ? 0 : item.quantityPacked}
+                                        {/* pkd = picker → always green (red if OOS) */}
+                                        <span className={`text-xs font-bold ${isOOS ? 'text-red-500' : 'text-green-600 dark:text-green-400'}`}>
+                                          {isOOS ? 'OOS' : pkd}
                                         </span>
+                                        {/* ver = biller → always blue */}
+                                        {!isOOS && (
+                                          <>
+                                            <span className="text-[10px] text-muted-foreground/40">→</span>
+                                            <span className="text-xs font-bold text-blue-600 dark:text-blue-400">{verified}</span>
+                                          </>
+                                        )}
                                       </span>
                                     )
                                   })}
@@ -325,13 +343,24 @@ export function DispatcherDashboard({ orders: initialOrders, currentDispatcherId
                       <tr>
                         <td colSpan={2} className="px-4 py-2.5 text-xs font-medium text-muted-foreground text-right">Total</td>
                         <td className="px-3 py-2.5 text-xs">
-                          <span className="text-foreground font-medium tabular-nums">{detailItems.reduce((s, i) => s + i.quantityOrdered, 0)}</span>
-                          <span className="text-muted-foreground mx-1">ord /</span>
-                          <span className={`font-bold tabular-nums ${
-                            detailItems.reduce((s, i) => s + i.quantityPacked, 0) < detailItems.reduce((s, i) => s + i.quantityOrdered, 0)
-                              ? 'text-yellow-500' : 'text-green-600 dark:text-green-400'
-                          }`}>{detailItems.reduce((s, i) => s + i.quantityPacked, 0)}</span>
-                          <span className="text-muted-foreground ml-1">pkd</span>
+                          {(() => {
+                            const totalOrd = detailItems.reduce((s, i) => s + i.quantityOrdered, 0)
+                            const totalPkd = detailItems.reduce((s, i) => s + (i.status === 'out_of_stock' ? 0 : i.quantityPacked), 0)
+                            const totalVer = totalPkd
+                            return (
+                              <>
+                                {/* ord = salesman → muted */}
+                                <span className="font-bold tabular-nums text-muted-foreground">{totalOrd}</span>
+                                <span className="text-muted-foreground mx-1">ord /</span>
+                                {/* pkd = picker → green */}
+                                <span className="font-bold tabular-nums text-green-600 dark:text-green-400">{totalPkd}</span>
+                                <span className="text-muted-foreground mx-1">pkd /</span>
+                                {/* ver = biller → blue */}
+                                <span className="font-bold tabular-nums text-blue-600 dark:text-blue-400">{totalVer}</span>
+                                <span className="text-muted-foreground ml-1">ver</span>
+                              </>
+                            )
+                          })()}
                         </td>
                       </tr>
                     </tfoot>
