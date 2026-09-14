@@ -254,6 +254,16 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
       return
     }
 
+    // Duplicate QR check — same physical box already scanned in this session
+    const boxCode = raw.split('-').pop() ?? raw
+    const alreadyScanned = scannedQrsRef.current.some(
+      q => (q.split('-').pop() ?? q) === boxCode
+    )
+    if (alreadyScanned) {
+      showMsg('warn', `${art} Sz ${size} — Duplicate QR, already scanned` + devSuffix)
+      return
+    }
+
     const key     = itemKey(match.artNumber, match.sizeNumber)
     const current = scannedMapRef.current[key] ?? 0
     const packed  = match.status === 'out_of_stock' ? 0 : match.quantityPacked
