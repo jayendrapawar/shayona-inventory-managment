@@ -928,14 +928,14 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
                         <table className="w-full text-xs text-left border-collapse table-auto">
                           <thead className="bg-muted/10 border-b border-border text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
                             <tr>
-                              <th className="px-3.5 py-2.5 min-w-[80px] whitespace-nowrap">Color</th>
-                              <th className="px-2 py-2.5 text-center min-w-[48px] w-12 whitespace-nowrap">SZ</th>
-                              <th className="px-2 py-2.5 text-center min-w-[56px] w-14 whitespace-nowrap">ORD</th>
-                              <th className="px-2 py-2.5 text-center min-w-[56px] w-14 text-green-600 dark:text-green-400 whitespace-nowrap">PKD</th>
-                              <th className="px-2 py-2.5 text-center min-w-[64px] w-16 text-blue-600 dark:text-blue-400 whitespace-nowrap">SCAN</th>
-                              <th className="px-3.5 py-2.5 text-right min-w-[80px] w-24 whitespace-nowrap">Price</th>
+                              <th className="px-3.5 py-2.5 min-w-[80px] whitespace-nowrap text-muted-foreground">Color</th>
+                              <th className="px-2 py-2.5 text-center min-w-[48px] w-12 whitespace-nowrap text-muted-foreground">Size</th>
+                              <th className="px-2 py-2.5 text-center min-w-[56px] w-14 whitespace-nowrap text-muted-foreground">ORD</th>
+                              <th className="px-2 py-2.5 text-center min-w-[56px] w-14 text-green-600 dark:text-green-400 font-bold whitespace-nowrap">PKD</th>
+                              <th className="px-2 py-2.5 text-center min-w-[64px] w-16 text-blue-600 dark:text-blue-400 font-bold whitespace-nowrap">Verified</th>
+                              <th className="px-3.5 py-2.5 text-right min-w-[80px] w-24 whitespace-nowrap text-muted-foreground">Price</th>
                               {showDevTracking && (
-                                <th className="px-3.5 py-2.5 text-left min-w-[280px] whitespace-nowrap">rawCode</th>
+                                <th className="px-3.5 py-2.5 text-left min-w-[280px] whitespace-nowrap text-muted-foreground">rawCode</th>
                               )}
                             </tr>
                           </thead>
@@ -1014,7 +1014,7 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
                                     isOOS
                                       ? 'bg-red-50/10 dark:bg-red-950/5 hover:bg-red-50/15'
                                       : done
-                                      ? 'bg-emerald-50/10 dark:bg-emerald-950/5 hover:bg-emerald-50/15'
+                                      ? 'bg-blue-50/10 dark:bg-blue-950/5 hover:bg-blue-50/15'
                                       : 'hover:bg-muted/10 odd:bg-card/30 even:bg-muted/5'
                                   }`}>
                                     <td className="px-3.5 py-2.5 font-medium text-foreground text-xs sm:text-sm">{color}</td>
@@ -1029,10 +1029,10 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
                                       ) : (
                                         <span className={`inline-flex items-center justify-center min-w-8 px-2.5 py-0.5 rounded-full text-xs font-bold leading-none ${
                                           done
-                                            ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300'
+                                            ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 border border-blue-200/50 dark:border-blue-800/50 shadow-xs'
                                             : partial
-                                            ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-450'
-                                            : 'bg-muted text-muted-foreground'
+                                            ? 'bg-blue-50 text-blue-600 dark:bg-blue-950/20 dark:text-blue-400 border border-blue-100/50 dark:border-blue-900/10'
+                                            : 'bg-muted text-muted-foreground/80'
                                         }`}>
                                           {assignedScannedCount}
                                         </span>

@@ -1,26 +1,58 @@
 // Separate helper file for matching article codes (e.g. A1SF0204G matches SFG-204, or FL0548L matches FL-548L)
 
-export function articlesMatch(a: string, b: string): boolean {
-  const normA = a.toUpperCase().replace(/[^A-Z0-9]/g, '');
-  const normB = b.toUpperCase().replace(/[^A-Z0-9]/g, '');
+export function articlesMatch(databaseArticle: string, scannedArticle: string): boolean {
+  if (!databaseArticle || !scannedArticle) return false;
 
-  if (normA === normB) return true;
+  const dbUpper = databaseArticle.toUpperCase();
+  const scanUpper = scannedArticle.toUpperCase().replace(/[^A-Z0-9]/g, ''); // strip dashes/spaces from scanned article
 
-  // Strip leading single-letter + single-digit prefix (like A1, B1, etc.)
-  const cleanA = normA.replace(/^[A-Z]\d/, '');
-  const cleanB = normB.replace(/^[A-Z]\d/, '');
+  // Ignore test articles
+  if (dbUpper.includes('TEST') || dbUpper.includes('TEST ARTICLE')) {
+    return false;
+  }
 
-  if (cleanA === cleanB) return true;
+  // Clean database article:
+  // 1. Remove anything in parentheses (e.g. "(kid)", "(Women Sandal)", "(Men)", etc.)
+  let cleanDb = dbUpper.replace(/\s*\(.*?\)/g, '');
 
-  // Extract sorted letter parts and numeric parts
-  const lettersA = cleanA.replace(/[^A-Z]/g, '').split('').sort().join('');
-  const lettersB = cleanB.replace(/[^A-Z]/g, '').split('').sort().join('');
+  // 2. Strip trailing 'S' if it follows a digit (e.g. "FL-02S" -> "FL-02", "FLK-2035S" -> "FLK-2035")
+  cleanDb = cleanDb.replace(/(\d+)S\s*$/g, '$1');
 
-  const digitsA = cleanA.replace(/[^0-9]/g, '');
-  const digitsB = cleanB.replace(/[^0-9]/g, '');
+  // Extract letter prefix from cleanDb
+  const letterMatch = cleanDb.match(/^[A-Z]+/);
+  const dbLetters = letterMatch ? letterMatch[0] : '';
 
-  const numA = digitsA ? parseInt(digitsA, 10) : null;
-  const numB = digitsB ? parseInt(digitsB, 10) : null;
+  // Extract digits from cleanDb
+  const digitMatch = cleanDb.match(/\d+/);
+  const dbDigits = digitMatch ? digitMatch[0] : '';
 
-  return lettersA === lettersB && numA === numB;
+  if (dbLetters.length < 2) {
+    // Fallback to exact match if not enough letters are found
+    const normDb = cleanDb.replace(/[^A-Z0-9]/g, '');
+    return normDb === scanUpper;
+  }
+
+  // Validate first 2 letters
+  const firstTwo = dbLetters.substring(0, 2);
+  if (!scanUpper.includes(firstTwo)) {
+    return false;
+  }
+
+  // Validate 3rd letter if present in database article prefix
+  if (dbLetters.length >= 3) {
+    const thirdLetter = dbLetters.charAt(2);
+    if (!scanUpper.endsWith(thirdLetter)) {
+      return false;
+    }
+  }
+
+  // Validate digits sequence (stripping leading zeroes)
+  if (dbDigits) {
+    const cleanDbDigits = dbDigits.replace(/^0+/, '') || '0';
+    if (!scanUpper.includes(cleanDbDigits)) {
+      return false;
+    }
+  }
+
+  return true;
 }
