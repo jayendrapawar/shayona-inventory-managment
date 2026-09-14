@@ -609,13 +609,22 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
 
   // ── scan validation ──────────────────────────────────────────────────────────
   // An order is fully verified when every packed item has been scanned ≥ quantityPacked
-  const allVerified = scanItems.length > 0 && scanItems.every(item => {
-    if (item.status === 'out_of_stock') return true
-    const packed = item.quantityPacked
-    if (packed === 0) return true
-    const key     = itemKey(item.artNumber, item.sizeNumber)
-    return (scannedMap[key] ?? 0) >= packed
-  })
+  const allVerified = scanItems.length > 0 && (() => {
+    // Group by key and check pooled scanned count >= total packed for that key.
+    // Using per-item packed (old logic) would fire too early when multiple items
+    // share the same artNumber|sizeNumber (e.g. two color variants of same size).
+    const keyTotals = new Map<string, number>()
+    for (const item of scanItems) {
+      if (item.status === 'out_of_stock') continue
+      const key = itemKey(item.artNumber, item.sizeNumber)
+      keyTotals.set(key, (keyTotals.get(key) ?? 0) + item.quantityPacked)
+    }
+    for (const [key, totalPacked] of keyTotals) {
+      if (totalPacked === 0) continue
+      if ((scannedMap[key] ?? 0) < totalPacked) return false
+    }
+    return true
+  })()
 
   // ── build article groups for detail panel ────────────────────────────────────
   const articleGroups = (() => {
@@ -632,18 +641,20 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
     }))
   })()
 
-  // ── scan item grouping ───────────────────────────────────────────────────────
+  // ── scan item grouping: artNumber → sizeNumber → items[] ────────────────────
+  // Grouped by size (color ignored — no color validation yet).
+  // Each size bucket is one row; totals are summed across all same-size items.
   const scanArticleGroups = (() => {
     const artMap = new Map<string, Map<string, DetailItem[]>>()
     for (const item of scanItems) {
       if (!artMap.has(item.artNumber)) artMap.set(item.artNumber, new Map())
-      const colorKey = item.colorNumber ?? '—'
-      if (!artMap.get(item.artNumber)!.has(colorKey)) artMap.get(item.artNumber)!.set(colorKey, [])
-      artMap.get(item.artNumber)!.get(colorKey)!.push(item)
+      const sizeKey = item.sizeNumber ?? '—'
+      if (!artMap.get(item.artNumber)!.has(sizeKey)) artMap.get(item.artNumber)!.set(sizeKey, [])
+      artMap.get(item.artNumber)!.get(sizeKey)!.push(item)
     }
-    return Array.from(artMap.entries()).map(([artNumber, colorMap]) => ({
+    return Array.from(artMap.entries()).map(([artNumber, sizeMap]) => ({
       artNumber,
-      colorGroups: Array.from(colorMap.entries()).map(([color, items]) => ({ color, items })),
+      sizeGroups: Array.from(sizeMap.entries()).map(([size, items]) => ({ size, items })),
     }))
   })()
 
@@ -1341,42 +1352,17 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
                 </button>
               </div>
 
-              {scanArticleGroups.map(({ artNumber, colorGroups }) => {
-                const allItems   = colorGroups.flatMap(cg => cg.items)
-                const artDone    = allItems.every(i => {
-                  if (i.status === 'out_of_stock') return true
-                  return (scannedMap[itemKey(i.artNumber, i.sizeNumber)] ?? 0) >= i.quantityPacked
-                })
-                const isExpanded = expandedArticle === artNumber
-
-                const totalPackedPairs = allItems.reduce((sum, item) => sum + (item.status === 'out_of_stock' ? 0 : item.quantityPacked), 0)
-                const totalVerifiedPairs = allItems.reduce((sum, item) => {
-                  if (item.status === 'out_of_stock') return sum
-                  const key = itemKey(item.artNumber, item.sizeNumber)
-                  const totalScans = scannedMap[key] ?? 0
-                  const siblingItems = scanItems.filter(i => itemKey(i.artNumber, i.sizeNumber) === key)
-                  const currentItemIndex = siblingItems.findIndex(i => i.id === item.id)
-
-                  let assignedScannedCount = 0
-                  let scansLeft = totalScans
-
-                  for (let idx = 0; idx < siblingItems.length; idx++) {
-                    const sibling = siblingItems[idx]
-                    const sibPacked = sibling.status === 'out_of_stock' ? 0 : sibling.quantityPacked
-                    
-                    if (idx === currentItemIndex) {
-                      if (idx === siblingItems.length - 1) {
-                        assignedScannedCount = scansLeft
-                      } else {
-                        assignedScannedCount = Math.min(scansLeft, sibPacked)
-                      }
-                      break
-                    } else {
-                      scansLeft -= Math.min(scansLeft, sibPacked)
-                    }
-                  }
-                  return sum + Math.min(assignedScannedCount, item.quantityPacked)
+              {scanArticleGroups.map(({ artNumber, sizeGroups }) => {
+                const allItems      = sizeGroups.flatMap(sg => sg.items)
+                const totalPackedPairs   = allItems.reduce((s, i) => s + (i.status === 'out_of_stock' ? 0 : i.quantityPacked), 0)
+                // Verified = sum of min(scannedMap[key], totalPackedForKey) per unique key
+                const totalVerifiedPairs = sizeGroups.reduce((s, { items }) => {
+                  const key        = itemKey(items[0].artNumber, items[0].sizeNumber)
+                  const totalPacked = items.reduce((p, i) => p + (i.status === 'out_of_stock' ? 0 : i.quantityPacked), 0)
+                  return s + Math.min(scannedMap[key] ?? 0, totalPacked)
                 }, 0)
+                const artDone    = totalVerifiedPairs >= totalPackedPairs && totalPackedPairs > 0
+                const isExpanded = expandedArticle === artNumber
 
                 return (
                   <div key={artNumber} className={`rounded-xl border transition-all duration-200 overflow-hidden ${
@@ -1398,20 +1384,15 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
                       }`}
                     >
                       <div className="flex items-center justify-between gap-4">
-                        {/* Article Code */}
                         <div className="flex items-center gap-2 min-w-0">
                           <svg
                             className={`w-3.5 h-3.5 text-muted-foreground transition-transform duration-200 shrink-0 ${isExpanded ? 'rotate-180' : ''}`}
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke="currentColor"
+                            fill="none" viewBox="0 0 24 24" stroke="currentColor"
                           >
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7" />
                           </svg>
                           <span className="text-xs font-bold font-mono text-foreground truncate">{artNumber}</span>
                         </div>
-
-                        {/* Verified Pairs / Total Packed Pairs */}
                         <div className="flex items-center gap-1.5 font-mono text-xs shrink-0">
                           <span className={`px-2.5 py-0.5 rounded-full text-xs font-extrabold tracking-tight leading-none ${
                             artDone
@@ -1431,14 +1412,13 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
                       </div>
                     </div>
 
-                    {/* Table of items inside article */}
-                    {isExpanded ? (
+                    {/* Table — one row per size */}
+                    {isExpanded && (
                       <div className="overflow-x-auto bg-card border-t border-border/50 scrollbar-none touch-pan-x">
                         <table className="w-full text-xs text-left border-collapse table-auto">
                           <thead className="bg-muted/10 border-b border-border text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
                             <tr>
-                              <th className="px-3.5 py-2.5 min-w-[80px] whitespace-nowrap text-muted-foreground">Color</th>
-                              <th className="px-2 py-2.5 text-center min-w-[48px] w-12 whitespace-nowrap text-muted-foreground">Size</th>
+                              <th className="px-3.5 py-2.5 text-center min-w-[48px] w-12 whitespace-nowrap text-muted-foreground">Size</th>
                               <th className="px-2 py-2.5 text-center min-w-[56px] w-14 whitespace-nowrap text-muted-foreground">ORD</th>
                               <th className="px-2 py-2.5 text-center min-w-[56px] w-14 text-green-600 dark:text-green-400 font-bold whitespace-nowrap">PKD</th>
                               <th className="px-2 py-2.5 text-center min-w-[64px] w-16 text-blue-600 dark:text-blue-400 font-bold whitespace-nowrap">Verified</th>
@@ -1449,129 +1429,105 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-border bg-card/40">
-                            {colorGroups.map(({ color, items }) =>
-                              items.map(item => {
-                                const isOOS   = item.status === 'out_of_stock'
-                                const packed  = isOOS ? 0 : item.quantityPacked
-                                const key     = itemKey(item.artNumber, item.sizeNumber)
-                                const totalScans = scannedMap[key] ?? 0
+                            {sizeGroups.map(({ size, items: sizeItems }) => {
+                              const key        = itemKey(sizeItems[0].artNumber, sizeItems[0].sizeNumber)
+                              const totalOrd   = sizeItems.reduce((s, i) => s + i.quantityOrdered, 0)
+                              const totalPkd   = sizeItems.reduce((s, i) => s + (i.status === 'out_of_stock' ? 0 : i.quantityPacked), 0)
+                              const verified   = Math.min(scannedMap[key] ?? 0, totalPkd)
+                              const remaining  = Math.max(0, totalPkd - verified)
+                              const done       = totalPkd === 0 || verified >= totalPkd
+                              const partial    = !done && verified > 0
+                              const allOOS     = sizeItems.every(i => i.status === 'out_of_stock')
 
-                                // Sibling items under the same key to distribute counts sequentially
-                                const siblingItems = scanItems.filter(i => itemKey(i.artNumber, i.sizeNumber) === key)
-                                const currentItemIndex = siblingItems.findIndex(i => i.id === item.id)
-
-                                let assignedScannedCount = 0
-                                let scansLeft = totalScans
-
-                                for (let idx = 0; idx < siblingItems.length; idx++) {
-                                  const sibling = siblingItems[idx]
-                                  const sibPacked = sibling.status === 'out_of_stock' ? 0 : sibling.quantityPacked
-                                  
-                                  if (idx === currentItemIndex) {
-                                    if (idx === siblingItems.length - 1) {
-                                      assignedScannedCount = scansLeft
-                                    } else {
-                                      assignedScannedCount = Math.min(scansLeft, sibPacked)
-                                    }
-                                    break
-                                  } else {
-                                    scansLeft -= Math.min(scansLeft, sibPacked)
-                                  }
+                              // Prices from QR scans for this size
+                              const priceCounts: Record<number, number> = {}
+                              scannedQrs.forEach(raw => {
+                                if (!isValidWarehouseQr(raw)) return
+                                const p = parseQr(raw)
+                                if (articlesMatch(p.articleCode, sizeItems[0].artNumber) &&
+                                    String(p.size).toUpperCase() === (sizeItems[0].sizeNumber ?? '').toUpperCase()) {
+                                  priceCounts[p.mrp] = (priceCounts[p.mrp] ?? 0) + 1
                                 }
+                              })
+                              // Merge manual entries
+                              ;(manualEntries[key] ?? []).forEach(e => {
+                                priceCounts[e.mrp] = (priceCounts[e.mrp] ?? 0) + e.qty
+                              })
+                              const priceEntries = Object.entries(priceCounts)
 
-                                const done    = isOOS || assignedScannedCount >= packed
-                                const partial = !done && assignedScannedCount > 0
+                              // For dev tracking: all QR codes for this size
+                              const sizeScans = showDevTracking ? scannedQrs.filter(raw => {
+                                if (!isValidWarehouseQr(raw)) return false
+                                const p = parseQr(raw)
+                                return articlesMatch(p.articleCode, sizeItems[0].artNumber) &&
+                                       String(p.size).toUpperCase() === (sizeItems[0].sizeNumber ?? '').toUpperCase()
+                              }) : []
 
-                                // Find matching scans for this article + size
-                                const matchingScans = scannedQrs.filter(raw => {
-                                  if (!isValidWarehouseQr(raw)) return false
-                                  const p = parseQr(raw)
-                                  return articlesMatch(p.articleCode, item.artNumber) &&
-                                         String(p.size).toUpperCase() === (item.sizeNumber ?? '').toUpperCase()
-                                })
-
-                                // Distribute matching QR codes sequentially to current item
-                                let itemScans: string[] = []
-                                let qrScansLeft = [...matchingScans]
-
-                                for (let idx = 0; idx < siblingItems.length; idx++) {
-                                  const sibling = siblingItems[idx]
-                                  const sibPacked = sibling.status === 'out_of_stock' ? 0 : sibling.quantityPacked
-                                  
-                                  if (idx === currentItemIndex) {
-                                    if (idx === siblingItems.length - 1) {
-                                      itemScans = qrScansLeft
-                                    } else {
-                                      itemScans = qrScansLeft.slice(0, sibPacked)
+                              return (
+                                <tr
+                                  key={size}
+                                  onClick={allOOS || remaining <= 0 ? undefined : () => {
+                                    // Use the first non-OOS item as representative for the modal
+                                    const repItem = sizeItems.find(i => i.status !== 'out_of_stock') ?? sizeItems[0]
+                                    setManualTarget({ item: repItem, artNumber, color: '', remaining })
+                                    setManualQty(remaining)
+                                    setManualPrice('')
+                                  }}
+                                  className={`transition-colors select-none ${
+                                    allOOS
+                                      ? 'bg-red-50/10 dark:bg-red-950/5'
+                                      : done
+                                      ? 'bg-blue-50/10 dark:bg-blue-950/5 hover:bg-blue-50/15'
+                                      : remaining > 0
+                                      ? 'hover:bg-amber-50/30 dark:hover:bg-amber-950/10 odd:bg-card/30 even:bg-muted/5 cursor-pointer active:bg-amber-100/40'
+                                      : 'hover:bg-muted/10 odd:bg-card/30 even:bg-muted/5'
+                                  }`}
+                                >
+                                  <td className="px-3.5 py-2.5 font-mono text-center text-foreground text-xs sm:text-sm font-semibold">
+                                    {size}
+                                  </td>
+                                  <td className="px-2 py-2.5 font-mono text-center text-muted-foreground text-xs sm:text-sm">{totalOrd}</td>
+                                  <td className="px-2 py-2.5 font-mono text-center text-xs sm:text-sm font-bold">
+                                    {allOOS
+                                      ? <span className="text-red-500 font-normal text-[10px] bg-red-50 dark:bg-red-950/30 px-1.5 py-0.5 rounded">OOS</span>
+                                      : <span className="text-green-600 dark:text-green-400">{totalPkd}</span>
                                     }
-                                    break
-                                  } else {
-                                    qrScansLeft = qrScansLeft.slice(sibPacked)
-                                  }
-                                }
-
-                                // Unique prices and their scan count: from QR scans + manual entries
-                                const priceCounts: Record<number, number> = {}
-                                itemScans.forEach(raw => {
-                                  const p = parseQr(raw).mrp
-                                  priceCounts[p] = (priceCounts[p] ?? 0) + 1
-                                })
-                                // Merge manual entries for this item into price display
-                                ;(manualEntries[key] ?? []).forEach(e => {
-                                  priceCounts[e.mrp] = (priceCounts[e.mrp] ?? 0) + e.qty
-                                })
-                                const priceEntries = Object.entries(priceCounts)
-
-                                // Remaining capacity for manual verify (packed minus already in scannedMap)
-                                const remaining = Math.max(0, packed - (scannedMap[key] ?? 0))
-
-                                return (
-                                  <tr
-                                    key={item.id}
-                                    onClick={isOOS ? undefined : () => {
-                                      const rem = Math.max(0, packed - (scannedMap[key] ?? 0))
-                                      if (rem <= 0) return
-                                      setManualTarget({ item, artNumber, color, remaining: rem })
-                                      setManualQty(rem)
-                                      setManualPrice('')
-                                    }}
-                                    className={`transition-colors select-none ${
-                                      isOOS
-                                        ? 'bg-red-50/10 dark:bg-red-950/5'
-                                        : done
-                                        ? 'bg-blue-50/10 dark:bg-blue-950/5 hover:bg-blue-50/15'
-                                        : remaining > 0
-                                        ? 'hover:bg-amber-50/30 dark:hover:bg-amber-950/10 odd:bg-card/30 even:bg-muted/5 cursor-pointer active:bg-amber-100/40'
-                                        : 'hover:bg-muted/10 odd:bg-card/30 even:bg-muted/5'
-                                    }`}
-                                  >
-                                    <td className="px-3.5 py-2.5 font-medium text-foreground text-xs sm:text-sm">{color}</td>
-                                    <td className="px-2 py-2.5 font-mono text-center text-foreground text-xs sm:text-sm font-semibold">{item.sizeNumber ?? '—'}</td>
-                                    <td className="px-2 py-2.5 font-mono text-center text-muted-foreground text-xs sm:text-sm">{item.quantityOrdered}</td>
-                                    <td className="px-2 py-2.5 font-mono text-center text-green-600 dark:text-green-400 text-xs sm:text-sm font-bold">
-                                      {isOOS ? <span className="text-red-500 font-normal text-[10px] bg-red-50 dark:bg-red-950/30 px-1.5 py-0.5 rounded">OOS</span> : packed}
-                                    </td>
-                                    <td className="px-2 py-2.5 font-mono text-center text-xs sm:text-sm">
-                                      {isOOS ? (
-                                        <span className="text-muted-foreground font-normal text-[10px]">—</span>
-                                      ) : (
-                                        <span className={`inline-flex items-center justify-center min-w-8 px-2.5 py-0.5 rounded-full text-xs font-bold leading-none ${
-                                          done
-                                            ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 border border-blue-200/50 dark:border-blue-800/50 shadow-xs'
-                                            : partial
-                                            ? 'bg-blue-50 text-blue-600 dark:bg-blue-950/20 dark:text-blue-400 border border-blue-100/50 dark:border-blue-900/10'
-                                            : 'bg-muted text-muted-foreground/80'
-                                        }`}>
-                                          {assignedScannedCount}
-                                        </span>
-                                      )}
-                                    </td>
-                                    <td className="px-3.5 py-2.5 text-right font-mono text-foreground text-xs sm:text-sm font-semibold whitespace-nowrap">
-                                      {priceEntries.length > 0 ? (
-                                        <div className="flex flex-wrap gap-1 justify-end max-w-[140px] ml-auto">
-                                          {priceEntries.map(([mrp, qty]) => (
-                                            <span key={mrp} className="bg-muted px-1.5 py-0.5 rounded text-[10px] font-semibold text-foreground border border-border/30 shadow-xs">
-                                              ₹{parseFloat(mrp).toFixed(2)}*{qty}
+                                  </td>
+                                  <td className="px-2 py-2.5 font-mono text-center text-xs sm:text-sm">
+                                    {allOOS ? (
+                                      <span className="text-muted-foreground font-normal text-[10px]">—</span>
+                                    ) : (
+                                      <span className={`inline-flex items-center justify-center min-w-8 px-2.5 py-0.5 rounded-full text-xs font-bold leading-none ${
+                                        done
+                                          ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 border border-blue-200/50 dark:border-blue-800/50 shadow-xs'
+                                          : partial
+                                          ? 'bg-blue-50 text-blue-600 dark:bg-blue-950/20 dark:text-blue-400 border border-blue-100/50 dark:border-blue-900/10'
+                                          : 'bg-muted text-muted-foreground/80'
+                                      }`}>
+                                        {verified}
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td className="px-3.5 py-2.5 text-right font-mono text-foreground text-xs sm:text-sm font-semibold whitespace-nowrap">
+                                    {!allOOS && priceEntries.length > 0 ? (
+                                      <div className="flex flex-wrap gap-1 justify-end max-w-[140px] ml-auto">
+                                        {priceEntries.map(([mrp, qty]) => (
+                                          <span key={mrp} className="bg-muted px-1.5 py-0.5 rounded text-[10px] font-semibold text-foreground border border-border/30 shadow-xs">
+                                            ₹{parseFloat(mrp).toFixed(2)}*{qty}
+                                          </span>
+                                        ))}
+                                      </div>
+                                    ) : (
+                                      <span className="text-muted-foreground">—</span>
+                                    )}
+                                  </td>
+                                  {showDevTracking && (
+                                    <td className="px-3.5 py-2.5 font-mono text-[9px] text-muted-foreground min-w-[350px]">
+                                      {sizeScans.length > 0 ? (
+                                        <div className="flex flex-col gap-1 max-h-[100px] overflow-y-auto pr-1 items-start">
+                                          {sizeScans.map((raw, rIdx) => (
+                                            <span key={rIdx} className="bg-muted/80 px-2 py-0.5 rounded select-all inline-block w-fit border border-border/40 text-[8.5px] whitespace-nowrap" title={raw}>
+                                              {raw}
                                             </span>
                                           ))}
                                         </div>
@@ -1579,29 +1535,14 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
                                         <span className="text-muted-foreground">—</span>
                                       )}
                                     </td>
-                                    {showDevTracking && (
-                                      <td className="px-3.5 py-2.5 font-mono text-[9px] text-muted-foreground min-w-[350px]">
-                                        {itemScans.length > 0 ? (
-                                          <div className="flex flex-col gap-1 max-h-[100px] overflow-y-auto pr-1 items-start">
-                                            {itemScans.map((raw, rIdx) => (
-                                              <span key={rIdx} className="bg-muted/80 px-2 py-0.5 rounded select-all inline-block w-fit border border-border/40 text-[8.5px] whitespace-nowrap" title={raw}>
-                                                {raw}
-                                              </span>
-                                            ))}
-                                          </div>
-                                        ) : (
-                                          <span className="text-muted-foreground">—</span>
-                                        )}
-                                      </td>
-                                    )}
-                                  </tr>
-                                )
-                              })
-                            )}
+                                  )}
+                                </tr>
+                              )
+                            })}
                           </tbody>
                         </table>
                       </div>
-                    ) : null}
+                    )}
                   </div>
                 )
               })}
@@ -1669,7 +1610,7 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
                 Manual Verify — <span className="font-mono">{manualTarget.artNumber}</span>
               </p>
               <p className="text-xs text-muted-foreground mt-0.5">
-                {manualTarget.color} · Size {manualTarget.item.sizeNumber ?? '—'} ·{' '}
+                Size {manualTarget.item.sizeNumber ?? '—'} ·{' '}
                 <span className="text-amber-600 dark:text-amber-400 font-semibold">{manualTarget.remaining} remaining</span>
               </p>
             </div>
