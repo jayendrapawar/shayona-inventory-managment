@@ -242,14 +242,21 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
     const art    = parsed.articleCode.toUpperCase()
     const size   = String(parsed.size).toUpperCase()
 
-    // find the matching packed item (artNumber matches, sizeNumber matches)
-    const match = scanItemsRef.current.find(i => {
+    // TODO: Add color code validation once color codes are stored on order items.
+    // Currently colorNumber on DetailItem is not reliably populated, so we only
+    // validate article + size. The fix below ensures that when multiple items share
+    // the same article + size (e.g. one in-stock and one OOS variant), we always
+    // prefer the item that still has scan capacity rather than blindly taking the
+    // first match (which could be the OOS variant, causing false "not in order" alerts).
+
+    // Collect all candidates matching article + size
+    const candidates = scanItemsRef.current.filter(i => {
       const iArt  = i.artNumber.toUpperCase()
       const iSize = (i.sizeNumber ?? '').toUpperCase()
       return articlesMatch(iArt, art) && iSize === size
     })
 
-    if (!match) {
+    if (candidates.length === 0) {
       showMsg('warn', `${art} Sz ${size} — Not in this order` + devSuffix)
       return
     }
@@ -264,14 +271,26 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
       return
     }
 
-    const key     = itemKey(match.artNumber, match.sizeNumber)
-    const current = scannedMapRef.current[key] ?? 0
-    const packed  = match.status === 'out_of_stock' ? 0 : match.quantityPacked
+    // TODO: Add color code validation once color codes are stored on order items.
+    // When colorNumber is reliably populated, narrow candidates by color here so
+    // each color slot is verified independently.
 
-    if (current >= packed) {
-      showMsg('warn', `${art} Size : ${size} — Already fully scanned (${packed} pkd)` + devSuffix)
+    // Without color validation, all same-article+size candidates share the same
+    // itemKey (artNumber|sizeNumber), so scannedMap[key] is already a pooled
+    // counter for all of them. Compute total packed capacity across the pool so
+    // that e.g. FL02 RED sz:7 (packed=1) + FL02 GREY sz:7 (packed=1) allows 2
+    // scans total — color is irrelevant until color validation is added.
+    const sharedKey  = itemKey(candidates[0].artNumber, candidates[0].sizeNumber)
+    const current    = scannedMapRef.current[sharedKey] ?? 0
+    const totalCap   = candidates.reduce((sum, i) => sum + (i.status === 'out_of_stock' ? 0 : i.quantityPacked), 0)
+
+    if (current >= totalCap) {
+      showMsg('warn', `${art} Size : ${size} — Already fully scanned (${totalCap} pkd)` + devSuffix)
       return
     }
+
+    const key    = sharedKey
+    const packed = totalCap
 
     const extArt   = parsed.articleCode.toUpperCase()
     const extColor = parsed.colorCode.toUpperCase()
@@ -611,7 +630,7 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
                   : 'text-muted-foreground hover:text-foreground'
               }`}
             >
-              {tab === 'verify' ? 'Generate Bills' : 'Print Bills'}
+              {tab === 'verify' ? 'Invoices' : 'Receipts'}
               <span className={`inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full px-1 text-[10px] font-bold tabular-nums ${
                 activeTab === tab ? 'bg-foreground text-background' : 'bg-muted-foreground/20 text-muted-foreground'
               }`}>
