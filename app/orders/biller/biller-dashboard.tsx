@@ -8,6 +8,7 @@ import { PageNav } from '@/components/page-nav'
 import { parseQr, isValidWarehouseQr } from '@/lib/qr-parser'
 import { SCAN_INTERVAL_MS } from '@/components/scanner/constants'
 import { articlesMatch } from '@/lib/billing-verification'
+import { printInvoices, type MrpLine } from '@/lib/bill-html'
 
 type BillerTab = 'verify' | 'generated'
 
@@ -55,9 +56,10 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
   const [printSelectedIds, setPrintSelectedIds] = useState<Set<number>>(new Set())
   const [printItemsMap, setPrintItemsMap] = useState<Record<number, DetailItem[]>>({})
   const [printLoadingIds, setPrintLoadingIds] = useState<Set<number>>(new Set())
-  const [printConfigOpen, setPrintConfigOpen] = useState(false)
-  const [printPageSize, setPrintPageSize] = useState<'A4' | 'A5'>('A5')
-  const [printOrientation, setPrintOrientation] = useState<'portrait' | 'landscape'>('portrait')
+  // mrpLinesMap: orderId → MrpLine[] built from scannedQrs at save time
+  const [mrpLinesMap, setMrpLinesMap] = useState<Record<number, MrpLine[]>>({})
+  // Per-bill line discount % (configurable in scanner, used at print time)
+  const [lineDiscPct, setLineDiscPct] = useState<number | ''>(30)
 
   // Detail panel state
   const [detailOrder, setDetailOrder] = useState<BillerOrder | null>(null)
@@ -129,25 +131,33 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
       if (savedScanOrder) {
         const parsed = JSON.parse(savedScanOrder)
         setScanOrder(parsed)
-        
+
         const savedScanItems = localStorage.getItem('biller_scanItems')
         if (savedScanItems) setScanItems(JSON.parse(savedScanItems))
-        
+
         const savedScannedMap = localStorage.getItem('biller_scannedMap')
         if (savedScannedMap) setScannedMap(JSON.parse(savedScannedMap))
-        
+
         const savedScannedQrs = localStorage.getItem('biller_scannedQrs')
         if (savedScannedQrs) setScannedQrs(JSON.parse(savedScannedQrs))
-        
+
         const savedExpandedArticle = localStorage.getItem('biller_expandedArticle')
         if (savedExpandedArticle) setExpandedArticle(savedExpandedArticle)
-        
+
         const savedShowDev = localStorage.getItem('biller_showDevTracking')
         if (savedShowDev) setShowDevTracking(savedShowDev === 'true')
 
         const savedLastScan = localStorage.getItem('biller_lastScannedMsg')
         if (savedLastScan) setLastScannedMsg(savedLastScan)
       }
+
+      // Restore saved MRP lines map (built at save-bill time)
+      const savedMrpLines = localStorage.getItem('biller_mrpLinesMap')
+      if (savedMrpLines) setMrpLinesMap(JSON.parse(savedMrpLines))
+
+      // Restore discount %
+      const savedDisc = localStorage.getItem('biller_lineDiscPct')
+      if (savedDisc) setLineDiscPct(parseFloat(savedDisc))
     } catch (e) {
       console.error('Failed to restore biller local storage state', e)
     }
@@ -189,6 +199,14 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
       localStorage.removeItem('biller_lastScannedMsg')
     }
   }, [scanOrder, scanItems, scannedMap, scannedQrs, expandedArticle, showDevTracking, lastScannedMsg])
+
+  useEffect(() => {
+    localStorage.setItem('biller_mrpLinesMap', JSON.stringify(mrpLinesMap))
+  }, [mrpLinesMap])
+
+  useEffect(() => {
+    localStorage.setItem('biller_lineDiscPct', String(lineDiscPct === '' ? 30 : lineDiscPct))
+  }, [lineDiscPct])
 
   // ── banner helpers ───────────────────────────────────────────────────────────
   function showMsg(type: 'ok' | 'warn' | 'err', text: string) {
@@ -406,7 +424,23 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
   // ── save bill ────────────────────────────────────────────────────────────────
   function handleSaveBill() {
     if (!scanOrder) return
-    const orderId = scanOrder.id
+    const orderId  = scanOrder.id
+    // Build MrpLine[] from scannedQrs before clearing scanner state
+    const qrsCopy  = [...scannedQrs]
+    const mrpMap   = new Map<string, MrpLine>()
+    for (const raw of qrsCopy) {
+      if (!isValidWarehouseQr(raw)) continue
+      const p   = parseQr(raw)
+      const key = `${p.articleCode.toUpperCase()}__${p.mrp}`
+      if (mrpMap.has(key)) {
+        mrpMap.get(key)!.qty++
+      } else {
+        mrpMap.set(key, { artNumber: p.articleCode.toUpperCase(), mrp: p.mrp, qty: 1 })
+      }
+    }
+    const builtLines = Array.from(mrpMap.values())
+    setMrpLinesMap(prev => ({ ...prev, [orderId]: builtLines }))
+
     closeScanner()
     setActiveId(orderId)
     startTransition(async () => {
@@ -439,135 +473,35 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
     }
   }
 
-  // ── Build a bill HTML fragment for one billed order ─────────────────────────
-  function buildBillFragment(
-    order: BillerOrder,
-    items: DetailItem[],
-    biller: string,
-    orientation: 'portrait' | 'landscape',
-  ): string {
-    const artMap = new Map<string, Map<string, Record<string, number>>>()
-    for (const item of items) {
-      const art = item.artNumber
-      const col = item.colorNumber ?? ''
-      if (!artMap.has(art)) artMap.set(art, new Map())
-      const colMap = artMap.get(art)!
-      if (!colMap.has(col)) colMap.set(col, {})
-      const sz = item.sizeNumber ?? '?'
-      const qty = item.status === 'out_of_stock' ? 0 : item.quantityPacked
-      colMap.get(col)![sz] = (colMap.get(col)![sz] ?? 0) + qty
-    }
-    const grandTotal = items.reduce((s, i) => s + (i.status === 'out_of_stock' ? 0 : i.quantityPacked), 0)
-    const billedStr = order.billedAt
-      ? new Date(order.billedAt).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
-      : '—'
-    let rows = ''
-    artMap.forEach((colMap, artNumber) => {
-      rows += `<div class="art-block"><div class="art-number">${artNumber}</div>`
-      colMap.forEach((sizes, color) => {
-        const sorted = Object.entries(sizes).sort(([a], [b]) => Number(a) - Number(b) || a.localeCompare(b))
-        const sizesStr = sorted.map(([sz, qty]) => `${sz}/${qty}`).join(', ')
-        const bracket = orientation === 'portrait'
-          ? '[&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;]'
-          : '[&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;]'
-        rows += `<div class="color-row"><span class="col-color">${color || '—'}</span><span class="col-sizes">${sizesStr}</span><span class="col-bracket">${bracket}</span></div>`
-      })
-      rows += `</div>`
+  // ── Open a print window for selected bills (Shayona invoice format) ──────────
+  function handlePrintBills(selectedOrders: BillerOrder[]) {
+    const LINE_DISC = lineDiscPct === '' ? 30 : Number(lineDiscPct)
+    const bills = selectedOrders.map(o => ({
+      vendor: { name: o.shopkeeperName },
+      order:  { orderNumber: o.orderNumber, billedAt: o.billedAt },
+      lines:  mrpLinesMap[o.id] ?? [],
+      lineDiscPct: LINE_DISC,
+    }))
+    printInvoices(bills)
+  }
+
+  // ── Mail selected bills as mailto: link ─────────────────────────────────────
+  function handleMailBills(selectedOrders: BillerOrder[]) {
+    const subject = encodeURIComponent('Bills — Shayona Shoe Palace')
+    const bodyLines: string[] = ['Please find the bill details below:', '']
+    selectedOrders.forEach(o => {
+      const items = printItemsMap[o.id] ?? []
+      const totalPairs = items.reduce((s: number, i: DetailItem) => s + (i.status === 'out_of_stock' ? 0 : i.quantityPacked), 0)
+      const billedStr = o.billedAt ? new Date(o.billedAt).toLocaleDateString('en-IN') : '—'
+      bodyLines.push(`Order: ${o.orderNumber}`)
+      bodyLines.push(`Party: ${o.shopkeeperName}`)
+      bodyLines.push(`Date : ${billedStr}`)
+      bodyLines.push(`Pairs: ${totalPairs}`)
+      bodyLines.push('---')
     })
-    return `<div class="bill${orientation === 'portrait' ? ' bill-portrait' : ''}">
-  <div class="bill-title">${order.shopkeeperName}</div>
-  <div class="bill-meta"><span class="meta-order">Order #${order.orderNumber}</span><span class="meta-sep">&nbsp;·&nbsp;</span><span class="meta-date">${billedStr}</span></div>
-  <div class="rule"></div>
-  ${rows}
-  <div class="rule"></div>
-  <div class="total-row"><span>Total</span><span>${grandTotal} pairs</span></div>
-  <div class="rule"></div>
-  <div class="picker-row"><span>Biller: ${biller}</span><span>Salesman: ${order.salesmanId ?? '—'}</span></div>
-</div>`
-  }
-
-  function estimateBillHeight(items: DetailItem[]): number {
-    const FIXED_LINES = 9
-    const artMap = new Map<string, Set<string>>()
-    for (const item of items) {
-      if (!artMap.has(item.artNumber)) artMap.set(item.artNumber, new Set())
-      artMap.get(item.artNumber)!.add(item.colorNumber ?? '')
-    }
-    let artLines = 0
-    artMap.forEach(colors => { artLines += 1 + colors.size })
-    return FIXED_LINES + artLines
-  }
-
-  // ── Open a print window for selected bills ───────────────────────────────────
-  function handlePrintBills(
-    selectedOrders: BillerOrder[],
-    pageSize: 'A4' | 'A5',
-    orientation: 'portrait' | 'landscape',
-  ) {
-    const pageDims = { A4: { w: 210, h: 297 }, A5: { w: 148, h: 210 } }
-    const { w: pw, h: ph } = pageDims[pageSize]
-    const [pageW, pageH] = orientation === 'landscape' ? [ph, pw] : [pw, ph]
-    const marginMm = 6
-    const usableW = pageW - marginMm * 2
-    const gapMm = 4
-    const cols = orientation === 'landscape' ? 2 : 1
-    const billWidthMm = (usableW - gapMm * (cols - 1)) / cols
-    const billWidthPx = Math.floor(billWidthMm * 3.7795)
-    const orderedOrders = cols === 1
-      ? [...selectedOrders]
-      : [...selectedOrders].sort(
-          (a, b) => estimateBillHeight(printItemsMap[b.id] ?? []) - estimateBillHeight(printItemsMap[a.id] ?? [])
-        )
-    const bills = orderedOrders
-      .map(o => buildBillFragment(o, printItemsMap[o.id] ?? [], currentBillerId, orientation))
-      .join('\n')
-    const html = `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8"/>
-<title>Bills</title>
-<style>
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-  body {
-    font-family: 'Courier New', Courier, monospace;
-    font-size: 12px;
-    background: #fff;
-    color: #000;
-    display: flex;
-    flex-wrap: wrap;
-    align-content: flex-start;
-    gap: ${gapMm}mm;
-    padding: ${marginMm}mm;
-    width: ${pageW}mm;
-  }
-  .bill { width: ${billWidthPx}px; border: 1px solid #ccc; padding: 6px 8px 5px; break-inside: avoid; page-break-inside: avoid; }
-  .bill-title    { text-align: center; font-size: 13px; font-weight: bold; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .bill-meta     { text-align: center; font-size: 9px; color: #555; margin-bottom: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .rule          { border-top: 1px dashed #aaa; margin: 3px 0; }
-  .art-block     { margin: 4px 0 1px; }
-  .art-number    { font-weight: bold; font-size: 12px; margin-bottom: 1px; }
-  .color-row     { display: flex; align-items: baseline; gap: 6px; padding: 1px 0; font-size: 11px; }
-  .col-color     { width: 64px; flex-shrink: 0; }
-  .col-sizes     { flex: 1; font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden; min-width: 0; }
-  .bill-portrait .color-row { gap: 12px; }
-  .col-bracket   { white-space: nowrap; }
-  .total-row     { display: flex; justify-content: space-between; font-weight: bold; font-size: 13px; padding: 2px 0; }
-  .picker-row    { display: flex; justify-content: space-between; font-size: 10px; color: #555; padding: 2px 0; }
-  @media print {
-    @page { size: ${pageSize} ${orientation}; margin: ${marginMm}mm; }
-    body  { padding: 0; width: 100%; }
-  }
-</style>
-</head>
-<body>
-${bills}
-<script>window.onload = function(){ window.print(); }</` + `script>
-</body>
-</html>`
-    const winW = Math.round(pageW * 3.7795) + 40
-    const winH = Math.min(Math.round(pageH * 3.7795) + 80, screen.availHeight - 60)
-    const w = window.open('', '_blank', `width=${winW},height=${winH}`)
-    if (w) { w.document.write(html); w.document.close() }
+    bodyLines.push('', 'Shayona Shoe Palace')
+    const body = encodeURIComponent(bodyLines.join('\n'))
+    window.location.href = `mailto:?subject=${subject}&body=${body}`
   }
 
   // ── detail panel ─────────────────────────────────────────────────────────────
@@ -1464,6 +1398,23 @@ ${bills}
 
           {/* ── Sticky bottom Save Bill button ── */}
           <div className="shrink-0 bg-background/95 backdrop-blur-sm border-t border-border px-4 py-3 safe-area-inset-bottom">
+            {/* Disc % input — mirrors billing-scanner */}
+            <div className="flex items-center gap-2 mb-2">
+              <label htmlFor="biller-line-disc" className="text-[11px] text-muted-foreground whitespace-nowrap">Disc %</label>
+              <input
+                id="biller-line-disc"
+                type="number"
+                min="0"
+                max="100"
+                step="0.5"
+                placeholder="30"
+                value={lineDiscPct}
+                onChange={e => setLineDiscPct(e.target.value === '' ? '' : Math.min(100, Math.max(0, parseFloat(e.target.value) || 0)))}
+                onBlur={() => { if (lineDiscPct === '') setLineDiscPct(30) }}
+                className="w-16 h-7 rounded-lg border border-input bg-background px-2 text-xs text-center focus:outline-none focus:ring-1 focus:ring-ring"
+              />
+              <span className="text-[11px] text-muted-foreground">line discount applied at print time</span>
+            </div>
             <button
               type="button"
               onClick={handleSaveBill}
@@ -1485,167 +1436,69 @@ ${bills}
         </div>
       )}
 
-      {/* ── Sticky bottom bar — Print Bills ── */}
+      {/* ── Sticky bottom bar — Print / Mail Bills ── */}
       {activeTab === 'generated' && (() => {
         const selectedOrders = billedOrders.filter(o => printSelectedIds.has(o.id))
         const allLoaded = selectedOrders.every(o => !!printItemsMap[o.id])
-        const canPrint = selectedOrders.length > 0 && allLoaded
+        const canAct = selectedOrders.length > 0 && allLoaded
+        const noneSelected = selectedOrders.length === 0
         return (
           <div className="fixed bottom-0 left-0 right-0 z-20 bg-background/95 backdrop-blur-sm border-t border-border">
-            <div className="max-w-2xl mx-auto px-3 sm:px-4 py-2.5 flex items-center gap-3">
+            <div className="max-w-2xl mx-auto px-3 sm:px-4 py-2.5 flex items-center gap-2">
+
+              {/* Selection badge + loading */}
               {selectedOrders.length > 0 && (
-                <div className="flex items-center gap-2 mr-auto">
-                  <span className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/60 px-2.5 py-1 text-xs font-medium text-foreground">
+                <div className="flex items-center gap-2 mr-auto min-w-0">
+                  <span className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/60 px-2.5 py-1 text-xs font-medium text-foreground shrink-0">
                     <svg className="w-3 h-3 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
                     </svg>
                     {selectedOrders.length} bill{selectedOrders.length !== 1 ? 's' : ''}
                   </span>
                   {!allLoaded && (
-                    <svg className="w-3.5 h-3.5 text-muted-foreground animate-spin" fill="none" viewBox="0 0 24 24">
+                    <svg className="w-3.5 h-3.5 text-muted-foreground animate-spin shrink-0" fill="none" viewBox="0 0 24 24">
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
                       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
                     </svg>
                   )}
                 </div>
               )}
+
+              {/* Mail button */}
               <button
                 type="button"
-                disabled={!canPrint}
-                onClick={() => setPrintConfigOpen(true)}
-                className={`flex items-center justify-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-                  selectedOrders.length === 0 ? 'w-full sm:w-auto sm:ml-auto' : 'shrink-0'
+                disabled={!canAct}
+                onClick={() => handleMailBills(selectedOrders)}
+                className={`flex items-center justify-center gap-1.5 rounded-xl border border-border bg-card px-4 py-2.5 text-sm font-semibold text-foreground hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring shrink-0 ${
+                  noneSelected ? 'hidden' : ''
+                }`}
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                </svg>
+                Mail
+              </button>
+
+              {/* Print button */}
+              <button
+                type="button"
+                disabled={!canAct}
+                onClick={() => handlePrintBills(selectedOrders)}
+                className={`flex items-center justify-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring shrink-0 ${
+                  noneSelected ? 'w-full sm:w-auto sm:ml-auto' : ''
                 }`}
               >
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
                 </svg>
-                {canPrint ? 'Print' : selectedOrders.length === 0 ? 'Select bills to print' : 'Loading…'}
+                {canAct ? 'Print' : noneSelected ? 'Select bills to print' : 'Loading…'}
               </button>
+
             </div>
           </div>
         )
       })()}
 
-      {/* ── Print config modal ── */}
-      {printConfigOpen && (() => {
-        const selectedOrders = billedOrders.filter(o => printSelectedIds.has(o.id))
-        return (
-          <div
-            className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm"
-            onClick={e => { if (e.target === e.currentTarget) setPrintConfigOpen(false) }}
-          >
-            <div className="w-full sm:max-w-sm bg-card rounded-t-2xl sm:rounded-2xl border border-border shadow-2xl overflow-hidden">
-
-              {/* Modal header */}
-              <div className="flex items-center justify-between px-4 py-4 border-b border-border">
-                <div className="flex items-center gap-2">
-                  <svg className="w-4 h-4 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
-                  </svg>
-                  <h2 className="text-sm font-semibold text-foreground">Print Settings</h2>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setPrintConfigOpen(false)}
-                  className="flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-                  aria-label="Close"
-                >
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              </div>
-
-              <div className="px-4 py-4 space-y-4">
-                {/* Page size */}
-                <div className="space-y-2">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Page Size</p>
-                  <div className="grid grid-cols-2 gap-2">
-                    {([
-                      { value: 'A4', label: 'A4', sub: '210 × 297 mm' },
-                      { value: 'A5', label: 'A5', sub: '148 × 210 mm' },
-                    ] as const).map(({ value, label, sub }) => (
-                      <button key={value} type="button"
-                        onClick={() => setPrintPageSize(value)}
-                        className={`flex items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-                          printPageSize === value
-                            ? 'border-primary bg-primary/8 ring-1 ring-primary'
-                            : 'border-border bg-background hover:bg-muted'
-                        }`}>
-                        <span className={`flex h-8 w-6 shrink-0 items-center justify-center rounded-sm border-2 ${
-                          printPageSize === value ? 'border-primary bg-primary/10' : 'border-muted-foreground/40 bg-muted/40'
-                        }`}>
-                          <svg className={`w-2.5 h-3 ${printPageSize === value ? 'text-primary' : 'text-muted-foreground'}`} fill="currentColor" viewBox="0 0 8 10">
-                            <rect x="1" y="1" width="6" height="8" rx="0.5"/>
-                          </svg>
-                        </span>
-                        <div>
-                          <p className={`text-sm font-semibold leading-tight ${printPageSize === value ? 'text-foreground' : 'text-muted-foreground'}`}>{label}</p>
-                          <p className="text-[10px] text-muted-foreground mt-0.5">{sub}</p>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Orientation */}
-                <div className="space-y-2">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Orientation</p>
-                  <div className="grid grid-cols-2 gap-2">
-                    {([
-                      { value: 'portrait',  label: 'Portrait',  sub: '1 bill / row',  w: 24, h: 32 },
-                      { value: 'landscape', label: 'Landscape', sub: '2 bills / row', w: 32, h: 24 },
-                    ] as const).map(({ value, label, sub, w, h }) => (
-                      <button key={value} type="button"
-                        onClick={() => setPrintOrientation(value)}
-                        className={`flex items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-                          printOrientation === value
-                            ? 'border-primary bg-primary/8 ring-1 ring-primary'
-                            : 'border-border bg-background hover:bg-muted'
-                        }`}>
-                        <span className={`shrink-0 rounded-sm border-2 ${
-                          printOrientation === value ? 'border-primary bg-primary/10' : 'border-muted-foreground/40 bg-muted/40'
-                        }`} style={{ width: w, height: h }} />
-                        <div>
-                          <p className={`text-sm font-semibold leading-tight ${printOrientation === value ? 'text-foreground' : 'text-muted-foreground'}`}>{label}</p>
-                          <p className="text-[10px] text-muted-foreground mt-0.5">{sub}</p>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Summary */}
-                <div className="rounded-lg bg-muted/40 border border-border px-3 py-2.5 flex items-center justify-between text-xs text-muted-foreground">
-                  <span><span className="font-semibold text-foreground">{selectedOrders.length}</span> bill{selectedOrders.length !== 1 ? 's' : ''} will be printed</span>
-                  <span className="font-mono text-[11px]">{printPageSize} · {printOrientation === 'portrait' ? '↕' : '↔'}</span>
-                </div>
-              </div>
-
-              {/* Modal footer */}
-              <div className="flex gap-2 px-4 pb-4 pt-0">
-                <button type="button"
-                  onClick={() => setPrintConfigOpen(false)}
-                  className="flex-1 rounded-xl border border-border px-4 py-2.5 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                  Cancel
-                </button>
-                <button type="button"
-                  onClick={() => {
-                    setPrintConfigOpen(false)
-                    handlePrintBills(selectedOrders, printPageSize, printOrientation)
-                  }}
-                  className="flex-1 flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
-                  </svg>
-                  Print
-                </button>
-              </div>
-            </div>
-          </div>
-        )
-      })()}
     </div>
   )
 }
