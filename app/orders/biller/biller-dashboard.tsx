@@ -8,7 +8,7 @@ import { PageNav } from '@/components/page-nav'
 import { parseQr, isValidWarehouseQr } from '@/lib/qr-parser'
 import { SCAN_INTERVAL_MS } from '@/components/scanner/constants'
 import { articlesMatch } from '@/lib/billing-verification'
-import { printInvoices, type MrpLine } from '@/lib/bill-html'
+import { printInvoices, type MrpLine, type PageSize, type BillType, type PrintConfig } from '@/lib/bill-html'
 
 type BillerTab = 'verify' | 'generated'
 
@@ -60,6 +60,11 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
   const [mrpLinesMap, setMrpLinesMap] = useState<Record<number, MrpLine[]>>({})
   // Per-bill line discount % (configurable in scanner, used at print time)
   const [lineDiscPct, setLineDiscPct] = useState<number | ''>(30)
+  // Print config modal
+  const [printConfigOpen, setPrintConfigOpen] = useState(false)
+  const [printConfig, setPrintConfig] = useState<PrintConfig>({ pageSize: 'A4', billType: 'city' })
+  // Pending orders to print (set when modal opens, consumed on confirm)
+  const [pendingPrintOrders, setPendingPrintOrders] = useState<typeof initialOrders>([])
 
   // Detail panel state
   const [detailOrder, setDetailOrder] = useState<BillerOrder | null>(null)
@@ -609,14 +614,21 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
 
   // ── Open a print window for selected bills (Shayona invoice format) ──────────
   function handlePrintBills(selectedOrders: BillerOrder[]) {
+    // Open the config modal; store pending orders so we can print after confirm
+    setPendingPrintOrders(selectedOrders)
+    setPrintConfigOpen(true)
+  }
+
+  function confirmPrint() {
     const LINE_DISC = lineDiscPct === '' ? 30 : Number(lineDiscPct)
-    const bills = selectedOrders.map(o => ({
+    const bills = pendingPrintOrders.map(o => ({
       vendor: { name: o.shopkeeperName },
       order:  { orderNumber: o.orderNumber, billedAt: o.billedAt },
       lines:  mrpLinesMap[o.id] ?? [],
       lineDiscPct: LINE_DISC,
     }))
-    printInvoices(bills)
+    setPrintConfigOpen(false)
+    printInvoices(bills, printConfig)
   }
 
   // ── Mail selected bills as mailto: link ─────────────────────────────────────
@@ -1828,6 +1840,121 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
           </div>
         )
       })()}
+
+      {/* ── Print Config Modal ── */}
+      {printConfigOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          {/* Backdrop */}
+          <div
+            className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+            onClick={() => setPrintConfigOpen(false)}
+          />
+
+          {/* Modal card */}
+          <div className="relative z-10 w-full max-w-sm rounded-2xl bg-background border border-border shadow-xl overflow-hidden">
+
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+              <div className="flex items-center gap-2">
+                <svg className="w-4 h-4 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+                </svg>
+                <h2 className="text-sm font-semibold text-foreground">Print Options</h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPrintConfigOpen(false)}
+                className="text-muted-foreground hover:text-foreground transition-colors"
+                aria-label="Close"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="px-5 py-4 space-y-5">
+
+              {/* Page Size */}
+              <div>
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Page Size</p>
+                <div className="flex gap-2">
+                  {(['A4', 'A5'] as PageSize[]).map(size => (
+                    <button
+                      key={size}
+                      type="button"
+                      onClick={() => setPrintConfig(c => ({ ...c, pageSize: size }))}
+                      className={`flex-1 py-2.5 rounded-xl border text-sm font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                        printConfig.pageSize === size
+                          ? 'border-primary bg-primary text-primary-foreground'
+                          : 'border-border bg-card text-foreground hover:bg-muted'
+                      }`}
+                    >
+                      {size}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[11px] text-muted-foreground mt-1.5">
+                  {printConfig.pageSize === 'A4' ? '210 × 297 mm — standard invoice size' : '148 × 210 mm — half-sheet bill'}
+                </p>
+              </div>
+
+              {/* Bill Type — pill toggle */}
+              <div>
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Bill Type</p>
+                <div className="flex items-center rounded-xl border border-border bg-muted/40 p-1 gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setPrintConfig(c => ({ ...c, billType: 'city' }))}
+                    className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                      printConfig.billType === 'city'
+                        ? 'bg-background shadow-sm border border-border text-foreground'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    Within City
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPrintConfig(c => ({ ...c, billType: 'outside' }))}
+                    className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                      printConfig.billType === 'outside'
+                        ? 'bg-background shadow-sm border border-border text-foreground'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    Outside City
+                  </button>
+                </div>
+              </div>
+
+            </div>
+
+            {/* Footer actions */}
+            <div className="flex gap-2 px-5 pb-5">
+              <button
+                type="button"
+                onClick={() => setPrintConfigOpen(false)}
+                className="flex-1 h-11 rounded-xl border border-border bg-card text-sm font-semibold text-foreground hover:bg-muted transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmPrint}
+                className="flex-1 h-11 rounded-xl bg-primary text-sm font-semibold text-primary-foreground hover:bg-primary/90 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring flex items-center justify-center gap-2"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+                </svg>
+                Print
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
 
     </div>
   )
