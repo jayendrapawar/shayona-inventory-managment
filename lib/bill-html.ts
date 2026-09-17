@@ -14,10 +14,11 @@
 // ─── Public interfaces ────────────────────────────────────────────────────────
 
 export interface InvoiceVendor {
-  name:    string
-  phone?:  string | null
-  area?:   string | null
-  address?: string | null
+  name:      string
+  nameHindi?: string | null
+  phone?:    string | null
+  area?:     string | null
+  address?:  string | null
 }
 
 export interface InvoiceOrder {
@@ -113,10 +114,11 @@ export function buildInvoiceHtml({
   const dateStr = `${dd0}/${mm0}/${refDate.getFullYear()}`
 
   // ── Vendor ──────────────────────────────────────────────────────────────────
-  const vName    = vendor.name
-  const vPhone   = vendor.phone   ?? ''
-  const vArea    = vendor.area    ?? ''
-  const vAddress = vendor.address ?? ''
+  const vName      = vendor.name
+  const vNameHindi = vendor.nameHindi ?? ''
+  const vPhone     = vendor.phone     ?? ''
+  const vArea      = vendor.area      ?? ''
+  const vAddress   = vendor.address   ?? ''
 
   // ── Font & page sizing ───────────────────────────────────────────────────────
   const isA5       = pageSize === 'A5'
@@ -421,7 +423,7 @@ export function buildInvoiceHtml({
   <div class="meta-row">
     <div class="bill-to">
       <div class="meta-label">Bill To</div>
-      <div class="meta-name">M/s. ${vName}${vPhone ? ' (' + vPhone + ')' : ''}</div>
+      <div class="meta-name">M/s. ${vName}${vNameHindi ? ' (' + vNameHindi + ')' : ''}${vPhone ? ' (' + vPhone + ')' : ''}</div>
       ${vArea    ? `<div class="meta-sub">${vArea}</div>`    : ''}
       ${vAddress ? `<div class="meta-sub">${vAddress}</div>` : ''}
       <div class="meta-sub" style="margin-top:3px;color:#888">GSTIN: &nbsp;—</div>
@@ -550,28 +552,58 @@ export interface PrintConfig {
 }
 
 /**
- * Open a print window for one or more bills.
- * Each bill is already self-paginated via .bill-page divs with page-break-after.
+ * Transliterate a single English name to Hindi script using Google Input Tools.
+ * Returns the Hindi string, or null if the request fails.
  */
-export function printInvoices(bills: Array<BuildInvoiceOptions>, config?: PrintConfig) {
+async function transliterateToHindi(name: string): Promise<string | null> {
+  try {
+    const url = `https://inputtools.google.com/request?text=${encodeURIComponent(name)}&itc=hi-t-i0-und&num=1`
+    const res  = await fetch(url)
+    if (!res.ok) return null
+    // Response shape: ["SUCCESS", [["<input>", ["<hindi>"], [], {...}]]]
+    const data = await res.json() as [string, Array<[string, string[]]>]
+    if (data[0] !== 'SUCCESS') return null
+    return data[1]?.[0]?.[1]?.[0] ?? null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Open a print window for one or more bills.
+ * Fetches Hindi transliterations for all vendor names before opening the window.
+ */
+export async function printInvoices(bills: Array<BuildInvoiceOptions>, config?: PrintConfig) {
   if (bills.length === 0) return
+
+  // Deduplicate vendor names and fetch Hindi transliterations in parallel
+  const uniqueNames = [...new Set(bills.map(b => b.vendor.name))]
+  const hindiResults = await Promise.all(uniqueNames.map(n => transliterateToHindi(n)))
+  const hindiMap = new Map(uniqueNames.map((n, i) => [n, hindiResults[i]]))
 
   const billsWithConfig = bills.map(b => ({
     ...b,
-    pageSize: config?.pageSize ?? b.pageSize ?? 'A4',
-    billType: config?.billType ?? b.billType ?? 'city',
+    pageSize:  config?.pageSize ?? b.pageSize ?? 'A4',
+    billType:  config?.billType ?? b.billType ?? 'city',
+    vendor: {
+      ...b.vendor,
+      nameHindi: b.vendor.nameHindi ?? hindiMap.get(b.vendor.name) ?? null,
+    },
   }))
 
-  if (billsWithConfig.length === 1) {
-    const html = buildInvoiceHtml(billsWithConfig[0])
-    const win  = window.open('', '_blank', 'width=860,height=1000')
+  function openWindow(html: string) {
+    const win = window.open('', '_blank', 'width=860,height=1000')
     if (!win) return
     win.document.write(html); win.document.close(); win.focus()
     win.onload = () => win.print()
+  }
+
+  if (billsWithConfig.length === 1) {
+    openWindow(buildInvoiceHtml(billsWithConfig[0]))
     return
   }
 
-  // Multi-bill: each bill is already self-contained with its own page-break divs
+  // Multi-bill: combine all page blocks into one document
   const combined = billsWithConfig.map(b => {
     const html      = buildInvoiceHtml(b)
     const bodyMatch = html.match(/<body>([\s\S]*?)<\/body>/)
@@ -582,15 +614,10 @@ export function printInvoices(bills: Array<BuildInvoiceOptions>, config?: PrintC
   const styleMatch = firstHtml.match(/<style>([\s\S]*?)<\/style>/)
   const sharedCss  = styleMatch ? styleMatch[1] : ''
 
-  const multiHtml = `<!DOCTYPE html>
+  openWindow(`<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>Bills (${billsWithConfig.length})</title>
 <style>${sharedCss}</style>
 </head><body>
 ${combined}
-</body></html>`
-
-  const win = window.open('', '_blank', 'width=860,height=1000')
-  if (!win) return
-  win.document.write(multiHtml); win.document.close(); win.focus()
-  win.onload = () => win.print()
+</body></html>`)
 }

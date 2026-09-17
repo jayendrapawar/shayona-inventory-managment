@@ -361,6 +361,8 @@ export async function getBillerQueue() {
       id: orders.id,
       orderNumber: orders.orderNumber,
       shopkeeperName: orders.shopkeeperName,
+      shopkeeperPhone: orders.shopkeeperPhone,
+      shopkeeperAddress: orders.shopkeeperAddress,
       status: orders.status,
       packedAt: orders.packedAt,
       billedAt: orders.billedAt,

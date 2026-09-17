@@ -16,6 +16,8 @@ interface BillerOrder {
   id: number
   orderNumber: string
   shopkeeperName: string
+  shopkeeperPhone: string | null
+  shopkeeperAddress: string | null
   status: string
   packedAt: Date | null
   billedAt: Date | null
@@ -619,16 +621,20 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
     setPrintConfigOpen(true)
   }
 
-  function confirmPrint() {
+  async function confirmPrint() {
     const LINE_DISC = lineDiscPct === '' ? 30 : Number(lineDiscPct)
     const bills = pendingPrintOrders.map(o => ({
-      vendor: { name: o.shopkeeperName },
+      vendor: {
+        name:    o.shopkeeperName,
+        phone:   o.shopkeeperPhone   ?? null,
+        address: o.shopkeeperAddress ?? null,
+      },
       order:  { orderNumber: o.orderNumber, billedAt: o.billedAt },
       lines:  mrpLinesMap[o.id] ?? [],
       lineDiscPct: LINE_DISC,
     }))
     setPrintConfigOpen(false)
-    printInvoices(bills, printConfig)
+    await printInvoices(bills, printConfig)
   }
 
   // ── Mail selected bills as mailto: link ─────────────────────────────────────
