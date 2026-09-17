@@ -4,7 +4,7 @@ import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
 import { orders, orderItems, billLines, user } from '@/lib/db/schema'
 import type { OrderStatus } from '@/lib/db/schema'
-import { eq, desc, inArray, sql, and, ilike } from 'drizzle-orm'
+import { eq, desc, inArray, sql, and, ilike, gte, lte } from 'drizzle-orm'
 import { headers } from 'next/headers'
 import { revalidatePath } from 'next/cache'
 
@@ -589,6 +589,8 @@ export async function getProcurementSummary(opts?: {
   status?: string
   artNumber?: string
   colorNumber?: string
+  dateFrom?: string
+  dateTo?: string
 }): Promise<ProcurementRow[]> {
   await requireRole('admin', 'salesman', 'accountant')
 
@@ -599,6 +601,12 @@ export async function getProcurementSummary(opts?: {
   const conditions = [eq(orders.status, status as OrderStatus)]
   if (artFilter)   conditions.push(ilike(orderItems.artNumber,   `${artFilter}%`))
   if (colorFilter) conditions.push(ilike(orderItems.colorNumber, `${colorFilter}%`))
+  if (opts?.dateFrom) conditions.push(gte(orders.orderedAt, new Date(opts.dateFrom)))
+  if (opts?.dateTo) {
+    const to = new Date(opts.dateTo)
+    to.setHours(23, 59, 59, 999)
+    conditions.push(lte(orders.orderedAt, to))
+  }
 
   const rows = await db
     .select({

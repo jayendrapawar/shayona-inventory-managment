@@ -80,8 +80,10 @@ export function ProcurementSummary({ initialRows }: Props) {
   const [rows, setRows]         = useState<ProcurementRow[]>(initialRows)
   const [isPendingO, startO]    = useTransition()
   const [status,     setStatus] = useState('pending')
-  const [artFilter,  setArtFilter]   = useState('')
+  const [artFilter,   setArtFilter]   = useState('')
   const [colorFilter, setColorFilter] = useState('')
+  const [dateFrom,    setDateFrom]    = useState('')
+  const [dateTo,      setDateTo]      = useState('')
   const [expandedKey, setExpandedKey] = useState<string | null>(null)
 
   // ── Shortfall state ──
@@ -95,15 +97,15 @@ export function ProcurementSummary({ initialRows }: Props) {
   const [dismissed, setDismissed] = useState<Set<string>>(new Set())
 
   // ── Ordered helpers ──
-  function refreshOrdered(s: string, art: string, color: string) {
+  function refreshOrdered(s: string, art: string, color: string, from: string, to: string) {
     startO(async () => {
-      const data = await getProcurementSummary({ status: s, artNumber: art, colorNumber: color })
+      const data = await getProcurementSummary({ status: s, artNumber: art, colorNumber: color, dateFrom: from || undefined, dateTo: to || undefined })
       setRows(data)
     })
   }
 
-  function handleStatusChange(s: string) { setStatus(s); refreshOrdered(s, artFilter, colorFilter) }
-  function handleOrderedSearch() { refreshOrdered(status, artFilter, colorFilter) }
+  function handleStatusChange(s: string) { setStatus(s); refreshOrdered(s, artFilter, colorFilter, dateFrom, dateTo) }
+  function handleOrderedSearch() { refreshOrdered(status, artFilter, colorFilter, dateFrom, dateTo) }
 
   // ── Shortfall helpers ──
   function loadShortfall(art: string, color: string) {
@@ -194,6 +196,16 @@ export function ProcurementSummary({ initialRows }: Props) {
                   <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>
                 ))}
               </select>
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">From</label>
+              <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
+                className="rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-ring" />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">To</label>
+              <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
+                className="rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-ring" />
             </div>
             <div className="flex flex-col gap-1">
               <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Article</label>
