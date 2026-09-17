@@ -21,6 +21,7 @@ interface ExistingOrder {
   id: number
   orderNumber: string
   shopkeeperName: string
+  shopkeeperAddress?: string | null
   status: string
   notes: string | null
   orderedAt: Date
@@ -685,6 +686,15 @@ export function SalesmanDashboard({ orders, userName, embedded, catalogue: serve
     return m
   }, [catalogue.articles])
 
+  // ── Vendor name → address (location) lookup map ──
+  const vendorAddressMap = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const v of catalogue.vendors) {
+      if (v.address) m.set(v.name.toUpperCase(), v.address)
+    }
+    return m
+  }, [catalogue.vendors])
+
   // ── Vendor search — purely client-side, instant ──
   useEffect(() => {
     setSkLoading(false)
@@ -1117,12 +1127,34 @@ export function SalesmanDashboard({ orders, userName, embedded, catalogue: serve
     }
   }
 
+  // ── Transliterate English text to Hindi via Google Input Tools ──
+  async function transliterateToHindi(text: string): Promise<string> {
+    try {
+      const words = text.trim().split(/\s+/)
+      const results: string[] = []
+      for (const word of words) {
+        const url = `https://inputtools.google.com/request?text=${encodeURIComponent(word)}&itc=hi-t-i0-und&num=1`
+        const res = await fetch(url)
+        const data = await res.json()
+        // Response shape: [status, [[word, [candidates]]]]
+        const candidate = data?.[1]?.[0]?.[1]?.[0]
+        results.push(candidate ?? word)
+      }
+      return results.join(' ')
+    } catch {
+      return text
+    }
+  }
+
   // ── Build a Pick List bill HTML fragment for one order ──
   function buildBillFragment(
     order: ExistingOrder,
     items: DetailItem[],
     salesman: string,
     orientation: 'portrait' | 'landscape',
+    hindiName?: string,
+    hindiAddress?: string,
+    engAddress?: string,
   ): string {
     const artMap = new Map<string, Map<string, Record<string, number>>>()
     for (const item of items) {
@@ -1152,8 +1184,14 @@ export function SalesmanDashboard({ orders, userName, embedded, catalogue: serve
       rows += `</div>`
     })
     return `<div class="bill${orientation === 'portrait' ? ' bill-portrait' : ''}">
-  <div class="bill-title">${order.shopkeeperName}</div>
-  <div class="bill-meta"><span class="meta-order">Order #${order.orderNumber}</span><span class="meta-sep">&nbsp;·&nbsp;</span><span class="meta-date">${dateStr}</span></div>
+  <div class="bill-header-row">
+    <span class="bill-name-block"><span class="bill-title">${order.shopkeeperName}</span>${hindiName ? `&nbsp;<span class="bill-title-hindi">(${hindiName})</span>` : ''}</span>
+    <span class="bill-header-right">${engAddress ? `<span class="bill-addr-eng">${engAddress}</span>${hindiAddress ? `&nbsp;<span class="bill-addr-hindi">(${hindiAddress})</span>` : ''}` : ''}</span>
+  </div>
+  <div class="bill-meta-row">
+    <span class="bill-meta-left">${dateStr}</span>
+    <span class="bill-meta-right">Order #${order.orderNumber}</span>
+  </div>
   <div class="rule"></div>
   ${rows}
   <div class="rule"></div>
@@ -1179,7 +1217,7 @@ export function SalesmanDashboard({ orders, userName, embedded, catalogue: serve
   }
 
   // ── Open a new window with bills packed tightly and trigger print ──
-  function handlePrintOrders(
+  async function handlePrintOrders(
     selectedOrders: ExistingOrder[],
     pageSize: 'A4' | 'A5',
     orientation: 'portrait' | 'landscape',
@@ -1218,8 +1256,17 @@ export function SalesmanDashboard({ orders, userName, embedded, catalogue: serve
       )
     }
 
+    // Fetch Hindi transliterations for all shopkeeper names + addresses in parallel
+    const engAddresses = orderedOrders.map(o =>
+      o.shopkeeperAddress || vendorAddressMap.get(o.shopkeeperName.toUpperCase()) || ''
+    )
+    const [hindiNames, hindiAddresses] = await Promise.all([
+      Promise.all(orderedOrders.map(o => transliterateToHindi(o.shopkeeperName))),
+      Promise.all(engAddresses.map(addr => addr ? transliterateToHindi(addr) : Promise.resolve(''))),
+    ])
+
     const bills = orderedOrders
-      .map(o => buildBillFragment(o, printItemsMap[o.id] ?? [], userName, orientation))
+      .map((o, i) => buildBillFragment(o, printItemsMap[o.id] ?? [], userName, orientation, hindiNames[i], hindiAddresses[i], engAddresses[i]))
       .join('\n')
 
     const html = `<!DOCTYPE html>
@@ -1227,6 +1274,8 @@ export function SalesmanDashboard({ orders, userName, embedded, catalogue: serve
 <head>
 <meta charset="UTF-8"/>
 <title>Bills</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+Devanagari:wght@400;700&display=swap"/>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -1249,8 +1298,16 @@ export function SalesmanDashboard({ orders, userName, embedded, catalogue: serve
     break-inside: avoid;
     page-break-inside: avoid;
   }
-  .bill-title    { text-align: center; font-size: 13px; font-weight: bold; letter-spacing: 0; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .bill-meta     { text-align: center; font-size: 9px; color: #555; margin-bottom: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .bill-header-row  { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 0; }
+  .bill-name-block  { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; }
+  .bill-addr-eng    { font-size: 11px; font-weight: bold; }
+  .bill-addr-hindi  { font-size: 11px; font-family: 'Noto Sans Devanagari', 'Mangal', Arial, sans-serif; }
+  .bill-header-right{ text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 65%; }
+  .bill-title       { font-size: 13px; font-weight: bold; }
+  .bill-title-hindi { font-size: 13px; font-weight: bold; color: #222; font-family: 'Noto Sans Devanagari', 'Mangal', Arial, sans-serif; }
+  .bill-meta-row    { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 3px; }
+  .bill-meta-left   { font-size: 9px; color: #555; white-space: nowrap; }
+  .bill-meta-right  { font-size: 9px; color: #555; white-space: nowrap; }
   .bill-meta-sm  { font-size: 8.5px; margin-bottom: 4px; }
   .rule          { border-top: 1px dashed #aaa; margin: 3px 0; }
   .bill-parties  { display: flex; justify-content: space-between; align-items: baseline; padding: 2px 0; }
