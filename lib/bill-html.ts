@@ -123,7 +123,7 @@ export function buildInvoiceHtml({
   const baseFontPx = isA5 ? 10 : 11.5
 
   const ROW_HEIGHT    = isA5 ? 19 : 24
-  const MAX_ROWS_LAST = isA5 ? 15 : 22
+  const MAX_ROWS_LAST = isA5 ? 17 : 24
 
   // ── Flatten all lines into sequential rows ────────────────────────────────────
   const artGroupMap = new Map<string, MrpLine[]>()
@@ -242,7 +242,7 @@ export function buildInvoiceHtml({
   /* ── PAGE HEADER — fixed top section of each page ── */
   .page-header {
     flex-shrink: 0;
-    padding-bottom: 4px;
+    padding-bottom: ${isA5 ? '2px' : '4px'};
   }
 
   /* ── PAGE MIDDLE — grows to fill space between header and footer ── */
@@ -276,9 +276,9 @@ export function buildInvoiceHtml({
   }
 
   /* ── HEADER INNER ── */
-  .header { text-align: center; padding-bottom: 6px; border-bottom: 2px solid #1a1a1a; margin-bottom: 5px; }
-  .tagline { font-size: ${baseFontPx + 1.5}px; font-weight: 900; letter-spacing: 2.5px; color: #111; margin-bottom: 4px; }
-  .shop-name { font-size: ${baseFontPx + 14.5}px; font-weight: 900; letter-spacing: 2px; line-height: 1.1; color: #0a0a0a; }
+  .header { text-align: center; padding-bottom: 6px; border-bottom: 2px solid #1a1a1a; margin-bottom: ${isA5 ? '3px' : '5px'}; }
+  .tagline { font-size: ${baseFontPx + 0.5}px; font-weight: 900; letter-spacing: 2.5px; color: #111; margin-bottom: 4px; }
+  .shop-name { font-size: ${baseFontPx + 13.5}px; font-weight: 900; letter-spacing: 2px; line-height: 1.1; color: #0a0a0a; }
   .header-rule { width: 60px; height: 2.5px; background: #1a1a1a; margin: 3px auto 4px; }
   .shop-addr { font-size: ${baseFontPx - 1.5}px; color: #444; line-height: 1.5; }
   .bill-type-badge {
@@ -305,7 +305,7 @@ export function buildInvoiceHtml({
   .bill-date-val { font-size: ${baseFontPx + 1}px; font-weight: 700; color: #0a0a0a; margin-top: 1px; }
 
   /* ── ITEMS TABLE ── */
-  table { width: 100%; border-collapse: collapse; margin-top: ${isA5 ? '4px' : '6px'}; }
+  table { width: 100%; border-collapse: collapse; margin-top: ${isA5 ? '3px' : '6px'}; }
   thead tr { background: #f0f0f0; }
   th {
     padding: 4px 7px; font-size: ${baseFontPx - 2}px; font-weight: 800;
