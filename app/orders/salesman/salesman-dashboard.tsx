@@ -1555,7 +1555,8 @@ ${bills}
                 <p className="px-4 py-6 text-sm text-muted-foreground text-center">No items found.</p>
               )}
               {!detailLoading && detailItems.length > 0 && (() => {
-                const showPacked = ['packed', 'dispatched', 'delivered'].includes(detailOrder.status)
+                const showPacked = ['packed', 'billed', 'dispatched', 'delivered'].includes(detailOrder.status)
+                const isBilled   = ['billed', 'dispatched', 'delivered'].includes(detailOrder.status)
                 // Group: artNumber → colorNumber → items
                 const artMap = new Map<string, Map<string, DetailItem[]>>()
                 for (const item of detailItems) {
@@ -1576,9 +1577,23 @@ ${bills}
                         <th className="text-left px-3 py-2 text-xs font-medium text-muted-foreground whitespace-nowrap">Article</th>
                         <th className="text-left px-3 py-2 text-xs font-medium text-muted-foreground whitespace-nowrap">Color</th>
                         <th className="text-left px-3 py-2 text-xs font-medium text-muted-foreground whitespace-nowrap">
-                          {showPacked
-                            ? <>Size <span className="ml-1 text-[10px] font-normal text-muted-foreground/60">ord→pkd</span></>
-                            : 'Size / Qty'}
+                          {showPacked ? (
+                            <>
+                              Size
+                              <span className="ml-1 text-[10px] font-normal text-muted-foreground/50">→</span>
+                              <span className="text-[10px] font-semibold text-muted-foreground/70">ord</span>
+                              <span className="mx-0.5 text-[10px] text-muted-foreground/40">→</span>
+                              <span className="text-[10px] font-semibold text-green-600 dark:text-green-400">pkd</span>
+                              {isBilled && (
+                                <>
+                                  <span className="mx-0.5 text-[10px] text-muted-foreground/40">→</span>
+                                  <span className="text-[10px] font-semibold text-blue-600 dark:text-blue-400">ver</span>
+                                </>
+                              )}
+                            </>
+                          ) : (
+                            'Size / Qty'
+                          )}
                         </th>
                       </tr>
                     </thead>
@@ -1586,7 +1601,8 @@ ${bills}
                       {articleGroups.map(({ artNumber, colorGroups }) =>
                         colorGroups.map(({ color, items }, ci) => {
                           const allOrd = colorGroups.flatMap(cg => cg.items).reduce((s, i) => s + i.quantityOrdered, 0)
-                          const allPkd = colorGroups.flatMap(cg => cg.items).reduce((s, i) => s + i.quantityPacked, 0)
+                          const allPkd = colorGroups.flatMap(cg => cg.items).reduce((s, i) => s + (i.status === 'out_of_stock' ? 0 : i.quantityPacked), 0)
+                          const allVer = isBilled ? allPkd : 0
                           return (
                             <tr key={`${artNumber}-${color}`} className="border-b border-border hover:bg-muted/20">
                               {ci === 0 && (
@@ -1598,7 +1614,8 @@ ${bills}
                                   {showPacked && (
                                     <>
                                       <span className="block font-normal text-muted-foreground tabular-nums mt-0.5">{allOrd} ord</span>
-                                      <span className={`block font-semibold tabular-nums ${allPkd < allOrd ? 'text-yellow-500' : 'text-green-600 dark:text-green-400'}`}>{allPkd} pkd</span>
+                                      <span className="block font-semibold tabular-nums text-green-600 dark:text-green-400">{allPkd} pkd</span>
+                                      {isBilled && <span className="block font-semibold tabular-nums text-blue-600 dark:text-blue-400">{allVer} ver</span>}
                                     </>
                                   )}
                                 </td>
@@ -1614,17 +1631,24 @@ ${bills}
                                         <span className="font-semibold text-foreground">{item.quantityOrdered}</span>
                                       </span>
                                     )
-                                    const isOOS  = item.status === 'out_of_stock'
-                                    const isFull = !isOOS && item.quantityPacked >= item.quantityOrdered
+                                    const isOOS    = item.status === 'out_of_stock'
+                                    const pkd      = isOOS ? 0 : item.quantityPacked
+                                    const verified = isBilled ? pkd : 0
                                     return (
-                                      <span key={item.id} className="inline-flex items-baseline gap-0.5 text-xs tabular-nums whitespace-nowrap">
-                                        <span className="text-foreground">{item.sizeNumber ?? '—'}</span>
+                                      <span key={item.id} className="inline-flex items-baseline gap-0.5 tabular-nums whitespace-nowrap">
+                                        <span className="text-xs text-muted-foreground">{item.sizeNumber ?? '—'}</span>
                                         <span className="text-[10px] text-muted-foreground/50 mx-px">/</span>
-                                        <span className="font-bold text-foreground">{item.quantityOrdered}</span>
+                                        <span className="text-xs font-bold text-muted-foreground">{item.quantityOrdered}</span>
                                         <span className="text-[10px] text-muted-foreground/40">→</span>
-                                        <span className={`font-bold ${isOOS ? 'text-red-500' : isFull ? 'text-green-600 dark:text-green-400' : 'text-yellow-500'}`}>
-                                          {isOOS ? 0 : item.quantityPacked}
+                                        <span className={`text-xs font-bold ${isOOS ? 'text-red-500' : 'text-green-600 dark:text-green-400'}`}>
+                                          {isOOS ? 'OOS' : pkd}
                                         </span>
+                                        {isBilled && !isOOS && (
+                                          <>
+                                            <span className="text-[10px] text-muted-foreground/40">→</span>
+                                            <span className="text-xs font-bold text-blue-600 dark:text-blue-400">{verified}</span>
+                                          </>
+                                        )}
                                       </span>
                                     )
                                   })}
@@ -1639,16 +1663,26 @@ ${bills}
                       <tr>
                         <td colSpan={2} className="px-4 py-2.5 text-xs font-medium text-muted-foreground text-right">Total</td>
                         <td className="px-3 py-2.5 text-xs">
-                          {showPacked ? (
-                            <>
-                              <span className="font-medium text-foreground tabular-nums">{detailItems.reduce((s, i) => s + i.quantityOrdered, 0)}</span>
-                              <span className="text-muted-foreground mx-1">ord /</span>
-                              <span className={`font-bold tabular-nums ${detailItems.reduce((s, i) => s + i.quantityPacked, 0) < detailItems.reduce((s, i) => s + i.quantityOrdered, 0) ? 'text-yellow-500' : 'text-green-600 dark:text-green-400'}`}>
-                                {detailItems.reduce((s, i) => s + i.quantityPacked, 0)}
-                              </span>
-                              <span className="text-muted-foreground ml-1">pkd</span>
-                            </>
-                          ) : (
+                          {showPacked ? (() => {
+                            const totalOrd = detailItems.reduce((s, i) => s + i.quantityOrdered, 0)
+                            const totalPkd = detailItems.reduce((s, i) => s + (i.status === 'out_of_stock' ? 0 : i.quantityPacked), 0)
+                            const totalVer = isBilled ? totalPkd : 0
+                            return (
+                              <>
+                                <span className="font-bold tabular-nums text-muted-foreground">{totalOrd}</span>
+                                <span className="text-muted-foreground mx-1">ord /</span>
+                                <span className="font-bold tabular-nums text-green-600 dark:text-green-400">{totalPkd}</span>
+                                <span className="text-muted-foreground mx-1">pkd</span>
+                                {isBilled && (
+                                  <>
+                                    <span className="text-muted-foreground mx-0.5">/</span>
+                                    <span className="font-bold tabular-nums text-blue-600 dark:text-blue-400">{totalVer}</span>
+                                    <span className="text-muted-foreground ml-1">ver</span>
+                                  </>
+                                )}
+                              </>
+                            )
+                          })() : (
                             <span className="font-bold tabular-nums">{detailItems.reduce((s, i) => s + i.quantityOrdered, 0)}</span>
                           )}
                         </td>
