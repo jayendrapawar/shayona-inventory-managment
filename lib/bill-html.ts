@@ -7,6 +7,8 @@
  *   - city bill (with CGST/SGST) vs outside-city/town bill (with IGST, different layout)
  *   - Fixed header at top, fixed footer at bottom via position:fixed in @media print
  *   - Body padded to avoid overlap; table fills remaining space with blank filler rows
+ *   - Multi-page support: if items exceed MAX_ROWS, overflow pages show
+ *     "Continued on next page…" instead of footer; last page shows full footer
  */
 
 // ─── Public interfaces ────────────────────────────────────────────────────────
@@ -120,51 +122,65 @@ export function buildInvoiceHtml({
   const isA5       = pageSize === 'A5'
   const baseFontPx = isA5 ? 10 : 11.5
 
-  // ── Row count & height ───────────────────────────────────────────────────────
-  // A4: 22 rows × 6.0mm = 132mm  (budget 172mm — fits with 40mm spare for thead+gaps)
-  // A5: 15 rows × 5.0mm =  75mm  (budget  99mm — fits with 24mm spare)
-  // px = mm × 3.7795 (96dpi); round up to ensure minimum height.
-  //   A4: ceil(6.0 × 3.7795) = ceil(22.68) = 23px
-  //   A5: ceil(5.0 × 3.7795) = ceil(18.90) = 19px
-  const ROW_HEIGHT = isA5 ? 19 : 24   // px
-  const MAX_ROWS   = isA5 ? 15 : 22
+  const ROW_HEIGHT    = isA5 ? 19 : 24
+  const MAX_ROWS_LAST = isA5 ? 15 : 22
 
-  // ── Item rows ────────────────────────────────────────────────────────────────
+  // ── Flatten all lines into sequential rows ────────────────────────────────────
   const artGroupMap = new Map<string, MrpLine[]>()
   for (const l of lines) {
     if (!artGroupMap.has(l.artNumber)) artGroupMap.set(l.artNumber, [])
     artGroupMap.get(l.artNumber)!.push(l)
   }
 
-  let rowNum = 0
-  let rows = ''
+  interface FlatRow { rowNum: number; artNumber: string; showArt: boolean; l: MrpLine }
+  const flatRows: FlatRow[] = []
+  let globalRowNum = 0
   artGroupMap.forEach((artLines, artNumber) => {
     artLines.forEach((l, li) => {
-      rowNum++
+      globalRowNum++
+      flatRows.push({ rowNum: globalRowNum, artNumber, showArt: li === 0, l })
+    })
+  })
+
+  const chunks: FlatRow[][] = []
+  let pos = 0
+  while (pos < Math.max(flatRows.length, 1)) {
+    const slice = flatRows.slice(pos, pos + MAX_ROWS_LAST)
+    chunks.push(slice)
+    pos += slice.length || 1
+    if (pos >= flatRows.length) break
+  }
+  const totalPages = chunks.length
+
+  function buildTbody(chunk: FlatRow[], isLastPage: boolean): string {
+    let html = ''
+    chunk.forEach(({ rowNum, showArt, artNumber, l }) => {
       const rate    = Math.ceil(l.mrp * (1 - LINE_DISC_PCT / 100))
       const amt     = rate * l.qty
       const evenRow = rowNum % 2 === 0
-      rows += `<tr style="background:${evenRow ? '#f9f9f9' : '#ffffff'}">
+      html += `<tr style="background:${evenRow ? '#f9f9f9' : '#ffffff'}">
         <td style="text-align:center;color:#555">${rowNum}</td>
-        <td style="font-weight:600">${li === 0 ? artNumber : ''}</td>
+        <td style="font-weight:600">${showArt ? artNumber : ''}</td>
         <td style="text-align:right;color:#666">${l.mrp > 0 ? fmt(l.mrp) : '—'}</td>
         <td style="text-align:center;font-weight:700;font-size:${baseFontPx + 1}px">${l.qty}</td>
         <td style="text-align:right;font-weight:600">${fmt(rate)}</td>
         <td style="text-align:right;font-weight:700">${fmt(amt)}</td>
       </tr>`
     })
-  })
-
-  // Filler rows to fill the remaining space
-  const fillerCount = Math.max(0, MAX_ROWS - rowNum)
-  for (let f = 0; f < fillerCount; f++) {
-    const idx     = rowNum + f + 1
-    const evenRow = idx % 2 === 0
-    rows += `<tr style="background:${evenRow ? '#f9f9f9' : '#ffffff'}">
-      <td style="text-align:center;color:#555">${idx}</td>
-      <td>&nbsp;</td><td>&nbsp;</td>
-      <td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td>
-    </tr>`
+    if (isLastPage) {
+      const fillerCount = Math.max(0, MAX_ROWS_LAST - chunk.length)
+      const fillerStart = chunk.length > 0 ? chunk[chunk.length - 1].rowNum : 0
+      for (let f = 0; f < fillerCount; f++) {
+        const idx     = fillerStart + f + 1
+        const evenRow = idx % 2 === 0
+        html += `<tr style="background:${evenRow ? '#f9f9f9' : '#ffffff'}">
+          <td style="text-align:center;color:#555">${idx}</td>
+          <td>&nbsp;</td><td>&nbsp;</td>
+          <td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td>
+        </tr>`
+      }
+    }
+    return html
   }
 
   // ── Tax summary rows ─────────────────────────────────────────────────────────
@@ -178,76 +194,85 @@ export function buildInvoiceHtml({
     ? `<div class="bill-type-badge">TAX INVOICE — OUTSIDE CITY / TOWN</div>`
     : ''
 
-  // ── Page sizes ───────────────────────────────────────────────────────────────
-  // Margins: A4 6mm/8mm, A5 4mm/5mm
-  // header-height / footer-height must match the rendered sizes below exactly.
-  // We use generous mm values and let position:fixed do the clamping.
+  // ── Page dimensions & spacers ────────────────────────────────────────────────
   const pageW  = isA5 ? '148mm' : '210mm'
   const pageH  = isA5 ? '210mm' : '297mm'
   const mTop   = isA5 ? '4mm'   : '6mm'
   const mSide  = isA5 ? '5mm'   : '8mm'
   const mBot   = isA5 ? '4mm'   : '6mm'
 
-  // Spacer heights in px (screen-reliable — mm units in spacers are viewport-relative on screen).
-  // Values are measured rendered heights + ~10px buffer.
-  //   A4 header: mTop(23) + tagline(20) + shopname(29) + rule(10) + addr(30) + .header-margins(13)
-  //             + meta-row(52) + pb(4) = ~181 → use 200px
-  //   A4 footer: pt(4) + bottom-panel(105) + mb(5) + words(38) + mb(5) + stub(55) + mb(5)
-  //             + thankyou(17) + mBot(23) = ~257 → use 270px
-  //   A5 header: mTop(15) + tagline(18) + shopname(27) + rule(10) + addr(26) + margins(13)
-  //             + meta-row(45) + pb(4) = ~158 → use 175px
-  //   A5 footer: pt(4) + bottom(90) + mb(5) + words(32) + mb(5) + stub(48) + mb(5)
-  //             + thankyou(15) + mBot(15) = ~219 → use 235px
-  const headerH = isA5 ? '175px' : '200px'
-  const footerH = isA5 ? '235px' : '270px'
-
-  return `<!DOCTYPE html>
-<html><head><meta charset="utf-8">
-<title>Bill ${billNo} — ${vName}</title>
-<style>
+  // ── Shared CSS ───────────────────────────────────────────────────────────────
+  // Layout strategy: each .bill-page is a flex column exactly one page tall.
+  // Header and footer are the first/last flex children (flex-shrink:0).
+  // The table section is flex:1 so it fills all remaining space between them.
+  // This avoids position:fixed conflicts when multiple .bill-page divs coexist.
+  const pageHeightCss = isA5 ? '210mm' : '297mm'
+  const css = `
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-  html, body { height: 100%; background: #fff; }
+  html, body {
+    background: #fff;
+    margin: 0; padding: 0;
+  }
 
   body {
     font-family: 'Arial', 'Helvetica Neue', Helvetica, sans-serif;
     font-size: ${baseFontPx}px;
     color: #1a1a1a;
     background: #fff;
-    margin: 0; padding: 0;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }
 
-  /* ── FIXED HEADER — pinned top in both screen and print ── */
-  .page-header {
-    position: fixed;
-    top: 0; left: 0; right: 0;
-    background: #fff;
-    padding: ${mTop} ${mSide} 4px;
-    z-index: 10;
-  }
-
-  /* ── FIXED FOOTER — pinned bottom in both screen and print ── */
-  .page-footer {
-    position: fixed;
-    bottom: 0; left: 0; right: 0;
-    background: #fff;
-    padding: 4px ${mSide} ${mBot};
-    z-index: 10;
-  }
-
   /*
-   * Spacers push body content clear of the fixed panels.
-   * Heights must be >= rendered height of .page-header / .page-footer.
-   * These are plain block elements — reliable in both screen and print.
+   * Each .bill-page is one physical page:
+   *   - exact page height so content never overflows
+   *   - flex column: header (shrink-0) | body (flex-1) | footer (shrink-0)
    */
-  .header-spacer { height: ${headerH}; display: block; }
-  .footer-spacer { height: ${footerH}; display: block; }
+  .bill-page {
+    display: flex;
+    flex-direction: column;
+    height: ${pageHeightCss};
+    overflow: hidden;
+    padding: ${mTop} ${mSide} ${mBot};
+    page-break-after: always;
+  }
+  .bill-page:last-child { page-break-after: avoid; }
 
-  /* ── BODY CONTENT ── */
+  /* ── PAGE HEADER — fixed top section of each page ── */
+  .page-header {
+    flex-shrink: 0;
+    padding-bottom: 4px;
+  }
+
+  /* ── PAGE MIDDLE — grows to fill space between header and footer ── */
   .page-body {
-    padding: 0 ${mSide};
+    flex: 1 1 0;
+    overflow: hidden;
+    min-height: 0;
+  }
+
+  /* ── PAGE FOOTER — full footer (last page) ── */
+  .page-footer {
+    flex-shrink: 0;
+    padding-top: 4px;
+  }
+
+  /* ── PAGE FOOTER — "Continued" notice (non-last pages) ── */
+  .page-footer-cont {
+    flex-shrink: 0;
+    padding-top: 8px;
+    border-top: 1.5px solid #c8c8c8;
+    text-align: center;
+    font-size: ${baseFontPx + 0.5}px;
+    font-weight: 700;
+    color: #555;
+    letter-spacing: 0.5px;
+  }
+
+  /* ── SCREEN PREVIEW ── */
+  @media screen {
+    .bill-page { border: 1px solid #e0e0e0; margin: 0 auto 16px; }
   }
 
   /* ── HEADER INNER ── */
@@ -372,24 +397,16 @@ export function buildInvoiceHtml({
     border-top: 1px solid #c8c8c8; text-transform: uppercase;
   }
 
-  /* ── PRINT-SPECIFIC ── */
   @media print {
     @page {
       size: ${pageW} ${pageH};
-      margin: ${mTop} ${mSide} ${mBot};
+      margin: 0;
     }
-    html, body { height: 100%; }
-    .page-header, .page-footer { position: fixed; }
-  }
+    html, body { margin: 0; padding: 0; }
+  }`
 
-  /* ── SCREEN PREVIEW: constrain width to match print output ── */
-  @media screen {
-    body { max-width: ${isA5 ? '148mm' : '210mm'}; margin: 0 auto; }
-  }
-</style>
-</head><body>
-
-<!-- ═══ FIXED HEADER ═══ -->
+  // ── Shared header HTML (identical on every page) ──────────────────────────────
+  const headerHtml = `
 <div class="page-header">
   <div class="header">
     <div class="tagline">!! JAY SHREE SWAMINARAYAN !!</div>
@@ -418,16 +435,10 @@ export function buildInvoiceHtml({
       </div>
     </div>
   </div>
-</div>
-<!-- END FIXED HEADER -->
+</div>`
 
-<!-- Spacer: pushes body content below the fixed header -->
-<div class="header-spacer"></div>
-
-<!-- ═══ BODY — items table ═══ -->
-<div class="page-body">
-  <table>
-    <thead>
+  // ── Table column headers ──────────────────────────────────────────────────────
+  const theadHtml = `<thead>
       <tr>
         <th style="width:${isA5 ? '30px' : '38px'};text-align:center">#</th>
         <th style="text-align:left">Description</th>
@@ -436,27 +447,10 @@ export function buildInvoiceHtml({
         <th style="width:${isA5 ? '82px' : '105px'};text-align:right">Rate (₹)</th>
         <th style="width:${isA5 ? '88px' : '115px'};text-align:right">Amount (₹)</th>
       </tr>
-    </thead>
-    <tbody>
-      ${rows}
-    </tbody>
-  </table>
+    </thead>`
 
-  ${billType === 'outside' ? `
-  <div class="transport-strip">
-    <div class="ts-col"><div class="ts-label">Transport</div><div class="ts-val">&nbsp;</div></div>
-    <div class="ts-col"><div class="ts-label">Vehicle No.</div><div class="ts-val">&nbsp;</div></div>
-    <div class="ts-col"><div class="ts-label">Destination State</div><div class="ts-val">&nbsp;</div></div>
-    <div class="ts-col"><div class="ts-label">E-Way Bill No.</div><div class="ts-val">&nbsp;</div></div>
-  </div>
-  ` : ''}
-</div>
-<!-- END BODY -->
-
-<!-- Spacer: pushes body content above the fixed footer -->
-<div class="footer-spacer"></div>
-
-<!-- ═══ FIXED FOOTER ═══ -->
+  // ── Full footer (last page only) ──────────────────────────────────────────────
+  const fullFooterHtml = `
 <div class="page-footer">
   <div class="bottom">
     <div class="bank">
@@ -484,12 +478,10 @@ export function buildInvoiceHtml({
       </div>
     </div>
   </div>
-
   <div class="words-box">
     <div class="words-label">Amount in Words</div>
     <div class="words-text">${amountInWords(netAmt)}</div>
   </div>
-
   <div class="stub">
     <div class="stub-left">
       <div class="row"><span class="sk">Party</span><span>:&nbsp;</span><span class="sv">${vName}${vPhone ? ' (' + vPhone + ')' : ''}</span></div>
@@ -508,11 +500,45 @@ export function buildInvoiceHtml({
       Receiver Signature
     </div>
   </div>
-
   <div class="thankyou">Thank You For Your Business</div>
-</div>
-<!-- END FIXED FOOTER -->
+</div>`
 
+  // ── "Continued" footer (non-last pages) ──────────────────────────────────────
+  const contFooterHtml = `
+<div class="page-footer-cont">
+  Continued on next page&hellip;
+</div>`
+
+  // ── Build each page block ─────────────────────────────────────────────────────
+  const pageBlocks = chunks.map((chunk, pageIdx) => {
+    const isLastPage = pageIdx === totalPages - 1
+
+    // Transport strip only on the last page for outside-city bills
+    const transportStrip = (isLastPage && billType === 'outside') ? `
+  <div class="transport-strip">
+    <div class="ts-col"><div class="ts-label">Transport</div><div class="ts-val">&nbsp;</div></div>
+    <div class="ts-col"><div class="ts-label">Vehicle No.</div><div class="ts-val">&nbsp;</div></div>
+    <div class="ts-col"><div class="ts-label">Destination State</div><div class="ts-val">&nbsp;</div></div>
+    <div class="ts-col"><div class="ts-label">E-Way Bill No.</div><div class="ts-val">&nbsp;</div></div>
+  </div>` : ''
+
+    return `<div class="bill-page">
+  ${headerHtml}
+  <div class="page-body">
+    <table>${theadHtml}
+      <tbody>${buildTbody(chunk, isLastPage)}</tbody>
+    </table>${transportStrip}
+  </div>
+  ${isLastPage ? fullFooterHtml : contFooterHtml}
+</div>`
+  })
+
+  return `<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<title>Bill ${billNo} — ${vName}</title>
+<style>${css}</style>
+</head><body>
+${pageBlocks.join('\n')}
 </body></html>`
 }
 
@@ -525,6 +551,7 @@ export interface PrintConfig {
 
 /**
  * Open a print window for one or more bills.
+ * Each bill is already self-paginated via .bill-page divs with page-break-after.
  */
 export function printInvoices(bills: Array<BuildInvoiceOptions>, config?: PrintConfig) {
   if (bills.length === 0) return
@@ -544,31 +571,22 @@ export function printInvoices(bills: Array<BuildInvoiceOptions>, config?: PrintC
     return
   }
 
-  // Multi-bill: each bill gets its own isolated HTML so fixed positions don't bleed across pages
-  const allHtml = billsWithConfig
-    .map(b => buildInvoiceHtml(b))
-    .join('\n<!-- PAGE BREAK -->\n')
+  // Multi-bill: each bill is already self-contained with its own page-break divs
+  const combined = billsWithConfig.map(b => {
+    const html      = buildInvoiceHtml(b)
+    const bodyMatch = html.match(/<body>([\s\S]*?)<\/body>/)
+    return bodyMatch ? bodyMatch[1].trim() : ''
+  }).join('\n')
 
-  // For multi-bill we use an iframe approach: open each in its own page with page-break-after
   const firstHtml  = buildInvoiceHtml(billsWithConfig[0])
   const styleMatch = firstHtml.match(/<style>([\s\S]*?)<\/style>/)
   const sharedCss  = styleMatch ? styleMatch[1] : ''
 
-  const pages = billsWithConfig
-    .map(b => {
-      const html      = buildInvoiceHtml(b)
-      const bodyMatch = html.match(/<body>([\s\S]*?)<\/body>/)
-      return bodyMatch
-        ? `<div style="page-break-after:always;position:relative;">${bodyMatch[1]}</div>`
-        : ''
-    })
-    .join('\n')
-
   const multiHtml = `<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>Bills (${billsWithConfig.length})</title>
 <style>${sharedCss}</style>
-</head><body style="padding:0;margin:0;">
-${pages}
+</head><body>
+${combined}
 </body></html>`
 
   const win = window.open('', '_blank', 'width=860,height=1000')
