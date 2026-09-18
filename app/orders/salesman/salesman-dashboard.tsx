@@ -1184,13 +1184,17 @@ export function SalesmanDashboard({ orders, userName, embedded, catalogue: serve
       rows += `</div>`
     })
     return `<div class="bill${orientation === 'portrait' ? ' bill-portrait' : ''}">
-  <div class="bill-header-row">
-    <span class="bill-name-block"><span class="bill-title">${order.shopkeeperName}</span>${hindiName ? `&nbsp;<span class="bill-title-hindi">(${hindiName})</span>` : ''}</span>
-    <span class="bill-header-right">${engAddress ? `<span class="bill-addr-eng">${engAddress}</span>${hindiAddress ? `&nbsp;<span class="bill-addr-hindi">(${hindiAddress})</span>` : ''}` : ''}</span>
+  <div class="bill-row">
+    <span class="bill-title">${order.shopkeeperName}</span>
+    <span class="bill-addr-eng">${engAddress || ''}</span>
   </div>
-  <div class="bill-meta-row">
-    <span class="bill-meta-left">${dateStr}</span>
-    <span class="bill-meta-right">Order #${order.orderNumber}</span>
+  <div class="bill-row">
+    <span class="bill-title-hindi">${hindiName || ''}</span>
+    <span class="bill-addr-hindi">${hindiAddress || ''}</span>
+  </div>
+  <div class="bill-row bill-meta-row">
+    <span class="bill-meta-left">Order #${order.orderNumber}</span>
+    <span class="bill-meta-right">${dateStr}</span>
   </div>
   <div class="rule"></div>
   ${rows}
@@ -1298,14 +1302,12 @@ export function SalesmanDashboard({ orders, userName, embedded, catalogue: serve
     break-inside: avoid;
     page-break-inside: avoid;
   }
-  .bill-header-row  { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 0; }
-  .bill-name-block  { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; }
-  .bill-addr-eng    { font-size: 11px; font-weight: bold; }
-  .bill-addr-hindi  { font-size: 11px; font-family: 'Noto Sans Devanagari', 'Mangal', Arial, sans-serif; }
-  .bill-header-right{ text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 65%; }
-  .bill-title       { font-size: 13px; font-weight: bold; }
-  .bill-title-hindi { font-size: 13px; font-weight: bold; color: #222; font-family: 'Noto Sans Devanagari', 'Mangal', Arial, sans-serif; }
-  .bill-meta-row    { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 3px; }
+  .bill-row         { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 1px; }
+  .bill-title       { font-size: 13px; font-weight: bold; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 60%; }
+  .bill-addr-eng    { font-size: 11px; font-weight: bold; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 40%; }
+  .bill-title-hindi { font-size: 13px; font-weight: bold; color: #222; font-family: 'Noto Sans Devanagari', 'Mangal', Arial, sans-serif; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 60%; }
+  .bill-addr-hindi  { font-size: 11px; font-family: 'Noto Sans Devanagari', 'Mangal', Arial, sans-serif; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 40%; }
+  .bill-meta-row    { margin-top: 1px; margin-bottom: 3px; }
   .bill-meta-left   { font-size: 9px; color: #555; white-space: nowrap; }
   .bill-meta-right  { font-size: 9px; color: #555; white-space: nowrap; }
   .bill-meta-sm  { font-size: 8.5px; margin-bottom: 4px; }
