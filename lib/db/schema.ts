@@ -227,3 +227,19 @@ export type OrderItem = typeof orderItems.$inferSelect
 export type NewOrderItem = typeof orderItems.$inferInsert
 export type OrderStatus = typeof orderStatusEnum.enumValues[number]
 export type OrderItemStatus = typeof orderItemStatusEnum.enumValues[number]
+
+// --- Size Sets (admin-defined size+quantity templates) ---
+
+export const orderSets = pgTable('order_sets', {
+  id:          serial('id').primaryKey(),
+  name:        text('name').notNull(),
+  // quantities: { [sizeLabel]: qty } — e.g. { "6": 1, "7": 2, "8": 2, "9": 2, "10": 1 }
+  quantities:  jsonb('quantities').$type<Record<string, number>>().notNull().default({}),
+  createdAt:   timestamp('createdAt').notNull().defaultNow(),
+  updatedAt:   timestamp('updatedAt').notNull().defaultNow(),
+}, (t) => [
+  unique('order_sets_name_unique').on(t.name),
+])
+
+export type OrderSet    = typeof orderSets.$inferSelect
+export type NewOrderSet = typeof orderSets.$inferInsert

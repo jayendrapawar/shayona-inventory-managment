@@ -17,6 +17,7 @@ import {
 } from '@/app/actions/orders'
 import { getUsersByRole } from '@/app/actions/users'
 import { loadCatalogue } from '@/app/actions/catalogue'
+import { getSets } from '@/app/actions/sets'
 import { AdminHub } from './admin-hub'
 
 export const metadata = { title: 'Admin Hub | Shayona' }
@@ -40,7 +41,7 @@ export default async function AdminPage() {
     redirect('/sign-in')
   }
 
-  const [stats, allOrders, pickerRows, adminRows, salesmanOrders, pickerQueue, billerOrders, packedOrders, vendorRows, procurementRows, catalogue] = await Promise.all([
+  const [stats, allOrders, pickerRows, adminRows, salesmanOrders, pickerQueue, billerOrders, packedOrders, vendorRows, procurementRows, catalogue, sets] = await Promise.all([
     getOrderStats(),
     getAllOrders(),
     getUsersByRole('picker'),
@@ -52,6 +53,7 @@ export default async function AdminPage() {
     db.select().from(vendors).where(eq(vendors.status, 'active')).orderBy(asc(vendors.partyName)),
     getProcurementSummary({ status: 'pending' }),
     loadCatalogue(),
+    getSets(),
   ])
 
   // Merge pickers + admins (admins can also act as pickers); deduplicate by id
@@ -100,6 +102,7 @@ export default async function AdminPage() {
       dispatchOrders={dispatchOrders}
       procurementRows={procurementRows}
       catalogue={catalogue}
+      sets={sets}
       billingVendors={billingVendors}
     />
   )

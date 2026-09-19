@@ -12,6 +12,7 @@ import { PageNav } from '@/components/page-nav'
 import { fuzzyFilter } from '@/lib/fuzzy'
 import type { ArticleDetail, CatalogueData } from '@/app/actions/catalogue'
 import { useCatalogueCache } from '@/lib/use-catalogue-cache'
+import type { OrderSet } from '@/app/actions/sets'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -38,6 +39,7 @@ interface Props {
   userName: string
   embedded?: boolean
   catalogue: CatalogueData
+  sets: OrderSet[]
 }
 
 // Alias types that were previously imported from catalogue actions
@@ -568,7 +570,7 @@ interface DetailItem {
   status: string
 }
 
-export function SalesmanDashboard({ orders, userName, embedded, catalogue: serverCatalogue }: Props) {
+export function SalesmanDashboard({ orders, userName, embedded, catalogue: serverCatalogue, sets = [] }: Props) {
   // Use cache-first catalogue: returns serverCatalogue immediately on first render,
   // then silently hydrates from Cache API / re-fetches in background
   const catalogue = useCatalogueCache(serverCatalogue)
@@ -624,11 +626,11 @@ export function SalesmanDashboard({ orders, userName, embedded, catalogue: serve
   // lastUsedSet: the most recently added size quantities (any article/color)
   const [lastUsedSet, setLastUsedSet] = useState<Record<string, number> | null>(null)
 
-  // ── Set confirmation dialog ──
+  // ── Set picker dialog (replaces old Single / Set / Last Used buttons) ──
+  const [setPickerOpen, setSetPickerOpen] = useState(false)
+  // pendingSet: the quantities to apply; requires confirm if current has data
+  const [pendingSetQties, setPendingSetQties] = useState<Record<string, number> | null>(null)
   const [setConfirm, setSetConfirm] = useState(false)
-
-  // ── Single confirmation dialog ──
-  const [singleConfirm, setSingleConfirm] = useState(false)
 
   // ── Edit state ──
   const [editingLineId, setEditingLineId] = useState<string | null>(null)
@@ -763,60 +765,28 @@ export function SalesmanDashboard({ orders, userName, embedded, catalogue: serve
     setColorQuantities({})
   }
 
-  // ── Apply default set ──
-  const DEFAULT_SET_LABEL = 'Set'
+  // ── Set picker: user picks a registered set (or Last Used) from a dialog ──
 
-  function buildDefaultSet(): Record<string, number> | null {
-    if (!selectedArt) return null
-    const sizes = selectedArt.sizes
-    if (sizes.length < 5) return null
-    const labels = sizes.map(s => s.sizeLabel)
-    const result: Record<string, number> = {}
-    const defaults = [1, 2, 2, 2, 1]
-    labels.slice(0, 5).forEach((l, i) => { result[l] = defaults[i] })
-    return result
-  }
-
-  function applyDefaultSet() {
-    const s = buildDefaultSet()
-    if (!s) return
+  /**
+   * Called when user taps a set row in the picker dialog.
+   * If the matrix already has quantities, show the replace-confirm dialog.
+   * Otherwise, apply immediately.
+   */
+  function handlePickSet(qties: Record<string, number>) {
+    setSetPickerOpen(false)
     const hasAny = Object.values(currentQties).some(v => v > 0)
-    if (hasAny) { setSetConfirm(true); return }
-    setCurrentQties(s)
+    if (hasAny) {
+      setPendingSetQties(qties)
+      setSetConfirm(true)
+    } else {
+      setCurrentQties(qties)
+    }
   }
 
   function confirmApplySet() {
-    const s = buildDefaultSet()
-    if (s) setCurrentQties(s)
+    if (pendingSetQties) setCurrentQties(pendingSetQties)
+    setPendingSetQties(null)
     setSetConfirm(false)
-  }
-
-  function applyLastUsed() {
-    if (lastUsedSet) setCurrentQties({ ...lastUsedSet })
-  }
-
-  // ── Apply single (qty 1 for every available size of the selected color) ──
-  function buildSingle(): Record<string, number> | null {
-    if (!selectedArt || !selectedColor) return null
-    const sizes = selectedArt.sizes.filter(s => s.articleId === selectedColor.articleId)
-    if (sizes.length === 0) return null
-    const result: Record<string, number> = {}
-    sizes.forEach(s => { result[s.sizeLabel] = 1 })
-    return result
-  }
-
-  function applySingle() {
-    const s = buildSingle()
-    if (!s) return
-    const hasAny = Object.values(currentQties).some(v => v > 0)
-    if (hasAny) { setSingleConfirm(true); return }
-    setCurrentQties(s)
-  }
-
-  function confirmApplySingle() {
-    const s = buildSingle()
-    if (s) setCurrentQties(s)
-    setSingleConfirm(false)
   }
 
   // ── Add / save current color to order ──
@@ -1972,30 +1942,22 @@ ${bills}
                             <span className="text-sm font-semibold text-foreground truncate">Color: {selectedColor.colorName}</span>
                           </div>
 
-                          {/* Set buttons — compact, never overflow their row */}
+                          {/* Set + Last Used buttons */}
                           <div className="flex items-center gap-1.5 flex-shrink-0">
                             <button
                               type="button"
-                              onClick={applySingle}
-                              disabled={!buildSingle()}
+                              onClick={() => setSetPickerOpen(true)}
+                              disabled={sets.length === 0}
                               className="rounded-lg border border-border bg-background px-2.5 py-1 text-xs font-medium hover:bg-muted transition-colors disabled:opacity-40"
                             >
-                              Single
+                              Set
                             </button>
                             <button
                               type="button"
-                              onClick={applyDefaultSet}
-                              disabled={!buildDefaultSet()}
-                              className="rounded-lg border border-border bg-background px-2.5 py-1 text-xs font-medium hover:bg-muted transition-colors disabled:opacity-40"
-                            >
-                              {DEFAULT_SET_LABEL}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={applyLastUsed}
+                              onClick={() => lastUsedSet && handlePickSet({ ...lastUsedSet })}
                               disabled={!lastUsedSet}
                               title={lastUsedSet
-                                ? `Restore: ${Object.entries(lastUsedSet).filter(([,v])=>v>0).map(([k,v])=>`${k}/${v}`).join(', ')}`
+                                ? Object.entries(lastUsedSet).filter(([,v])=>v>0).map(([k,v])=>`${k}×${v}`).join(', ')
                                 : 'No previous set'}
                               className="rounded-lg border border-border bg-background px-2.5 py-1 text-xs font-medium hover:bg-muted transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                             >
@@ -2459,24 +2421,98 @@ ${bills}
         )
       })()}
 
-      {/* ── Single confirmation dialog ── */}
-      {singleConfirm && (
-        <ConfirmDialog
-          title="Replace current quantities?"
-          message={<>This will set qty 1 for every size of <strong>{selectedColor?.colorName}</strong>.</>}
-          confirmLabel="Apply Single"
-          onCancel={() => setSingleConfirm(false)}
-          onConfirm={confirmApplySingle}
-        />
+      {/* ── Set picker dialog ── */}
+      {setPickerOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm"
+          onClick={() => setSetPickerOpen(false)}
+        >
+          <div
+            className="w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl bg-background shadow-2xl"
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Drag handle (mobile only) */}
+            <div className="sm:hidden flex justify-center pt-3 pb-1">
+              <div className="w-10 h-1 rounded-full bg-border" />
+            </div>
+
+            {/* Header */}
+            <div className="flex items-start justify-between px-6 pt-5 pb-4 border-b border-border">
+              <div>
+                <p className="text-xl font-bold text-foreground tracking-tight">Select a Set</p>
+                {selectedArt && selectedColor && (
+                  <p className="text-sm text-muted-foreground mt-1 flex items-center gap-1.5">
+                    <span>{selectedArt.artNumber}</span>
+                    <span className="text-muted-foreground/30">·</span>
+                    <span className="w-3 h-3 rounded-full border border-border inline-block shrink-0"
+                      style={{ background: swatch(selectedColor.colorHex, selectedColor.colorName) }} />
+                    <span>{selectedColor.colorName}</span>
+                  </p>
+                )}
+              </div>
+              <button
+                onClick={() => setSetPickerOpen(false)}
+                className="mt-0.5 text-muted-foreground hover:text-foreground transition-colors text-lg leading-none"
+                aria-label="Close"
+              >
+                ×
+              </button>
+            </div>
+
+            {/* Set list */}
+            <div className="overflow-y-auto max-h-[50vh] px-4 py-3 space-y-2">
+              {sets.length === 0 && (
+                <p className="text-center py-6 text-sm text-muted-foreground">No sets registered yet.</p>
+              )}
+              {sets.map(s => {
+                const total = Object.values(s.quantities).reduce((acc, n) => acc + n, 0)
+                const preview = Object.entries(s.quantities)
+                  .filter(([, v]) => v > 0)
+                  .map(([k, v]) => `${k}×${v}`)
+                  .join(', ')
+                return (
+                  <button
+                    key={s.id}
+                    type="button"
+                    onClick={() => handlePickSet({ ...s.quantities })}
+                    className="w-full rounded-2xl bg-muted/60 px-5 py-3.5 text-left hover:bg-muted active:scale-[0.98] transition-all"
+                  >
+                    {/* Row 1: name + total */}
+                    <div className="flex items-baseline justify-between gap-3">
+                      <span className="text-base font-bold text-foreground">{s.name}</span>
+                      <span className="shrink-0 text-base font-bold text-foreground tabular-nums">
+                        {total} <span className="text-xs font-normal text-muted-foreground">pairs</span>
+                      </span>
+                    </div>
+                    {/* Row 2: full sizes — wraps, never truncates */}
+                    <p className="text-xs text-muted-foreground font-mono mt-1 leading-relaxed break-all">
+                      {preview || '—'}
+                    </p>
+                  </button>
+                )
+              })}
+            </div>
+
+            {/* Footer */}
+            <div className="px-4 pb-5 pt-3 border-t border-border">
+              <button
+                onClick={() => setSetPickerOpen(false)}
+                className="w-full rounded-2xl border border-border bg-background px-4 py-4 text-base font-medium text-foreground hover:bg-muted transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
-      {/* ── Set confirmation dialog ── */}
+      {/* ── Set confirmation dialog (when matrix already has values) ── */}
       {setConfirm && (
         <ConfirmDialog
           title="Replace current quantities?"
           message={<>This will replace the quantities currently entered for <strong>{selectedColor?.colorName}</strong>.</>}
           confirmLabel="Apply Set"
-          onCancel={() => setSetConfirm(false)}
+          onCancel={() => { setSetConfirm(false); setPendingSetQties(null) }}
           onConfirm={confirmApplySet}
         />
       )}

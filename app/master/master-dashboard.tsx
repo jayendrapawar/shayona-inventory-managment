@@ -8,6 +8,8 @@ import { VendorsTab } from './vendors-tab'
 import type { Vendor } from './vendors-tab'
 import { ArticlesTab } from './articles-tab'
 import type { Article } from './articles-tab'
+import { SetsTab } from './sets-tab'
+import type { OrderSet } from './sets-tab'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { PageNav } from '@/components/page-nav'
 
@@ -133,17 +135,19 @@ interface Props {
   currentUserId: string
   vendors: Vendor[]
   articles: Article[]
+  sets: OrderSet[]
   /** When true, only Vendors and Articles tabs are shown (hides Users tab) — used for accountant role */
   isAccountant?: boolean
 }
 
 const ROLES: AppRole[] = ['admin', 'accountant', 'salesman', 'picker', 'dispatcher', 'user']
 
-export function MasterDashboard({ users, currentUserId, vendors: initialVendors, articles: initialArticles, isAccountant = false }: Props) {
+export function MasterDashboard({ users, currentUserId, vendors: initialVendors, articles: initialArticles, sets: initialSets, isAccountant = false }: Props) {
   const [isPending, startTransition] = useTransition()
   const [search, setSearch] = useState('')
   const [vendorList, setVendorList] = useState<Vendor[]>(initialVendors)
   const [articleList, setArticleList] = useState<Article[]>(initialArticles)
+  const [setList, setSetList] = useState<OrderSet[]>(initialSets)
 
   const filteredUsers = users.filter(u =>
     !search ||
@@ -158,12 +162,14 @@ export function MasterDashboard({ users, currentUserId, vendors: initialVendors,
   }
 
   const defaultTab = isAccountant ? 'vendors' : 'users'
+  // Admin tab count — sets tab shown only for admin
+  const isAdmin = !isAccountant
 
   return (
     <div className="min-h-screen bg-background">
       <div className="max-w-5xl mx-auto px-4 py-6">
         <div className="flex items-center justify-between mb-6">
-          <PageHeader title="Master" subtitle={isAccountant ? 'Vendors & articles' : 'User management & vendors'} />
+          <PageHeader title="Master" subtitle={isAccountant ? 'Vendors & articles' : 'User management, vendors & sets'} />
           <PageNav />
         </div>
 
@@ -189,11 +195,12 @@ export function MasterDashboard({ users, currentUserId, vendors: initialVendors,
         <Tabs defaultValue={defaultTab} className="w-full">
           <TabsList
             className="grid w-full mb-6"
-            style={{ gridTemplateColumns: isAccountant ? 'repeat(2, minmax(0, 1fr))' : 'repeat(3, minmax(0, 1fr))' }}
+            style={{ gridTemplateColumns: isAccountant ? 'repeat(2, minmax(0, 1fr))' : 'repeat(4, minmax(0, 1fr))' }}
           >
             {!isAccountant && <TabsTrigger value="users"    className="text-xs sm:text-sm">Users ({users.length})</TabsTrigger>}
             <TabsTrigger value="vendors"  className="text-xs sm:text-sm">Vendors ({vendorList.length})</TabsTrigger>
             <TabsTrigger value="articles" className="text-xs sm:text-sm">Articles ({articleList.length})</TabsTrigger>
+            {isAdmin && <TabsTrigger value="sets" className="text-xs sm:text-sm">Sets ({setList.length})</TabsTrigger>}
           </TabsList>
 
           {/* ── Users tab — hidden for accountant ── */}
@@ -292,6 +299,13 @@ export function MasterDashboard({ users, currentUserId, vendors: initialVendors,
           <TabsContent value="articles">
             <ArticlesTab initialArticles={articleList} onListChange={setArticleList} />
           </TabsContent>
+
+          {/* ── Sets tab (admin only) ── */}
+          {isAdmin && (
+            <TabsContent value="sets">
+              <SetsTab initialSets={setList} onListChange={setSetList} />
+            </TabsContent>
+          )}
 
         </Tabs>
       </div>

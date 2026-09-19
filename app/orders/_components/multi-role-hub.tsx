@@ -8,6 +8,7 @@ import { BillerDashboard } from '../biller/biller-dashboard'
 import { DispatcherDashboard } from '../dispatcher/dispatcher-dashboard'
 import type { CatalogueData } from '@/app/actions/catalogue'
 import type { BillingVendor } from '@/components/billing-scanner-page'
+import type { OrderSet } from '@/app/actions/sets'
 
 interface Props {
   roles: string[]
@@ -19,6 +20,7 @@ interface Props {
   currentBillerId: string
   dispatcherOrders: any[]
   catalogue: CatalogueData
+  sets: OrderSet[]
   billingVendors?: BillingVendor[]
 }
 
@@ -98,6 +100,7 @@ export function MultiRoleOrdersHub({
   currentBillerId,
   dispatcherOrders,
   catalogue,
+  sets,
   billingVendors = [],
 }: Props) {
   const hasSalesman   = roles.includes('salesman')
@@ -140,7 +143,7 @@ export function MultiRoleOrdersHub({
         <GridTabBar tabs={TABS} active={activeTab} onChange={handleTabChange} />
 
         {hasSalesman && activeTab === 'salesman' && (
-          <SalesmanDashboard orders={salesmanOrders} userName={userName} embedded catalogue={catalogue} />
+          <SalesmanDashboard orders={salesmanOrders} userName={userName} embedded catalogue={catalogue} sets={sets} />
         )}
 
         {hasPicker && activeTab === 'picker' && (

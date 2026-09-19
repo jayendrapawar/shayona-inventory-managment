@@ -11,6 +11,7 @@ import { ProcurementSummary } from './procurement-summary'
 import type { ProcurementRow } from '@/app/actions/orders'
 import type { CatalogueData } from '@/app/actions/catalogue'
 import type { BillingVendor } from '@/components/billing-scanner-page'
+import type { OrderSet } from '@/app/actions/sets'
 
 // ── Prop types (mirroring what each dashboard expects) ────────────────────────
 
@@ -81,6 +82,7 @@ interface Props {
   dispatchOrders: DispatchOrder[]
   procurementRows: ProcurementRow[]
   catalogue: CatalogueData
+  sets: OrderSet[]
   billingVendors?: BillingVendor[]
 }
 
@@ -175,6 +177,7 @@ export function AdminHub({
   dispatchOrders,
   procurementRows,
   catalogue,
+  sets,
   billingVendors = [],
 }: Props) {
   // Shared picker assignment map — owned here so Overview + Picker tab stay in sync
@@ -252,7 +255,7 @@ export function AdminHub({
         )}
 
         {activeTab === 'salesman' && (
-          <SalesmanDashboard orders={salesmanOrders} userName={adminName} embedded catalogue={catalogue} />
+          <SalesmanDashboard orders={salesmanOrders} userName={adminName} embedded catalogue={catalogue} sets={sets} />
         )}
 
         {showPicker && activeTab === 'picker' && (

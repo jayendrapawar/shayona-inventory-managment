@@ -9,6 +9,7 @@ import { getAllUsers } from '@/app/actions/users'
 import { MasterDashboard } from './master-dashboard'
 import { getVendors } from '@/app/actions/vendors'
 import { getArticles } from '@/app/actions/articles'
+import { getSets } from '@/app/actions/sets'
 
 export const metadata = {
   title: 'Master - Shayona Inventory',
@@ -31,10 +32,11 @@ export default async function MasterPage() {
     redirect('/sign-in')
   }
 
-  const [allUsers, vendors, articles] = await Promise.all([
+  const [allUsers, vendors, articles, sets] = await Promise.all([
     getAllUsers(),
     getVendors(),
     getArticles(),
+    getSets(),
   ])
 
   return (
@@ -43,6 +45,7 @@ export default async function MasterPage() {
       currentUserId={currentUserId}
       vendors={vendors}
       articles={articles}
+      sets={sets}
       isAccountant={isAccountant}
     />
   )

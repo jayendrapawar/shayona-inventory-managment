@@ -7,6 +7,7 @@ import { eq, asc } from 'drizzle-orm'
 import { isRedirectError } from 'next/dist/client/components/redirect-error'
 import { getSalesmanOrders, getPickerQueue, getBillerQueue, getPackedOrders } from '@/app/actions/orders'
 import { loadCatalogue } from '@/app/actions/catalogue'
+import { getSets } from '@/app/actions/sets'
 import { MultiRoleOrdersHub } from './_components/multi-role-hub'
 import type { BillingVendor } from '@/components/billing-scanner-page'
 
@@ -82,9 +83,10 @@ export default async function OrdersPage() {
       )
     }
 
-    const [catalogue, vendorRows] = await Promise.all([
+    const [catalogue, vendorRows, sets] = await Promise.all([
       loadCatalogue(),
       db.select().from(vendors).where(eq(vendors.status, 'active')).orderBy(asc(vendors.partyName)),
+      getSets(),
       ...promises,
     ])
 
@@ -107,6 +109,7 @@ export default async function OrdersPage() {
         currentBillerId={u?.id ?? session.user.id}
         dispatcherOrders={dispatcherOrders}
         catalogue={catalogue}
+        sets={sets}
         billingVendors={billingVendors}
       />
     )
