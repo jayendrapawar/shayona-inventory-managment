@@ -96,8 +96,23 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
   // Accumulates manual overrides that fill the remaining gap after QR scans.
   const [manualEntries, setManualEntries] = useState<Record<string, { qty: number; mrp: number }[]>>({})
 
+  // ── Undo history: stack of actions (QR scan, manual add, manual edit) ─────────
+  type ScanAction =
+    | { type: 'qr'; key: string; raw: string; label: string }
+    | { type: 'manual_add'; key: string; entry: { qty: number; mrp: number }; label: string }
+    | { type: 'manual_edit'; key: string; prevEntries: { qty: number; mrp: number }[]; prevKeyScannedQty: number; label: string }
+
+  const [scanHistory, setScanHistory] = useState<ScanAction[]>([])
+
   // ── Manual verify modal state ────────────────────────────────────────────────
-  interface ManualVerifyTarget { item: DetailItem; artNumber: string; color: string; remaining: number }
+  interface ManualVerifyTarget {
+    item: DetailItem
+    artNumber: string
+    color: string
+    remaining: number      // slots still free (0 when editing an already-full row)
+    isEdit?: boolean       // true = replacing existing manual entries
+    editMaxQty?: number    // max qty allowed when editing (= totalPkd - scannedQrCount)
+  }
   const [manualTarget, setManualTarget] = useState<ManualVerifyTarget | null>(null)
   const [manualQty,   setManualQty]   = useState<number | ''>(1)
   const [manualPrice, setManualPrice] = useState<number | ''>('')
@@ -167,6 +182,9 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
         const savedManualEntries = localStorage.getItem('biller_manualEntries')
         if (savedManualEntries) setManualEntries(JSON.parse(savedManualEntries))
 
+        const savedScanHistory = localStorage.getItem('biller_scanHistory')
+        if (savedScanHistory) setScanHistory(JSON.parse(savedScanHistory))
+
         const savedExpandedArticle = localStorage.getItem('biller_expandedArticle')
         if (savedExpandedArticle) setExpandedArticle(savedExpandedArticle)
 
@@ -205,6 +223,7 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
       localStorage.setItem('biller_scannedMap', JSON.stringify(scannedMap))
       localStorage.setItem('biller_scannedQrs', JSON.stringify(scannedQrs))
       localStorage.setItem('biller_manualEntries', JSON.stringify(manualEntries))
+      localStorage.setItem('biller_scanHistory', JSON.stringify(scanHistory))
       if (expandedArticle) {
         localStorage.setItem('biller_expandedArticle', expandedArticle)
       } else {
@@ -222,11 +241,12 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
       localStorage.removeItem('biller_scannedMap')
       localStorage.removeItem('biller_scannedQrs')
       localStorage.removeItem('biller_manualEntries')
+      localStorage.removeItem('biller_scanHistory')
       localStorage.removeItem('biller_expandedArticle')
       localStorage.removeItem('biller_showDevTracking')
       localStorage.removeItem('biller_lastScannedMsg')
     }
-  }, [scanOrder, scanItems, scannedMap, scannedQrs, manualEntries, expandedArticle, showDevTracking, lastScannedMsg])
+  }, [scanOrder, scanItems, scannedMap, scannedQrs, manualEntries, scanHistory, expandedArticle, showDevTracking, lastScannedMsg])
 
   useEffect(() => {
     localStorage.setItem('biller_mrpLinesMap', JSON.stringify(mrpLinesMap))
@@ -327,6 +347,10 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
     const successText = `${extArt} / ${extColor} / SZ(${extSize}) — ${current + 1}/${packed}`
     setScannedMap(prev => ({ ...prev, [key]: current + 1 }))
     setScannedQrs(prev => [...prev, raw])
+    setScanHistory(prev => [
+      ...prev,
+      { type: 'qr', key, raw, label: `${extArt} / SZ(${extSize})` }
+    ])
     setLastScannedMsg(successText)
     triggerFeedback()
     showMsg('ok', successText + devSuffix)
@@ -444,26 +468,30 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
   async function openScanner(order: BillerOrder) {
     // close detail panel if open
     setDetailOrder(null)
-    setScanOrder(order)
-    setScannedMap({})
-    setScannedQrs([])
-    setShowDevTracking(false)
-    setExpandedArticle(null)
-    setScanMsg(null)
-    setLastScannedMsg(null)
 
-    // load items if not already in detailItems for this order
-    let items = detailItems
-    if (!detailOrder || detailOrder.id !== order.id || detailItems.length === 0) {
+    const isSameOrder = scanOrder?.id === order.id
+
+    setScanOrder(order)
+    // Only reset verification state when opening a DIFFERENT order
+    if (!isSameOrder) {
+      setScannedMap({})
+      setScannedQrs([])
+      setManualEntries({})
+      setScanHistory([])
+      setShowDevTracking(false)
+      setExpandedArticle(null)
+      setScanMsg(null)
+      setLastScannedMsg(null)
+    }
+
+    // load items if not already loaded for this order
+    if (!isSameOrder || scanItems.length === 0) {
       try {
         const data = await getOrderWithItems(order.id)
-        items = data.items as DetailItem[]
-        setScanItems(items)
+        setScanItems(data.items as DetailItem[])
       } catch {
         setScanItems([])
       }
-    } else {
-      setScanItems(items)
     }
   }
 
@@ -474,6 +502,7 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
     setScannedMap({})
     setScannedQrs([])
     setManualEntries({})
+    setScanHistory([])
     setShowDevTracking(false)
     setExpandedArticle(null)
     setScanMsg(null)
@@ -489,25 +518,160 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
 
     const key = itemKey(manualTarget.item.artNumber, manualTarget.item.sizeNumber)
 
-    // Clamp to remaining capacity — cannot exceed what hasn't been scanned yet
-    const clamped = Math.min(qty, manualTarget.remaining)
-    if (clamped <= 0) return
+    if (manualTarget.isEdit) {
+      // Edit mode: replace all existing manual entries for this key with new single entry.
+      // Max allowed = totalPkd - QR-scanned count (scanned by camera, not manual)
+      const maxQty = manualTarget.editMaxQty ?? manualTarget.remaining
+      const clamped = Math.min(qty, maxQty)
+      if (clamped <= 0) return
 
-    // Accumulate into manualEntries for MRP line building at save time
-    setManualEntries(prev => {
-      const existing = prev[key] ?? []
-      return { ...prev, [key]: [...existing, { qty: clamped, mrp: price }] }
-    })
+      // Previous total manual qty for this key (to adjust scannedMap delta)
+      const prevEntries = manualEntries[key] ?? []
+      const prevManualQty = prevEntries.reduce((s, e) => s + e.qty, 0)
+      const prevKeyScannedQty = scannedMap[key] ?? 0
 
-    // Increment scannedMap so allVerified / progress pill update immediately
-    setScannedMap(prev => ({ ...prev, [key]: (prev[key] ?? 0) + clamped }))
+      setManualEntries(prev => ({ ...prev, [key]: [{ qty: clamped, mrp: price }] }))
 
-    // Update last scanned message
-    const msg = `${manualTarget.artNumber} / MANUAL / SZ(${manualTarget.item.sizeNumber ?? '?'}) — ${clamped} verified`
-    setLastScannedMsg(msg)
-    showMsg('ok', msg)
+      // Adjust scannedMap: remove old manual contribution, add new
+      setScannedMap(prev => ({
+        ...prev,
+        [key]: Math.max(0, (prev[key] ?? 0) - prevManualQty + clamped),
+      }))
+
+      setScanHistory(prev => [
+        ...prev,
+        {
+          type: 'manual_edit',
+          key,
+          prevEntries,
+          prevKeyScannedQty,
+          label: `${manualTarget.artNumber} / SZ(${manualTarget.item.sizeNumber ?? '?'}) (edit)`
+        }
+      ])
+
+      const msg = `${manualTarget.artNumber} / MANUAL / SZ(${manualTarget.item.sizeNumber ?? '?'}) — updated to ${clamped}`
+      setLastScannedMsg(msg)
+      showMsg('ok', msg)
+    } else {
+      // Add mode: clamp to remaining capacity
+      const clamped = Math.min(qty, manualTarget.remaining)
+      if (clamped <= 0) return
+
+      setManualEntries(prev => {
+        const existing = prev[key] ?? []
+        return { ...prev, [key]: [...existing, { qty: clamped, mrp: price }] }
+      })
+
+      setScannedMap(prev => ({ ...prev, [key]: (prev[key] ?? 0) + clamped }))
+
+      setScanHistory(prev => [
+        ...prev,
+        {
+          type: 'manual_add',
+          key,
+          entry: { qty: clamped, mrp: price },
+          label: `${manualTarget.artNumber} / SZ(${manualTarget.item.sizeNumber ?? '?'}) (+${clamped})`
+        }
+      ])
+
+      const msg = `${manualTarget.artNumber} / MANUAL / SZ(${manualTarget.item.sizeNumber ?? '?'}) — ${clamped} verified`
+      setLastScannedMsg(msg)
+      showMsg('ok', msg)
+    }
 
     setManualTarget(null)
+  }
+
+  // ── undo last operation ──────────────────────────────────────────────────────
+  function handleUndo() {
+    if (scanHistory.length === 0) return
+
+    const lastAction = scanHistory[scanHistory.length - 1]
+    setScanHistory(prev => prev.slice(0, -1))
+
+    if (lastAction.type === 'qr') {
+      // Revert QR scan
+      setScannedMap(prev => {
+        const next = { ...prev }
+        const current = next[lastAction.key] ?? 0
+        if (current <= 1) {
+          delete next[lastAction.key]
+        } else {
+          next[lastAction.key] = current - 1
+        }
+        return next
+      })
+
+      // Remove the exact scanned QR (remove the last occurrence)
+      setScannedQrs(prev => {
+        const idx = prev.lastIndexOf(lastAction.raw)
+        if (idx !== -1) {
+          const next = [...prev]
+          next.splice(idx, 1)
+          return next
+        }
+        return prev.slice(0, -1)
+      })
+
+      showMsg('warn', `Undid QR scan: ${lastAction.label}`)
+      setLastScannedMsg(`Undid: ${lastAction.label}`)
+    } else if (lastAction.type === 'manual_add') {
+      // Revert manual add: remove the added entry & deduct qty from scannedMap
+      const { key, entry, label } = lastAction
+      setManualEntries(prev => {
+        const list = prev[key] ?? []
+        // Find and remove the matching entry from the end of the list
+        const idx = list.map(e => `${e.qty}_${e.mrp}`).lastIndexOf(`${entry.qty}_${entry.mrp}`)
+        const nextList = idx !== -1 ? list.filter((_, i) => i !== idx) : list.slice(0, -1)
+        const next = { ...prev }
+        if (nextList.length === 0) {
+          delete next[key]
+        } else {
+          next[key] = nextList
+        }
+        return next
+      })
+
+      setScannedMap(prev => {
+        const next = { ...prev }
+        const current = next[key] ?? 0
+        const rem = current - entry.qty
+        if (rem <= 0) {
+          delete next[key]
+        } else {
+          next[key] = rem
+        }
+        return next
+      })
+
+      showMsg('warn', `Undid manual entry: ${label}`)
+      setLastScannedMsg(`Undid: ${label}`)
+    } else if (lastAction.type === 'manual_edit') {
+      // Revert manual edit: restore previous manualEntries and previous scannedMap count
+      const { key, prevEntries, prevKeyScannedQty, label } = lastAction
+      setManualEntries(prev => {
+        const next = { ...prev }
+        if (prevEntries.length === 0) {
+          delete next[key]
+        } else {
+          next[key] = prevEntries
+        }
+        return next
+      })
+
+      setScannedMap(prev => {
+        const next = { ...prev }
+        if (prevKeyScannedQty <= 0) {
+          delete next[key]
+        } else {
+          next[key] = prevKeyScannedQty
+        }
+        return next
+      })
+
+      showMsg('warn', `Undid manual edit: ${label}`)
+      setLastScannedMsg(`Undid: ${label}`)
+    }
   }
 
   // ── save bill ────────────────────────────────────────────────────────────────
@@ -607,12 +771,24 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
       return next
     })
     if (!printItemsMap[id]) {
-      setPrintLoadingIds(prev => new Set(prev).add(id))
-      try {
-        const { items } = await getOrderWithItems(id)
-        setPrintItemsMap(prev => ({ ...prev, [id]: items as DetailItem[] }))
-      } finally {
-        setPrintLoadingIds(prev => { const s = new Set(prev); s.delete(id); return s })
+      // Emergency bills have no orderItems rows — mark as loaded with empty array.
+      // Their actual bill lines come from mrpLinesMap (already in-memory or fetched on view).
+      if (order.isEmergency) {
+        setPrintItemsMap(prev => ({ ...prev, [id]: [] }))
+        // If bill lines not yet in session, fetch them now so confirmPrint can use them
+        if (!mrpLinesMap[id]) {
+          getBillLines(id).then(rows => {
+            if (rows.length > 0) setMrpLinesMap(prev => ({ ...prev, [id]: rows }))
+          }).catch(() => {})
+        }
+      } else {
+        setPrintLoadingIds(prev => new Set(prev).add(id))
+        try {
+          const { items } = await getOrderWithItems(id)
+          setPrintItemsMap(prev => ({ ...prev, [id]: items as DetailItem[] }))
+        } finally {
+          setPrintLoadingIds(prev => { const s = new Set(prev); s.delete(id); return s })
+        }
       }
     }
   }
@@ -852,7 +1028,7 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
                 embedded
                 onBillSaved={async (data) => {
                   const result = await createEmergencyBill(data)
-                  setOrders(prev => [{
+                  const newOrder: BillerOrder = {
                     id:                result.id,
                     orderNumber:       result.orderNumber,
                     shopkeeperName:    data.shopkeeperName,
@@ -864,11 +1040,15 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
                     billerId:          currentBillerId,
                     salesmanId:        null,
                     isEmergency:       true,
-                  }, ...prev])
+                  }
+                  setOrders(prev => [newOrder, ...prev])
                   setMrpLinesMap(prev => ({
                     ...prev,
                     [result.id]: data.lines.map(l => ({ artNumber: l.artNumber, mrp: l.mrp, qty: l.qty })),
                   }))
+                  // Pre-mark as loaded (no orderItems for emergency bills) and auto-select for print
+                  setPrintItemsMap(prev => ({ ...prev, [result.id]: [] }))
+                  setPrintSelectedIds(prev => new Set([...prev, result.id]))
                   setActiveTab('generated')
                 }}
               />
@@ -940,7 +1120,10 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
                     {billedOrders.map(order => {
                       const checked = printSelectedIds.has(order.id)
                       const loading = printLoadingIds.has(order.id)
-                      const pairs = printItemsMap[order.id]?.reduce((s, i) => s + (i.status === 'out_of_stock' ? 0 : i.quantityPacked), 0) ?? null
+                      // For emergency bills: use qty from mrpLinesMap (no orderItems); for normal bills: use packed qty from printItemsMap
+                      const pairs = order.isEmergency
+                        ? (mrpLinesMap[order.id]?.reduce((s, l) => s + l.qty, 0) ?? null)
+                        : (printItemsMap[order.id]?.reduce((s, i) => s + (i.status === 'out_of_stock' ? 0 : i.quantityPacked), 0) ?? null)
 
                       return (
                         <div
@@ -993,7 +1176,7 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
                             )}
                             {checked && !loading && pairs !== null && (
                               <span className="inline-flex items-center rounded-full bg-blue-100 dark:bg-blue-900/30 px-2 py-0.5 text-[10px] font-semibold text-blue-700 dark:text-blue-400">
-                                {pairs} pairs
+                                {pairs} {order.isEmergency ? 'boxes' : 'pairs'}
                               </span>
                             )}
                             {!checked && <StatusPill status={order.status} />}
@@ -1339,6 +1522,24 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
                 </button>
               )}
 
+              {/* Print Bill — available for any billed order */}
+              {detailOrder.status === 'billed' && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const order = detailOrder
+                    setDetailOrder(null)
+                    handlePrintBills([order])
+                  }}
+                  className="w-full rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 transition-colors flex items-center justify-center gap-2"
+                >
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+                  </svg>
+                  Print Bill
+                </button>
+              )}
+
               {/* Delete button — only for emergency bills */}
               {detailOrder.isEmergency && (
                 <button
@@ -1516,18 +1717,57 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
                 <p className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground/80">
                   Order items
                 </p>
-                <button
-                  type="button"
-                  onClick={() => setShowDevTracking(!showDevTracking)}
-                  className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[10px] font-semibold transition-all border ${
-                    showDevTracking
-                      ? 'bg-blue-500/10 border-blue-500/30 text-blue-600 dark:text-blue-400 shadow-sm'
-                      : 'bg-muted/50 border-border text-muted-foreground hover:bg-muted'
-                  }`}
-                >
-                  <span className={`w-1.5 h-1.5 rounded-full transition-colors ${showDevTracking ? 'bg-blue-500 animate-pulse' : 'bg-muted-foreground/40'}`} />
-                  Developer Mode
-                </button>
+                <div className="flex items-center gap-2">
+                  {/* Reset verification — clears all scanned + manual state */}
+                  {(Object.keys(scannedMap).length > 0 || scannedQrs.length > 0 || Object.keys(manualEntries).length > 0) && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setScannedMap({})
+                        setScannedQrs([])
+                        setManualEntries({})
+                        setScanHistory([])
+                        setLastScannedMsg(null)
+                        setScanMsg(null)
+                      }}
+                      className="inline-flex items-center gap-1 rounded-full px-3 py-1 text-[10px] font-semibold border border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-950/10 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-950/20 transition-all"
+                    >
+                      <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                      </svg>
+                      Reset
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setShowDevTracking(!showDevTracking)}
+                    className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[10px] font-semibold transition-all border ${
+                      showDevTracking
+                        ? 'bg-blue-500/10 border-blue-500/30 text-blue-600 dark:text-blue-400 shadow-sm'
+                        : 'bg-muted/50 border-border text-muted-foreground hover:bg-muted'
+                    }`}
+                  >
+                    <span className={`w-1.5 h-1.5 rounded-full transition-colors ${showDevTracking ? 'bg-blue-500 animate-pulse' : 'bg-muted-foreground/40'}`} />
+                    Developer Mode
+                  </button>
+                  {/* Undo last scan or manual operation */}
+                  <button
+                    type="button"
+                    disabled={scanHistory.length === 0}
+                    onClick={handleUndo}
+                    title={scanHistory.length > 0 ? `Undo ${scanHistory[scanHistory.length - 1].label}` : 'No actions to undo'}
+                    className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-[10px] font-semibold transition-all border ${
+                      scanHistory.length > 0
+                        ? 'border-amber-300 dark:border-amber-700/60 bg-amber-50 dark:bg-amber-950/20 text-amber-700 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-950/40 active:scale-95 shadow-sm'
+                        : 'border-border/50 bg-muted/30 text-muted-foreground/40 cursor-not-allowed'
+                    }`}
+                  >
+                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a5 5 0 015 5v2m0 0l-4-4m4 4l4-4M3 10l4-4m-4 4l4 4" />
+                    </svg>
+                    Undo
+                  </button>
+                </div>
               </div>
 
               {scanArticleGroups.map(({ artNumber, sizeGroups }) => {
@@ -1641,21 +1881,50 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
                                        String(p.size).toUpperCase() === (sizeItems[0].sizeNumber ?? '').toUpperCase()
                               }) : []
 
+                              // QR-only scanned count (excludes manual) — used to cap edit qty
+                              const qrScannedCount = (() => {
+                                let c = 0
+                                scannedQrs.forEach(raw => {
+                                  if (!isValidWarehouseQr(raw)) return
+                                  const p = parseQr(raw)
+                                  if (articlesMatch(p.articleCode, sizeItems[0].artNumber) &&
+                                      String(p.size).toUpperCase() === (sizeItems[0].sizeNumber ?? '').toUpperCase()) c++
+                                })
+                                return c
+                              })()
+                              const hasManual   = (manualEntries[key] ?? []).length > 0
+                              const canEdit     = !allOOS && hasManual && remaining <= 0
+                              const canAdd      = !allOOS && remaining > 0
+                              const isClickable = canAdd || canEdit
+
                               return (
                                 <tr
                                   key={size}
-                                  onClick={allOOS || remaining <= 0 ? undefined : () => {
-                                    // Use the first non-OOS item as representative for the modal
+                                  onClick={isClickable ? () => {
                                     const repItem = sizeItems.find(i => i.status !== 'out_of_stock') ?? sizeItems[0]
-                                    setManualTarget({ item: repItem, artNumber, color: '', remaining })
-                                    setManualQty(remaining)
-                                    setManualPrice('')
-                                  }}
+                                    if (canEdit) {
+                                      // Edit mode: pre-fill with existing manual total + last MRP
+                                      const entries = manualEntries[key] ?? []
+                                      const totalManualQty = entries.reduce((s, e) => s + e.qty, 0)
+                                      const lastMrp = entries[entries.length - 1]?.mrp ?? ''
+                                      // Max allowed = packed - QR scanned (manual slots only)
+                                      const editMaxQty = Math.max(0, totalPkd - qrScannedCount)
+                                      setManualTarget({ item: repItem, artNumber, color: '', remaining: 0, isEdit: true, editMaxQty })
+                                      setManualQty(totalManualQty)
+                                      setManualPrice(lastMrp)
+                                    } else {
+                                      setManualTarget({ item: repItem, artNumber, color: '', remaining })
+                                      setManualQty(remaining)
+                                      setManualPrice('')
+                                    }
+                                  } : undefined}
                                   className={`transition-colors select-none ${
                                     allOOS
                                       ? 'bg-red-50/10 dark:bg-red-950/5'
+                                      : canEdit
+                                      ? 'bg-blue-50/10 dark:bg-blue-950/5 hover:bg-blue-100/20 cursor-pointer active:bg-blue-100/30'
                                       : done
-                                      ? 'bg-blue-50/10 dark:bg-blue-950/5 hover:bg-blue-50/15'
+                                      ? 'bg-blue-50/10 dark:bg-blue-950/5'
                                       : remaining > 0
                                       ? 'hover:bg-amber-50/30 dark:hover:bg-amber-950/10 odd:bg-card/30 even:bg-muted/5 cursor-pointer active:bg-amber-100/40'
                                       : 'hover:bg-muted/10 odd:bg-card/30 even:bg-muted/5'
@@ -1785,12 +2054,20 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
             {/* Header */}
             <div className="px-5 pt-2 pb-3 border-b border-border">
               <p className="text-sm font-bold text-foreground">
-                Manual Verify — <span className="font-mono">{manualTarget.artNumber}</span>
+                {manualTarget.isEdit ? 'Edit Manual Verify' : 'Manual Verify'} — <span className="font-mono">{manualTarget.artNumber}</span>
               </p>
               <p className="text-xs text-muted-foreground mt-0.5">
-                Size {manualTarget.item.sizeNumber ?? '—'} ·{' '}
-                <span className="text-amber-600 dark:text-amber-400 font-semibold">{manualTarget.remaining} remaining</span>
+                Size {manualTarget.item.sizeNumber ?? '—'}
+                {manualTarget.isEdit
+                  ? <span className="ml-1 text-blue-600 dark:text-blue-400 font-semibold">· editing manual qty (max {manualTarget.editMaxQty})</span>
+                  : <> · <span className="text-amber-600 dark:text-amber-400 font-semibold">{manualTarget.remaining} remaining</span></>
+                }
               </p>
+              {manualTarget.isEdit && (
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  Scanned (QR) qty is locked — only manual qty &amp; price can be changed.
+                </p>
+              )}
             </div>
 
             {/* Inputs */}
@@ -1817,24 +2094,29 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
               </div>
 
               {/* Qty */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-foreground">
-                  Qty to Verify <span className="text-red-500">*</span>
-                  <span className="ml-1.5 text-muted-foreground font-normal">(max {manualTarget.remaining})</span>
-                </label>
-                <input
-                  type="number"
-                  min="1"
-                  max={manualTarget.remaining}
-                  step="1"
-                  value={manualQty}
-                  onChange={e => {
-                    const v = parseInt(e.target.value)
-                    setManualQty(isNaN(v) ? '' : Math.min(v, manualTarget.remaining))
-                  }}
-                  className="w-full h-11 rounded-xl border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                />
-              </div>
+              {(() => {
+                const maxQty = manualTarget.isEdit ? (manualTarget.editMaxQty ?? 0) : manualTarget.remaining
+                return (
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-semibold text-foreground">
+                      {manualTarget.isEdit ? 'Manual Qty' : 'Qty to Verify'} <span className="text-red-500">*</span>
+                      <span className="ml-1.5 text-muted-foreground font-normal">(max {maxQty})</span>
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      max={maxQty}
+                      step="1"
+                      value={manualQty}
+                      onChange={e => {
+                        const v = parseInt(e.target.value)
+                        setManualQty(isNaN(v) ? '' : Math.min(v, maxQty))
+                      }}
+                      className="w-full h-11 rounded-xl border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                    />
+                  </div>
+                )
+              })()}
             </div>
 
             {/* Actions */}
@@ -1852,7 +2134,7 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
                 onClick={handleManualConfirm}
                 className="flex-1 h-11 rounded-xl bg-blue-600 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               >
-                Confirm
+                {manualTarget.isEdit ? 'Update' : 'Confirm'}
               </button>
             </div>
           </div>
