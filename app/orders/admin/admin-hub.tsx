@@ -10,6 +10,7 @@ import { DispatcherDashboard } from '../dispatcher/dispatcher-dashboard'
 import { ProcurementSummary } from './procurement-summary'
 import type { ProcurementRow } from '@/app/actions/orders'
 import type { CatalogueData } from '@/app/actions/catalogue'
+import type { BillingVendor } from '@/components/billing-scanner-page'
 
 // ── Prop types (mirroring what each dashboard expects) ────────────────────────
 
@@ -80,6 +81,7 @@ interface Props {
   dispatchOrders: DispatchOrder[]
   procurementRows: ProcurementRow[]
   catalogue: CatalogueData
+  billingVendors?: BillingVendor[]
 }
 
 // ── Grid-based tab bar ────────────────────────────────────────────────────────
@@ -173,6 +175,7 @@ export function AdminHub({
   dispatchOrders,
   procurementRows,
   catalogue,
+  billingVendors = [],
 }: Props) {
   // Shared picker assignment map — owned here so Overview + Picker tab stay in sync
   const [sharedPickerMap, setSharedPickerMap] = useState<Record<number, string>>(() =>
@@ -261,8 +264,10 @@ export function AdminHub({
           />
         )}
 
-        {showBiller && activeTab === 'biller' && (
-          <BillerDashboard orders={billerOrders} currentBillerId={adminId} embedded />
+        {showBiller && (
+          <div className={activeTab === 'biller' ? '' : 'hidden'}>
+            <BillerDashboard orders={billerOrders} currentBillerId={adminId} vendors={billingVendors} embedded />
+          </div>
         )}
 
         {showDispatcher && activeTab === 'dispatcher' && (

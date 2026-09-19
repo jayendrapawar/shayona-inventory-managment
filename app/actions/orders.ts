@@ -285,7 +285,7 @@ export async function getBillLines(orderId: number) {
 }
 
 export async function getOrderWithItems(orderId: number) {
-  await requireRole('picker', 'dispatcher', 'admin', 'salesman', 'accountant')
+  await requireRole('picker', 'dispatcher', 'admin', 'salesman', 'accountant', 'biller')
   const [order] = await db.select().from(orders).where(eq(orders.id, orderId)).limit(1)
   if (!order) throw new Error('Order not found')
   const items = await db.select().from(orderItems).where(eq(orderItems.orderId, orderId))
@@ -370,6 +370,7 @@ export async function getBillerQueue() {
       billedAt: orders.billedAt,
       billerId: orders.billerId,
       salesmanId: orders.salesmanId,
+      isEmergency: orders.isEmergency,
     })
     .from(orders)
     .where(inArray(orders.status, ['packed', 'billed']))
@@ -377,13 +378,14 @@ export async function getBillerQueue() {
 }
 
 /** Biller marks an order as billed — moves it to the dispatcher queue */
-export async function markBilled(orderId: number) {
+export async function markBilled(orderId: number, isEmergency = false) {
   const u = await requireRole('biller', 'admin')
   await db.update(orders)
     .set({
       status: 'billed',
       billerId: u.id,
       billedAt: sql`now()`,
+      isEmergency,
       updatedAt: sql`now()`,
     })
     .where(eq(orders.id, orderId))
@@ -391,6 +393,48 @@ export async function markBilled(orderId: number) {
   revalidatePath('/orders/admin')
   revalidatePath('/orders/biller')
   revalidatePath('/orders/dispatcher')
+}
+
+/**
+ * Create a standalone emergency bill from the Billing Scanner.
+ * Creates a new order (status=billed, isEmergency=true) + bill_lines in one shot.
+ * Returns the new order id + orderNumber so the caller can refresh the Receipts tab.
+ */
+export async function createEmergencyBill(input: {
+  shopkeeperName: string
+  shopkeeperPhone: string | null
+  shopkeeperAddress: string | null
+  lines: { artNumber: string; mrp: number; qty: number }[]
+  lineDiscPct: number
+}) {
+  const u = await requireRole('biller', 'admin')
+  const orderNumber = genOrderNumber()
+  const [order] = await db.insert(orders).values({
+    orderNumber,
+    shopkeeperName: input.shopkeeperName,
+    shopkeeperPhone: input.shopkeeperPhone,
+    shopkeeperAddress: input.shopkeeperAddress,
+    billerId: u.id,
+    status: 'billed',
+    isEmergency: true,
+    billedAt: sql`now()`,
+  }).returning()
+
+  if (input.lines.length > 0) {
+    await db.insert(billLines).values(
+      input.lines.map(l => ({
+        orderId: order.id,
+        artNumber: l.artNumber,
+        mrp: String(l.mrp),
+        qty: l.qty,
+        lineDiscPct: String(input.lineDiscPct),
+      }))
+    )
+  }
+
+  revalidatePath('/orders/biller')
+  revalidatePath('/orders/admin')
+  return { id: order.id, orderNumber: order.orderNumber }
 }
 
 /** Biller sends order back to salesman for editing (resets to pending) */
@@ -463,6 +507,14 @@ export async function deleteOrder(orderId: number) {
   await requireRole('admin')
   await db.delete(orders).where(eq(orders.id, orderId))
   revalidatePath('/orders')
+  revalidatePath('/orders/admin')
+}
+
+/** Biller can delete emergency-tagged orders they generated */
+export async function deleteEmergencyBill(orderId: number) {
+  await requireRole('biller', 'admin')
+  await db.delete(orders).where(and(eq(orders.id, orderId), eq(orders.isEmergency, true)))
+  revalidatePath('/orders/biller')
   revalidatePath('/orders/admin')
 }
 

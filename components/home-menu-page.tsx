@@ -39,8 +39,8 @@ const MENU_ITEMS: MenuItem[] = [
   },
   {
     label: 'Billing',
-    description: 'Invoices and payment records',
-    href: '/billing',
+    description: 'Coming soon',
+    href: '#',
     icon: Receipt,
     color: 'bg-purple-50 text-purple-600 dark:bg-purple-950 dark:text-purple-400',
     border: 'border-purple-200 dark:border-purple-800',
@@ -93,24 +93,35 @@ export function HomeMenuPage({ role }: { role: string }) {
         </div>
 
         <div className="grid grid-cols-2 gap-4">
-          {visible.map(({ label, description, href, icon: Icon, color, border, badge }) => (
-            <button
-              key={href}
-              onClick={() => router.push(href)}
-              className={`relative flex flex-col items-center gap-3 rounded-2xl border ${border} bg-card p-6 text-center shadow-sm transition-all duration-150 hover:shadow-md active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring`}
-            >
-              {badge && (
-                <span className="absolute top-2.5 right-2.5 rounded-full bg-green-500 px-1.5 py-0.5 text-[10px] font-semibold text-white leading-none">
-                  {badge}
+          {visible.map(({ label, description, href, icon: Icon, color, border, badge }) => {
+            const disabled = href === '#'
+            return (
+              <button
+                key={label}
+                onClick={() => { if (!disabled) router.push(href) }}
+                disabled={disabled}
+                className={`relative flex flex-col items-center gap-3 rounded-2xl border ${border} bg-card p-6 text-center shadow-sm transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                  disabled ? 'opacity-60 cursor-not-allowed' : 'hover:shadow-md active:scale-95'
+                }`}
+              >
+                {badge && (
+                  <span className="absolute top-2.5 right-2.5 rounded-full bg-green-500 px-1.5 py-0.5 text-[10px] font-semibold text-white leading-none">
+                    {badge}
+                  </span>
+                )}
+                {disabled && (
+                  <span className="absolute top-2.5 right-2.5 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground leading-none">
+                    Soon
+                  </span>
+                )}
+                <span className={`flex h-14 w-14 items-center justify-center rounded-xl ${color}`}>
+                  <Icon className="h-7 w-7" />
                 </span>
-              )}
-              <span className={`flex h-14 w-14 items-center justify-center rounded-xl ${color}`}>
-                <Icon className="h-7 w-7" />
-              </span>
-              <span className="font-semibold text-foreground text-sm">{label}</span>
-              <span className="text-xs text-muted-foreground leading-snug">{description}</span>
-            </button>
-          ))}
+                <span className="font-semibold text-foreground text-sm">{label}</span>
+                <span className="text-xs text-muted-foreground leading-snug">{description}</span>
+              </button>
+            )
+          })}
         </div>
       </div>
     </div>

@@ -7,6 +7,7 @@ import { PickerDashboard } from '../picker/picker-dashboard'
 import { BillerDashboard } from '../biller/biller-dashboard'
 import { DispatcherDashboard } from '../dispatcher/dispatcher-dashboard'
 import type { CatalogueData } from '@/app/actions/catalogue'
+import type { BillingVendor } from '@/components/billing-scanner-page'
 
 interface Props {
   roles: string[]
@@ -18,6 +19,7 @@ interface Props {
   currentBillerId: string
   dispatcherOrders: any[]
   catalogue: CatalogueData
+  billingVendors?: BillingVendor[]
 }
 
 // ── Shared GridTabBar ─────────────────────────────────────────────────────────
@@ -96,6 +98,7 @@ export function MultiRoleOrdersHub({
   currentBillerId,
   dispatcherOrders,
   catalogue,
+  billingVendors = [],
 }: Props) {
   const hasSalesman   = roles.includes('salesman')
   const hasPicker     = roles.includes('picker')
@@ -144,8 +147,10 @@ export function MultiRoleOrdersHub({
           <PickerDashboard queue={pickerQueue} currentPickerId={currentPickerId} embedded />
         )}
 
-        {hasBiller && activeTab === 'biller' && (
-          <BillerDashboard orders={billerOrders} currentBillerId={currentBillerId} embedded />
+        {hasBiller && (
+          <div className={activeTab === 'biller' ? '' : 'hidden'}>
+            <BillerDashboard orders={billerOrders} currentBillerId={currentBillerId} vendors={billingVendors} embedded />
+          </div>
         )}
 
         {hasDispatcher && activeTab === 'dispatcher' && (

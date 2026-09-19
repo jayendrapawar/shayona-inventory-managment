@@ -2,11 +2,12 @@ import { headers } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
-import { user } from '@/lib/db/schema'
-import { eq } from 'drizzle-orm'
+import { user, vendors } from '@/lib/db/schema'
+import { eq, asc } from 'drizzle-orm'
 import { isRedirectError } from 'next/dist/client/components/redirect-error'
 import { getBillerQueue } from '@/app/actions/orders'
 import { BillerDashboard } from './biller-dashboard'
+import type { BillingVendor } from '@/components/billing-scanner-page'
 
 export const metadata = { title: 'Biller — Orders | Shayona' }
 
@@ -24,7 +25,18 @@ export default async function BillerPage() {
     redirect('/sign-in')
   }
 
-  const billerOrders = await getBillerQueue()
+  const [billerOrders, vendorRows] = await Promise.all([
+    getBillerQueue(),
+    db.select().from(vendors).where(eq(vendors.status, 'active')).orderBy(asc(vendors.partyName)),
+  ])
 
-  return <BillerDashboard orders={billerOrders} currentBillerId={currentBillerId} />
+  const billingVendors: BillingVendor[] = vendorRows.map(v => ({
+    id:      v.id,
+    name:    v.partyName,
+    code:    v.area   || null,
+    phone:   v.phone  || null,
+    address: [v.address, v.city].filter(Boolean).join(', ') || null,
+  }))
+
+  return <BillerDashboard orders={billerOrders} currentBillerId={currentBillerId} vendors={billingVendors} />
 }

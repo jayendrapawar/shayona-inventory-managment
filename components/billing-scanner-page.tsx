@@ -61,6 +61,7 @@ interface SearchComboboxProps<T> {
   renderOption: (item: T, active: boolean) => React.ReactNode
   getKey: (item: T) => string | number
   disabled?: boolean
+  dropUp?: boolean
 }
 
 interface SearchComboboxHandle {
@@ -71,6 +72,7 @@ const SearchCombobox = forwardRef(function SearchComboboxInner<T>(
   {
     id, label, required, placeholder, inputValue, onInputChange,
     onSelect, onClear, results, loading, renderOption, getKey, disabled,
+    dropUp = true,
   }: SearchComboboxProps<T>,
   ref: React.Ref<SearchComboboxHandle>,
 ) {
@@ -102,7 +104,7 @@ const SearchCombobox = forwardRef(function SearchComboboxInner<T>(
   useEffect(() => {
     if (results.length > 0) {
       setActiveIdx(0)
-      if (listRef.current) listRef.current.scrollTop = 0
+      if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight
     }
   }, [results])
 
@@ -172,7 +174,11 @@ const SearchCombobox = forwardRef(function SearchComboboxInner<T>(
           ref={listRef}
           role="listbox"
           aria-label={label}
-          className="absolute z-50 top-full mt-1 w-full rounded-xl border border-border bg-card shadow-xl overflow-hidden max-h-60 overflow-y-auto"
+          className={`absolute z-50 w-full rounded-xl border border-border bg-card shadow-xl overflow-hidden max-h-60 overflow-y-auto ${
+            dropUp
+              ? 'bottom-full mb-1 flex flex-col-reverse'
+              : 'top-full mt-1'
+          }`}
         >
           {loading && <li className="px-4 py-3 text-sm text-muted-foreground">Searching…</li>}
           {!loading && results.length === 0 && (
@@ -199,13 +205,25 @@ const SearchCombobox = forwardRef(function SearchComboboxInner<T>(
 
 // ── Props ──────────────────────────────────────────────────────────────────────
 
+export interface EmergencyBillSaved {
+  shopkeeperName: string
+  shopkeeperPhone: string | null
+  shopkeeperAddress: string | null
+  lines: { artNumber: string; mrp: number; qty: number }[]
+  lineDiscPct: number
+}
+
 interface Props {
   vendors: BillingVendor[]
+  /** When set, "Generate & Print Bill" also persists to DB via this callback */
+  onBillSaved?: (data: EmergencyBillSaved) => Promise<void>
+  /** Suppress the full-page chrome (header, sign-out) when embedded */
+  embedded?: boolean
 }
 
 // ── Main Component ─────────────────────────────────────────────────────────────
 
-export function BillingScannerPage({ vendors }: Props) {
+export function BillingScannerPage({ vendors, onBillSaved, embedded }: Props) {
   const router = useRouter()
 
   // Guard: vendors may briefly be undefined during SSR/hydration
@@ -491,15 +509,41 @@ export function BillingScannerPage({ vendors }: Props) {
     return groups
   }, [billLines])
 
-  // ── Print ──────────────────────────────────────────────────────────────────
+  // ── Print (and optionally persist to DB as emergency bill) ─────────────────
 
-  function handlePrint() {
+  const [isSaving, setIsSaving] = useState(false)
+
+  async function handlePrint() {
     if (!selectedVendor) { showError('Please select a vendor first.'); return }
     if (billLines.length === 0) { showError('No items scanned yet.'); return }
 
     // Build MrpLine[] from billLines (each BillLine already has artNumber + mrp + qty)
     const lines = billLines.map(l => ({ artNumber: l.artNumber, mrp: l.mrp, qty: l.qty }))
 
+    // When embedded (Emergency tab), save to DB then navigate to Receipts — print from there
+    if (onBillSaved) {
+      setIsSaving(true)
+      try {
+        await onBillSaved({
+          shopkeeperName:    selectedVendor.name,
+          shopkeeperPhone:   selectedVendor.phone,
+          shopkeeperAddress: selectedVendor.address,
+          lines,
+          lineDiscPct: LINE_DISC_PCT,
+        })
+        // Clear scanner ready for next bill (tab switch happens inside onBillSaved)
+        clearBill()
+        setSelectedVendor(null)
+        setSkQuery('')
+      } catch {
+        showError('Could not save to Receipts. Please try again.')
+      } finally {
+        setIsSaving(false)
+      }
+      return
+    }
+
+    // Standalone /billing page — open print window directly
     const html = buildInvoiceHtml({
       vendor: {
         name:    selectedVendor.name,
@@ -550,20 +594,22 @@ export function BillingScannerPage({ vendors }: Props) {
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
-    <main className="min-h-screen bg-background p-3 sm:p-4 md:p-6">
-      <div className="mx-auto max-w-3xl space-y-4 sm:space-y-6">
+    <div className={embedded ? 'space-y-4' : 'min-h-screen bg-background p-3 sm:p-4 md:p-6'}>
+      <div className={embedded ? 'space-y-4' : 'mx-auto max-w-3xl space-y-4 sm:space-y-6'}>
 
-        {/* Header */}
-        <div className="flex items-center justify-between gap-2">
-          <h1 className="text-xl sm:text-2xl font-bold tracking-tight">Billing Scanner</h1>
-          <div className="flex gap-1.5 items-center shrink-0">
-            <Button variant="outline" size="sm" className="text-xs px-2 sm:px-3" onClick={() => router.push('/home')}>← Home</Button>
-            <Button variant="outline" size="sm" className="text-xs px-2 sm:px-3" onClick={async () => { await signOut(); router.push('/sign-in') }}>Sign Out</Button>
+        {/* Header — only when not embedded */}
+        {!embedded && (
+          <div className="flex items-center justify-between gap-2">
+            <h1 className="text-xl sm:text-2xl font-bold tracking-tight">Billing Scanner</h1>
+            <div className="flex gap-1.5 items-center shrink-0">
+              <Button variant="outline" size="sm" className="text-xs px-2 sm:px-3" onClick={() => router.push('/home')}>← Home</Button>
+              <Button variant="outline" size="sm" className="text-xs px-2 sm:px-3" onClick={async () => { await signOut(); router.push('/sign-in') }}>Sign Out</Button>
+            </div>
           </div>
-        </div>
+        )}
 
         {/* ── Vendor — identical card style as salesman dashboard ── */}
-        <section aria-labelledby="vendor-heading" className="rounded-2xl border border-border bg-card">
+        <section aria-labelledby="vendor-heading" className="rounded-2xl border border-border bg-card overflow-visible">
           <div className="flex items-center justify-between px-4 py-3 bg-muted/30 border-b border-border rounded-t-2xl">
             <div className="flex items-center gap-2">
               <svg className="w-4 h-4 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
@@ -592,6 +638,7 @@ export function BillingScannerPage({ vendors }: Props) {
                 results={skResults}
                 loading={false}
                 getKey={v => v.id}
+                dropUp
                 renderOption={(v, active) => (
                   <div className="flex items-center justify-between gap-4">
                     <span className={`font-medium ${active ? 'text-primary-foreground' : 'text-foreground'}`}>{v.name}</span>
@@ -886,8 +933,8 @@ export function BillingScannerPage({ vendors }: Props) {
                         </p>
                       )}
                       <Button className="w-full bg-purple-600 hover:bg-purple-700 text-white"
-                        onClick={handlePrint} disabled={!selectedVendor}>
-                        Generate &amp; Print Bill
+                        onClick={handlePrint} disabled={!selectedVendor || isSaving}>
+                        {isSaving ? 'Saving…' : onBillSaved ? 'Generate Bill → Receipts' : 'Generate & Print Bill'}
                       </Button>
                     </div>
                   </>
@@ -921,6 +968,6 @@ export function BillingScannerPage({ vendors }: Props) {
         )}
 
       </div>
-    </main>
+    </div>
   )
 }

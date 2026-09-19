@@ -3,14 +3,15 @@
 import { useState, useTransition, useRef, useCallback, useEffect } from 'react'
 import jsQR from 'jsqr'
 import { StatusPill, fmt, PageHeader, StatCard } from '../_components/shared'
-import { markBilled, getOrderWithItems, saveBillLines, getBillLines } from '@/app/actions/orders'
+import { markBilled, getOrderWithItems, saveBillLines, getBillLines, createEmergencyBill, deleteEmergencyBill } from '@/app/actions/orders'
 import { PageNav } from '@/components/page-nav'
 import { parseQr, isValidWarehouseQr } from '@/lib/qr-parser'
 import { SCAN_INTERVAL_MS } from '@/components/scanner/constants'
 import { articlesMatch } from '@/lib/billing-verification'
 import { printInvoices, type MrpLine, type PageSize, type BillType, type PrintConfig } from '@/lib/bill-html'
+import { BillingScannerPage, type BillingVendor } from '@/components/billing-scanner-page'
 
-type BillerTab = 'verify' | 'generated'
+type BillerTab = 'verify' | 'emergency' | 'generated'
 
 interface BillerOrder {
   id: number
@@ -23,12 +24,14 @@ interface BillerOrder {
   billedAt: Date | null
   billerId: string | null
   salesmanId: string | null
+  isEmergency: boolean
 }
 
 interface Props {
   orders: BillerOrder[]
   currentBillerId?: string
   embedded?: boolean
+  vendors?: BillingVendor[]
 }
 
 interface DetailItem {
@@ -46,7 +49,7 @@ function itemKey(artNumber: string, sizeNumber: string | null) {
   return `${artNumber}|${sizeNumber ?? ''}`
 }
 
-export function BillerDashboard({ orders: initialOrders, currentBillerId = '', embedded }: Props) {
+export function BillerDashboard({ orders: initialOrders, currentBillerId = '', embedded, vendors = [] }: Props) {
   const [orders, setOrders] = useState(initialOrders)
   const [isPending, startTransition] = useTransition()
   const [activeId, setActiveId] = useState<number | null>(null)
@@ -772,23 +775,28 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
 
         {/* ── Tabs ── */}
         <div className="flex rounded-xl border border-border bg-muted/40 p-1 mb-4 gap-1">
-          {(['verify', 'generated'] as BillerTab[]).map(tab => (
+          {/* Invoices */}
+          {(['verify', 'emergency', 'generated'] as BillerTab[]).map(tab => (
             <button
               key={tab}
               type="button"
               onClick={() => { setActiveTab(tab); setPrintSelectedIds(new Set()) }}
               className={`flex-1 flex items-center justify-center gap-1.5 rounded-lg py-2 text-xs font-semibold transition-colors ${
                 activeTab === tab
-                  ? 'bg-background text-foreground shadow-sm'
+                  ? tab === 'emergency'
+                    ? 'bg-red-600 text-white shadow-sm'
+                    : 'bg-background text-foreground shadow-sm'
                   : 'text-muted-foreground hover:text-foreground'
               }`}
             >
-              {tab === 'verify' ? 'Invoices' : 'Receipts'}
-              <span className={`inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full px-1 text-[10px] font-bold tabular-nums ${
-                activeTab === tab ? 'bg-foreground text-background' : 'bg-muted-foreground/20 text-muted-foreground'
-              }`}>
-                {tab === 'verify' ? counts.packed : counts.billed}
-              </span>
+              {tab === 'verify' ? 'Invoices' : tab === 'emergency' ? '🚨 Emergency' : 'Receipts'}
+              {tab !== 'emergency' && (
+                <span className={`inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full px-1 text-[10px] font-bold tabular-nums ${
+                  activeTab === tab ? 'bg-foreground text-background' : 'bg-muted-foreground/20 text-muted-foreground'
+                }`}>
+                  {tab === 'verify' ? counts.packed : counts.billed}
+                </span>
+              )}
             </button>
           ))}
         </div>
@@ -834,6 +842,39 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
             })}
           </div>
         )}
+
+        {/* ── Emergency Bill tab — always mounted to preserve scan state across tab switches ── */}
+        <div className={activeTab === 'emergency' ? '' : 'hidden'}>
+          <div className="rounded-xl border border-red-200 dark:border-red-800">
+            <div className="p-4">
+              <BillingScannerPage
+                vendors={vendors}
+                embedded
+                onBillSaved={async (data) => {
+                  const result = await createEmergencyBill(data)
+                  setOrders(prev => [{
+                    id:                result.id,
+                    orderNumber:       result.orderNumber,
+                    shopkeeperName:    data.shopkeeperName,
+                    shopkeeperPhone:   data.shopkeeperPhone,
+                    shopkeeperAddress: data.shopkeeperAddress,
+                    status:            'billed',
+                    packedAt:          null,
+                    billedAt:          new Date(),
+                    billerId:          currentBillerId,
+                    salesmanId:        null,
+                    isEmergency:       true,
+                  }, ...prev])
+                  setMrpLinesMap(prev => ({
+                    ...prev,
+                    [result.id]: data.lines.map(l => ({ artNumber: l.artNumber, mrp: l.mrp, qty: l.qty })),
+                  }))
+                  setActiveTab('generated')
+                }}
+              />
+            </div>
+          </div>
+        </div>
 
         {/* ── Print Bills tab ── */}
         {activeTab === 'generated' && (() => {
@@ -927,7 +968,14 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
 
                           {/* Text — clicking opens detail preview */}
                           <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-foreground truncate leading-snug">{order.shopkeeperName}</p>
+                            <div className="flex items-center gap-1.5">
+                              <p className="text-sm font-medium text-foreground truncate leading-snug">{order.shopkeeperName}</p>
+                              {order.isEmergency && (
+                                <span className="shrink-0 inline-flex items-center rounded-full bg-red-100 dark:bg-red-900/30 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-red-700 dark:text-red-400">
+                                  🚨 Emergency
+                                </span>
+                              )}
+                            </div>
                             <div className="flex items-center gap-2 mt-0.5">
                               <span className="font-mono text-[11px] text-muted-foreground">{order.orderNumber}</span>
                               <span className="text-[11px] text-muted-foreground">·</span>
@@ -1014,7 +1062,14 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
 
             <div className="p-5 space-y-5">
               <div className="rounded-xl border border-border bg-card p-4 space-y-3">
-                <StatusPill status={detailOrder.status} />
+                <div className="flex items-center gap-2 flex-wrap">
+                  <StatusPill status={detailOrder.status} />
+                  {detailOrder.isEmergency && (
+                    <span className="inline-flex items-center rounded-full bg-red-100 dark:bg-red-900/30 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-red-700 dark:text-red-400">
+                      🚨 Emergency Bill
+                    </span>
+                  )}
+                </div>
                 <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
                   <span className="text-muted-foreground">Packed</span>
                   <span className="text-foreground">{fmt(detailOrder.packedAt)}</span>
@@ -1281,6 +1336,26 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
                   className="w-full rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
                 >
                   Scan Items
+                </button>
+              )}
+
+              {/* Delete button — only for emergency bills */}
+              {detailOrder.isEmergency && (
+                <button
+                  type="button"
+                  disabled={isPending}
+                  onClick={() => {
+                    const id = detailOrder.id
+                    setDetailOrder(null)
+                    startTransition(async () => {
+                      await deleteEmergencyBill(id)
+                      setOrders(prev => prev.filter(o => o.id !== id))
+                      setMrpLinesMap(prev => { const next = { ...prev }; delete next[id]; return next })
+                    })
+                  }}
+                  className="w-full rounded-xl border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-950/20 px-4 py-2.5 text-sm font-semibold text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-950/40 disabled:opacity-50 transition-colors"
+                >
+                  {isPending ? 'Deleting…' : 'Delete Emergency Bill'}
                 </button>
               )}
             </div>

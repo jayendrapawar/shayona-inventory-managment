@@ -185,6 +185,7 @@ export const orders = pgTable('orders', {
   notes:             text('notes'),
   totalBundles:      integer('totalBundles'),
   deliveryAgentName: text('deliveryAgentName'),
+  isEmergency:       boolean('isEmergency').notNull().default(false),
   orderedAt:         timestamp('orderedAt').notNull().defaultNow(),
   packedAt:          timestamp('packedAt'),
   billedAt:          timestamp('billedAt'),

@@ -3,8 +3,9 @@ import { redirect } from 'next/navigation'
 import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
 import { user, vendors } from '@/lib/db/schema'
-import { eq } from 'drizzle-orm'
+import { eq, asc } from 'drizzle-orm'
 import { isRedirectError } from 'next/dist/client/components/redirect-error'
+import type { BillingVendor } from '@/components/billing-scanner-page'
 import {
   getAllOrders,
   getOrderStats,
@@ -48,7 +49,7 @@ export default async function AdminPage() {
     getPickerQueue(),
     getBillerQueue(),
     getPackedOrders(),
-    db.select({ partyName: vendors.partyName, phone: vendors.phone, address: vendors.address, city: vendors.city }).from(vendors),
+    db.select().from(vendors).where(eq(vendors.status, 'active')).orderBy(asc(vendors.partyName)),
     getProcurementSummary({ status: 'pending' }),
     loadCatalogue(),
   ])
@@ -71,6 +72,14 @@ export default async function AdminPage() {
     },
   ]))
 
+  const billingVendors: BillingVendor[] = vendorRows.map(v => ({
+    id:      v.id,
+    name:    v.partyName,
+    code:    v.area   || null,
+    phone:   v.phone  || null,
+    address: [v.address, v.city].filter(Boolean).join(', ') || null,
+  }))
+
   const dispatchOrders = packedOrders.map(o => {
     const v = vendorMap.get(o.shopkeeperName)
     return { ...o, shopkeeperPhone: v?.phone ?? null, shopkeeperAddress: v?.address ?? null }
@@ -91,6 +100,7 @@ export default async function AdminPage() {
       dispatchOrders={dispatchOrders}
       procurementRows={procurementRows}
       catalogue={catalogue}
+      billingVendors={billingVendors}
     />
   )
 }

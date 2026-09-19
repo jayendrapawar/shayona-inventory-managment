@@ -3,11 +3,12 @@ import { redirect } from 'next/navigation'
 import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
 import { user, vendors } from '@/lib/db/schema'
-import { eq } from 'drizzle-orm'
+import { eq, asc } from 'drizzle-orm'
 import { isRedirectError } from 'next/dist/client/components/redirect-error'
 import { getSalesmanOrders, getPickerQueue, getBillerQueue, getPackedOrders } from '@/app/actions/orders'
 import { loadCatalogue } from '@/app/actions/catalogue'
 import { MultiRoleOrdersHub } from './_components/multi-role-hub'
+import type { BillingVendor } from '@/components/billing-scanner-page'
 
 export const metadata = {
   title: 'Orders - Shayona Inventory',
@@ -81,10 +82,19 @@ export default async function OrdersPage() {
       )
     }
 
-    const [catalogue] = await Promise.all([
+    const [catalogue, vendorRows] = await Promise.all([
       loadCatalogue(),
+      db.select().from(vendors).where(eq(vendors.status, 'active')).orderBy(asc(vendors.partyName)),
       ...promises,
     ])
+
+    const billingVendors: BillingVendor[] = vendorRows.map(v => ({
+      id:      v.id,
+      name:    v.partyName,
+      code:    v.area   || null,
+      phone:   v.phone  || null,
+      address: [v.address, v.city].filter(Boolean).join(', ') || null,
+    }))
 
     return (
       <MultiRoleOrdersHub
@@ -97,6 +107,7 @@ export default async function OrdersPage() {
         currentBillerId={u?.id ?? session.user.id}
         dispatcherOrders={dispatcherOrders}
         catalogue={catalogue}
+        billingVendors={billingVendors}
       />
     )
   } catch (err) {
