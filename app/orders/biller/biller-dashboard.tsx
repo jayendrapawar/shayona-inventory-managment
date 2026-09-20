@@ -32,6 +32,7 @@ interface Props {
   currentBillerId?: string
   embedded?: boolean
   vendors?: BillingVendor[]
+  articles?: string[]
 }
 
 interface DetailItem {
@@ -49,7 +50,7 @@ function itemKey(artNumber: string, sizeNumber: string | null) {
   return `${artNumber}|${sizeNumber ?? ''}`
 }
 
-export function BillerDashboard({ orders: initialOrders, currentBillerId = '', embedded, vendors = [] }: Props) {
+export function BillerDashboard({ orders: initialOrders, currentBillerId = '', embedded, vendors = [], articles = [] }: Props) {
   const [orders, setOrders] = useState(initialOrders)
   const [isPending, startTransition] = useTransition()
   const [activeId, setActiveId] = useState<number | null>(null)
@@ -1025,6 +1026,7 @@ export function BillerDashboard({ orders: initialOrders, currentBillerId = '', e
             <div className="p-4">
               <BillingScannerPage
                 vendors={vendors}
+                articles={articles}
                 embedded
                 onBillSaved={async (data) => {
                   const result = await createEmergencyBill(data)

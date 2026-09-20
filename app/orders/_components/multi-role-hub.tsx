@@ -21,6 +21,7 @@ interface Props {
   dispatcherOrders: any[]
   catalogue: CatalogueData
   sets: OrderSet[]
+  pickers: { id: string; name: string | null }[]
   billingVendors?: BillingVendor[]
 }
 
@@ -101,6 +102,7 @@ export function MultiRoleOrdersHub({
   dispatcherOrders,
   catalogue,
   sets,
+  pickers,
   billingVendors = [],
 }: Props) {
   const hasSalesman   = roles.includes('salesman')
@@ -143,7 +145,7 @@ export function MultiRoleOrdersHub({
         <GridTabBar tabs={TABS} active={activeTab} onChange={handleTabChange} />
 
         {hasSalesman && activeTab === 'salesman' && (
-          <SalesmanDashboard orders={salesmanOrders} userName={userName} embedded catalogue={catalogue} sets={sets} />
+          <SalesmanDashboard orders={salesmanOrders} userName={userName} embedded catalogue={catalogue} sets={sets} pickers={pickers} />
         )}
 
         {hasPicker && activeTab === 'picker' && (
@@ -152,7 +154,7 @@ export function MultiRoleOrdersHub({
 
         {hasBiller && (
           <div className={activeTab === 'biller' ? '' : 'hidden'}>
-            <BillerDashboard orders={billerOrders} currentBillerId={currentBillerId} vendors={billingVendors} embedded />
+            <BillerDashboard orders={billerOrders} currentBillerId={currentBillerId} vendors={billingVendors} articles={catalogue.articles.map(a => a.artNumber)} embedded />
           </div>
         )}
 

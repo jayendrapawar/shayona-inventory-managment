@@ -103,6 +103,7 @@ export default async function AdminPage() {
       procurementRows={procurementRows}
       catalogue={catalogue}
       sets={sets}
+      pickers_list={pickers.map(p => ({ id: p.id, name: p.name ?? null }))}
       billingVendors={billingVendors}
     />
   )

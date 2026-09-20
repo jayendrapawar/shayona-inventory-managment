@@ -215,6 +215,8 @@ export interface EmergencyBillSaved {
 
 interface Props {
   vendors: BillingVendor[]
+  /** Article numbers for manual-entry search combobox */
+  articles?: string[]
   /** When set, "Generate & Print Bill" also persists to DB via this callback */
   onBillSaved?: (data: EmergencyBillSaved) => Promise<void>
   /** Suppress the full-page chrome (header, sign-out) when embedded */
@@ -223,7 +225,7 @@ interface Props {
 
 // ── Main Component ─────────────────────────────────────────────────────────────
 
-export function BillingScannerPage({ vendors, onBillSaved, embedded }: Props) {
+export function BillingScannerPage({ vendors, articles = [], onBillSaved, embedded }: Props) {
   const router = useRouter()
 
   // Guard: vendors may briefly be undefined during SSR/hydration
@@ -272,6 +274,15 @@ export function BillingScannerPage({ vendors, onBillSaved, embedded }: Props) {
   const [manualMrp, setManualMrp] = useState('')
   const [manualDiv, setManualDiv] = useState('')
   const [manualQty, setManualQty] = useState<number | ''>(1)
+
+  // Article search for manual entry
+  const [artQuery, setArtQuery] = useState('')
+  const [artSelected, setArtSelected] = useState(false)
+
+  const artResults = useMemo(() => {
+    if (!artQuery.trim()) return articles.slice(0, 20)
+    return fuzzyFilter(articles, artQuery, a => [a]).slice(0, 20)
+  }, [artQuery, articles])
 
   // ── Bill number — timestamp-based (YYMMDDHHmmss), no state needed ─────────
 
@@ -492,6 +503,9 @@ export function BillingScannerPage({ vendors, onBillSaved, embedded }: Props) {
     if (!art) { showError('Article number is required.'); return }
     addManualLine(art, mrp, manualDiv, qty)
     setManualQty(1)
+    setManualArt('')
+    setArtQuery('')
+    setArtSelected(false)
   }
 
   // ── Group lines by artNumber (for display & print) ─────────────────────────
@@ -760,16 +774,54 @@ export function BillingScannerPage({ vendors, onBillSaved, embedded }: Props) {
 
           {/* ── Manual ── */}
           <TabsContent value="manual" className="space-y-3">
-            <Card>
+            <Card className="overflow-visible">
               <CardHeader className="px-4 py-3 sm:px-6 sm:py-4">
                 <CardTitle className="text-base">Manual Entry</CardTitle>
                 <CardDescription className="text-xs">Add a line item manually without scanning.</CardDescription>
               </CardHeader>
-              <CardContent className="px-4 pb-4 sm:px-6">
+              <CardContent className="px-4 pb-4 sm:px-6 overflow-visible">
                 <form onSubmit={handleManualAdd} className="space-y-3">
                   <div className="space-y-1">
                     <Label htmlFor="b-art" className="text-xs">Article No. *</Label>
-                    <Input id="b-art" value={manualArt} onChange={e => setManualArt(e.target.value)} placeholder="FL0548L" className="h-8 text-sm" required />
+                    {articles.length > 0 ? (
+                      <div className="relative">
+                        <input
+                          id="b-art"
+                          type="text"
+                          autoComplete="off"
+                          value={artQuery}
+                          placeholder="Search article…"
+                          onChange={e => {
+                            setArtQuery(e.target.value)
+                            setManualArt(e.target.value.toUpperCase())
+                            setArtSelected(false)
+                          }}
+                          onFocus={() => setArtSelected(false)}
+                          className="flex h-8 w-full rounded-md border border-input bg-background px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                          required
+                        />
+                        {artQuery && !artSelected && artResults.length > 0 && (
+                          <ul className="absolute left-0 right-0 bottom-full mb-1 z-[200] rounded-md border border-border bg-card shadow-xl overflow-y-auto max-h-48">
+                            {artResults.map(a => (
+                              <li
+                                key={a}
+                                onMouseDown={e => {
+                                  e.preventDefault()
+                                  setArtQuery(a)
+                                  setManualArt(a.toUpperCase())
+                                  setArtSelected(true)
+                                }}
+                                className="px-3 py-1.5 text-sm font-mono cursor-pointer hover:bg-muted"
+                              >
+                                {a}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    ) : (
+                      <Input id="b-art" value={manualArt} onChange={e => setManualArt(e.target.value)} placeholder="FL0548L" className="h-8 text-sm" required />
+                    )}
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <div className="space-y-1">

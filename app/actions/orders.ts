@@ -559,6 +559,19 @@ export async function adminUpdateOrderStatus(orderId: number, status: OrderStatu
   revalidatePath('/orders/biller')
 }
 
+export async function salesmanAssignPicker(orderId: number, pickerId: string) {
+  await requireRole('salesman', 'admin')
+  const [order] = await db.select({ status: orders.status })
+    .from(orders).where(eq(orders.id, orderId)).limit(1)
+  if (!order) throw new Error('Order not found')
+  const patch: Record<string, unknown> = { pickerId, updatedAt: sql`now()` }
+  if (order.status === 'pending') patch.status = 'assigned'
+  await db.update(orders).set(patch).where(eq(orders.id, orderId))
+  revalidatePath('/orders')
+  revalidatePath('/orders/admin')
+  revalidatePath('/orders/picker')
+}
+
 export async function adminAssignPicker(orderId: number, pickerId: string) {
   await requireRole('admin')
   // Fetch current status so we only advance to 'assigned' from 'pending'.

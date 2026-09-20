@@ -7,7 +7,7 @@ import {
 import { useRouter } from 'next/navigation'
 import { useAutoRefresh } from '@/lib/use-auto-refresh'
 import { StatusPill, fmt, PageHeader, StatCard } from '../_components/shared'
-import { createOrder, updateOrder, cancelOrder, getSalesmanOrderWithItems } from '@/app/actions/orders'
+import { createOrder, updateOrder, cancelOrder, getSalesmanOrderWithItems, salesmanAssignPicker } from '@/app/actions/orders'
 import { PageNav } from '@/components/page-nav'
 import { fuzzyFilter } from '@/lib/fuzzy'
 import type { ArticleDetail, CatalogueData } from '@/app/actions/catalogue'
@@ -40,6 +40,7 @@ interface Props {
   embedded?: boolean
   catalogue: CatalogueData
   sets: OrderSet[]
+  pickers: { id: string; name: string | null }[]
 }
 
 // Alias types that were previously imported from catalogue actions
@@ -570,7 +571,7 @@ interface DetailItem {
   status: string
 }
 
-export function SalesmanDashboard({ orders, userName, embedded, catalogue: serverCatalogue, sets = [] }: Props) {
+export function SalesmanDashboard({ orders, userName, embedded, catalogue: serverCatalogue, sets = [], pickers = [] }: Props) {
   // Use cache-first catalogue: returns serverCatalogue immediately on first render,
   // then silently hydrates from Cache API / re-fetches in background
   const catalogue = useCatalogueCache(serverCatalogue)
@@ -666,6 +667,16 @@ export function SalesmanDashboard({ orders, userName, embedded, catalogue: serve
   const [printConfigOpen, setPrintConfigOpen] = useState(false)
   const [printPageSize, setPrintPageSize] = useState<'A4' | 'A5'>('A5')
   const [printOrientation, setPrintOrientation] = useState<'portrait' | 'landscape'>('portrait')
+
+  // ── Picker assignment step (shown after print config, before printing) ──
+  // pickerAssignOpen: which orders need picker assignment shown
+  const [pickerAssignOpen, setPickerAssignOpen] = useState(false)
+  // pickerAssignMap: orderId → pickerId ('' = unassigned / skip)
+  const [pickerAssignMap, setPickerAssignMap] = useState<Record<number, string>>({})
+  const [pickerAssigning, startPickerAssign] = useTransition()
+  // selectedOrdersForAssign: the orders that were selected when print was clicked
+  const [selectedOrdersForAssign, setSelectedOrdersForAssign] = useState<ExistingOrder[]>([])
+  const [printSettingsSnapshot, setPrintSettingsSnapshot] = useState<{ pageSize: 'A4' | 'A5'; orientation: 'portrait' | 'landscape' }>({ pageSize: 'A5', orientation: 'portrait' })
 
   // ── Cancel order confirm (existing orders list) ──
   const [cancelOrderId, setCancelOrderId] = useState<number | null>(null)
@@ -2407,19 +2418,115 @@ ${bills}
                 <button type="button"
                   onClick={() => {
                     setPrintConfigOpen(false)
-                    handlePrintOrders(selectedOrders, printPageSize, printOrientation)
+                    // Open picker assignment step first (if pickers exist)
+                    setSelectedOrdersForAssign(selectedOrders)
+                    setPrintSettingsSnapshot({ pageSize: printPageSize, orientation: printOrientation })
+                    // Pre-fill: orders already assigned keep their picker
+                    const preMap: Record<number, string> = {}
+                    selectedOrders.forEach(o => { preMap[o.id] = '' })
+                    setPickerAssignMap(preMap)
+                    setPickerAssignOpen(true)
                   }}
-                  className="flex-1 flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                  className="flex-1 flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring whitespace-nowrap">
                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
                   </svg>
-                  Print
+                  Next: Assign Pickers
                 </button>
               </div>
             </div>
           </div>
         )
       })()}
+
+      {/* ── Picker assignment dialog ── */}
+      {pickerAssignOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm"
+          onClick={e => { if (e.target === e.currentTarget) setPickerAssignOpen(false) }}
+        >
+          <div className="w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl bg-background shadow-2xl max-h-[90vh] flex flex-col">
+
+            {/* Drag handle */}
+            <div className="sm:hidden flex justify-center pt-3 pb-1 shrink-0">
+              <div className="w-10 h-1 rounded-full bg-border" />
+            </div>
+
+            {/* Header */}
+            <div className="px-5 pt-5 pb-4 border-b border-border shrink-0">
+              <p className="text-xl font-bold text-foreground tracking-tight">Assign Pickers</p>
+              <p className="text-sm text-muted-foreground mt-0.5">
+                {selectedOrdersForAssign.length} order{selectedOrdersForAssign.length !== 1 ? 's' : ''} selected — choose a picker for each
+              </p>
+            </div>
+
+            {/* Order rows */}
+            <div className="overflow-y-auto flex-1 px-4 py-3 space-y-2">
+              {selectedOrdersForAssign.map(order => (
+                <div key={order.id} className="rounded-2xl bg-muted/50 px-4 py-3 space-y-2">
+                  {/* Order info */}
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-foreground truncate">{order.shopkeeperName}</p>
+                      <p className="text-[11px] text-muted-foreground font-mono mt-0.5">{order.orderNumber}</p>
+                    </div>
+                    <StatusPill status={order.status} />
+                  </div>
+                  {/* Picker selector */}
+                  <select
+                    value={pickerAssignMap[order.id] ?? ''}
+                    onChange={e => setPickerAssignMap(prev => ({ ...prev, [order.id]: e.target.value }))}
+                    className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  >
+                    <option value="">— Skip / No picker —</option>
+                    {pickers.map(p => (
+                      <option key={p.id} value={p.id}>{p.name ?? p.id}</option>
+                    ))}
+                  </select>
+                </div>
+              ))}
+            </div>
+
+            {/* Footer */}
+            <div className="px-4 pb-5 pt-3 border-t border-border shrink-0 space-y-2">
+              <button
+                type="button"
+                disabled={pickerAssigning}
+                onClick={() => {
+                  startPickerAssign(async () => {
+                    // Fire all assignments in parallel (skip blanks)
+                    await Promise.all(
+                      selectedOrdersForAssign
+                        .filter(o => pickerAssignMap[o.id])
+                        .map(o => salesmanAssignPicker(o.id, pickerAssignMap[o.id]))
+                    )
+                    setPickerAssignOpen(false)
+                    handlePrintOrders(selectedOrdersForAssign, printSettingsSnapshot.pageSize, printSettingsSnapshot.orientation)
+                  })
+                }}
+                className="w-full rounded-2xl bg-foreground text-background px-4 py-3.5 text-base font-semibold hover:opacity-90 active:scale-[0.98] transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {pickerAssigning ? (
+                  <>
+                    <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+                    </svg>
+                    Assigning…
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+                    </svg>
+                    Assign & Print
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Set picker dialog ── */}
       {setPickerOpen && (

@@ -83,6 +83,7 @@ interface Props {
   procurementRows: ProcurementRow[]
   catalogue: CatalogueData
   sets: OrderSet[]
+  pickers_list: { id: string; name: string | null }[]
   billingVendors?: BillingVendor[]
 }
 
@@ -178,6 +179,7 @@ export function AdminHub({
   procurementRows,
   catalogue,
   sets,
+  pickers_list,
   billingVendors = [],
 }: Props) {
   // Shared picker assignment map — owned here so Overview + Picker tab stay in sync
@@ -255,7 +257,7 @@ export function AdminHub({
         )}
 
         {activeTab === 'salesman' && (
-          <SalesmanDashboard orders={salesmanOrders} userName={adminName} embedded catalogue={catalogue} sets={sets} />
+          <SalesmanDashboard orders={salesmanOrders} userName={adminName} embedded catalogue={catalogue} sets={sets} pickers={pickers_list} />
         )}
 
         {showPicker && activeTab === 'picker' && (
@@ -269,7 +271,7 @@ export function AdminHub({
 
         {showBiller && (
           <div className={activeTab === 'biller' ? '' : 'hidden'}>
-            <BillerDashboard orders={billerOrders} currentBillerId={adminId} vendors={billingVendors} embedded />
+            <BillerDashboard orders={billerOrders} currentBillerId={adminId} vendors={billingVendors} articles={catalogue.articles.map(a => a.artNumber)} embedded />
           </div>
         )}
 

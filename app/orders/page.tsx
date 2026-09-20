@@ -8,6 +8,7 @@ import { isRedirectError } from 'next/dist/client/components/redirect-error'
 import { getSalesmanOrders, getPickerQueue, getBillerQueue, getPackedOrders } from '@/app/actions/orders'
 import { loadCatalogue } from '@/app/actions/catalogue'
 import { getSets } from '@/app/actions/sets'
+import { getPickersList } from '@/app/actions/users'
 import { MultiRoleOrdersHub } from './_components/multi-role-hub'
 import type { BillingVendor } from '@/components/billing-scanner-page'
 
@@ -83,10 +84,11 @@ export default async function OrdersPage() {
       )
     }
 
-    const [catalogue, vendorRows, sets] = await Promise.all([
+    const [catalogue, vendorRows, sets, pickers] = await Promise.all([
       loadCatalogue(),
       db.select().from(vendors).where(eq(vendors.status, 'active')).orderBy(asc(vendors.partyName)),
       getSets(),
+      getPickersList(),
       ...promises,
     ])
 
@@ -110,6 +112,7 @@ export default async function OrdersPage() {
         dispatcherOrders={dispatcherOrders}
         catalogue={catalogue}
         sets={sets}
+        pickers={pickers}
         billingVendors={billingVendors}
       />
     )

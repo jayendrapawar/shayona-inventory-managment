@@ -6,6 +6,7 @@ import { user, vendors } from '@/lib/db/schema'
 import { eq, asc } from 'drizzle-orm'
 import { isRedirectError } from 'next/dist/client/components/redirect-error'
 import { getBillerQueue } from '@/app/actions/orders'
+import { loadCatalogue } from '@/app/actions/catalogue'
 import { BillerDashboard } from './biller-dashboard'
 import type { BillingVendor } from '@/components/billing-scanner-page'
 
@@ -25,9 +26,10 @@ export default async function BillerPage() {
     redirect('/sign-in')
   }
 
-  const [billerOrders, vendorRows] = await Promise.all([
+  const [billerOrders, vendorRows, catalogue] = await Promise.all([
     getBillerQueue(),
     db.select().from(vendors).where(eq(vendors.status, 'active')).orderBy(asc(vendors.partyName)),
+    loadCatalogue(),
   ])
 
   const billingVendors: BillingVendor[] = vendorRows.map(v => ({
@@ -38,5 +40,6 @@ export default async function BillerPage() {
     address: [v.address, v.city].filter(Boolean).join(', ') || null,
   }))
 
-  return <BillerDashboard orders={billerOrders} currentBillerId={currentBillerId} vendors={billingVendors} />
+  const articleNumbers = catalogue.articles.map(a => a.artNumber)
+  return <BillerDashboard orders={billerOrders} currentBillerId={currentBillerId} vendors={billingVendors} articles={articleNumbers} />
 }
