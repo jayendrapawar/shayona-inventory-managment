@@ -122,10 +122,10 @@ export function buildInvoiceHtml({
 
   // ── Font & page sizing ───────────────────────────────────────────────────────
   const isA5       = pageSize === 'A5'
-  const baseFontPx = isA5 ? 10 : 11.5
+  const baseFontPx = isA5 ? 12 : 13.5
 
-  const ROW_HEIGHT    = isA5 ? 19 : 24
-  const MAX_ROWS_LAST = isA5 ? 17 : 24
+  const ROW_HEIGHT    = isA5 ? 26 : 32
+  const MAX_ROWS_LAST = isA5 ? 15 : 20
 
   // ── Flatten all lines into sequential rows ────────────────────────────────────
   const artGroupMap = new Map<string, MrpLine[]>()
@@ -164,7 +164,7 @@ export function buildInvoiceHtml({
         <td style="text-align:center;color:#555">${rowNum}</td>
         <td style="font-weight:600">${showArt ? artNumber : ''}</td>
         <td style="text-align:right;color:#666">${l.mrp > 0 ? fmt(l.mrp) : '—'}</td>
-        <td style="text-align:center;font-weight:700;font-size:${baseFontPx + 1}px">${l.qty}</td>
+        <td style="text-align:center;font-weight:700;font-size:${isA5 ? 16 : 20}px">${l.qty}</td>
         <td style="text-align:right;font-weight:600">${fmt(rate)}</td>
         <td style="text-align:right;font-weight:700">${fmt(amt)}</td>
       </tr>`
@@ -244,7 +244,7 @@ export function buildInvoiceHtml({
   /* ── PAGE HEADER — fixed top section of each page ── */
   .page-header {
     flex-shrink: 0;
-    padding-bottom: ${isA5 ? '2px' : '4px'};
+    padding-bottom: 0;
   }
 
   /* ── PAGE MIDDLE — grows to fill space between header and footer ── */
@@ -257,7 +257,7 @@ export function buildInvoiceHtml({
   /* ── PAGE FOOTER — full footer (last page) ── */
   .page-footer {
     flex-shrink: 0;
-    padding-top: 4px;
+    padding-top: 2px;
   }
 
   /* ── PAGE FOOTER — "Continued" notice (non-last pages) ── */
@@ -278,15 +278,15 @@ export function buildInvoiceHtml({
   }
 
   /* ── HEADER INNER ── */
-  .header { text-align: center; padding-bottom: 6px; border-bottom: 2px solid #1a1a1a; margin-bottom: ${isA5 ? '3px' : '5px'}; }
-  .tagline { font-size: ${baseFontPx + 0.5}px; font-weight: 900; letter-spacing: 2.5px; color: #111; margin-bottom: 4px; }
-  .shop-name { font-size: ${baseFontPx + 13.5}px; font-weight: 900; letter-spacing: 2px; line-height: 1.1; color: #0a0a0a; }
-  .header-rule { width: 60px; height: 2.5px; background: #1a1a1a; margin: 3px auto 4px; }
-  .shop-addr { font-size: ${baseFontPx - 1.5}px; color: #444; line-height: 1.5; }
+  .header { text-align: center; padding-bottom: 3px; border-bottom: 2px solid #1a1a1a; margin-bottom: ${isA5 ? '2px' : '3px'}; }
+  .tagline { font-size: ${baseFontPx - 1}px; font-weight: 900; letter-spacing: 2px; color: #111; margin-bottom: 1px; }
+  .shop-name { font-size: ${baseFontPx + 10}px; font-weight: 900; letter-spacing: 2px; line-height: 1.05; color: #0a0a0a; }
+  .header-rule { width: 50px; height: 2px; background: #1a1a1a; margin: 2px auto 2px; }
+  .shop-addr { font-size: ${baseFontPx - 2}px; color: #444; line-height: 1.3; }
   .bill-type-badge {
-    display: inline-block; margin-top: 4px;
-    font-size: ${baseFontPx - 1}px; font-weight: 800; letter-spacing: 1.5px;
-    color: #fff; background: #1a1a1a; padding: 2px 10px; border-radius: 2px;
+    display: inline-block; margin-top: 2px;
+    font-size: ${baseFontPx - 2}px; font-weight: 800; letter-spacing: 1.5px;
+    color: #fff; background: #1a1a1a; padding: 1px 8px; border-radius: 2px;
     text-transform: uppercase;
   }
 
@@ -295,92 +295,92 @@ export function buildInvoiceHtml({
     display: flex; border: 1px solid #c8c8c8; border-radius: 3px;
     margin-bottom: 0; overflow: hidden;
   }
-  .bill-to { padding: 5px 10px; flex: 1; border-right: 1px solid #c8c8c8; }
-  .bill-no-box { padding: 5px 10px; min-width: ${isA5 ? '140px' : '175px'}; background: #fafafa; }
+  .bill-to { padding: 3px 8px; flex: 1; border-right: 1px solid #c8c8c8; }
+  .bill-no-box { padding: 3px 8px; min-width: ${isA5 ? '130px' : '160px'}; background: #fafafa; }
   .meta-label {
-    font-size: ${baseFontPx - 3}px; color: #999; text-transform: uppercase;
-    letter-spacing: 0.9px; margin-bottom: 1px; font-weight: 700;
+    font-size: ${baseFontPx - 3.5}px; color: #999; text-transform: uppercase;
+    letter-spacing: 0.9px; margin-bottom: 0; font-weight: 700;
   }
-  .meta-name { font-size: ${baseFontPx + 1.5}px; font-weight: 800; color: #0a0a0a; line-height: 1.25; }
-  .meta-sub { font-size: ${baseFontPx - 0.5}px; color: #444; margin-top: 1px; line-height: 1.4; }
-  .bill-no-val { font-size: ${baseFontPx + 6}px; font-weight: 900; color: #0a0a0a; line-height: 1.1; letter-spacing: 0.5px; }
-  .bill-date-val { font-size: ${baseFontPx + 1}px; font-weight: 700; color: #0a0a0a; margin-top: 1px; }
+  .meta-name { font-size: ${baseFontPx + 0.5}px; font-weight: 800; color: #0a0a0a; line-height: 1.2; }
+  .meta-sub { font-size: ${baseFontPx - 1}px; color: #444; margin-top: 0; line-height: 1.3; }
+  .bill-no-val { font-size: ${baseFontPx + 4}px; font-weight: 900; color: #0a0a0a; line-height: 1.05; letter-spacing: 0.5px; }
+  .bill-date-val { font-size: ${baseFontPx}px; font-weight: 700; color: #0a0a0a; margin-top: 0; }
 
   /* ── ITEMS TABLE ── */
-  table { width: 100%; border-collapse: collapse; margin-top: ${isA5 ? '3px' : '6px'}; }
+  table { width: 100%; border-collapse: collapse; margin-top: ${isA5 ? '2px' : '3px'}; }
   thead tr { background: #f0f0f0; }
   th {
-    padding: 4px 7px; font-size: ${baseFontPx - 2}px; font-weight: 800;
+    padding: 3px 6px; font-size: ${baseFontPx - 2}px; font-weight: 800;
     text-transform: uppercase; letter-spacing: 0.5px;
     border: 1px solid #c8c8c8; color: #333;
   }
   td {
     padding: 0 7px; border: 1px solid #ddd;
-    font-size: ${baseFontPx}px; line-height: 1.3;
+    font-size: ${isA5 ? 15 : 19}px; line-height: 1;
     color: #1a1a1a; vertical-align: middle;
     height: ${ROW_HEIGHT}px;
   }
   tbody tr:last-child td { border-bottom: 1px solid #c8c8c8; }
 
   /* ── BOTTOM SECTION ── */
-  .bottom { display: flex; gap: 0; margin-bottom: 5px; align-items: stretch; border: 1px solid #c8c8c8; border-radius: 4px; overflow: hidden; }
+  .bottom { display: flex; gap: 0; margin-bottom: 2px; align-items: stretch; border: 1px solid #c8c8c8; border-radius: 3px; overflow: hidden; }
 
   /* Bank column */
-  .bank { flex: 0.9 0.9 0; padding: 8px 10px; border-right: 1px solid #c8c8c8; }
-  .bank-title { font-size: ${baseFontPx + 1.5}px; font-weight: 800; color: #0a0a0a; margin-bottom: 5px; }
-  .bank-detail { font-size: ${baseFontPx - 0.5}px; line-height: 1.75; color: #333; }
+  .bank { flex: 0.9 0.9 0; padding: 3px 6px; border-right: 1px solid #c8c8c8; }
+  .bank-title { font-size: ${baseFontPx - 1}px; font-weight: 800; color: #0a0a0a; margin-bottom: 1px; }
+  .bank-detail { font-size: ${baseFontPx - 2.5}px; line-height: 1.4; color: #333; }
   .bank-detail .brow { display: flex; gap: 0; }
-  .bank-detail .bk { display: inline-block; width: 52px; color: #555; }
-  .bank-detail .bsep { margin: 0 5px; color: #999; }
+  .bank-detail .bk { display: inline-block; width: 40px; color: #555; }
+  .bank-detail .bsep { margin: 0 2px; color: #999; }
 
   /* QR column */
-  .qr-col { flex: 0.9 0.9 0; padding: 8px 10px; border-right: 1px solid #c8c8c8; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 5px; }
-  .qr-col-title { font-size: ${baseFontPx + 1.5}px; font-weight: 800; color: #0a0a0a; }
+  .qr-col { flex: 0.9 0.9 0; padding: 3px 6px; border-right: 1px solid #c8c8c8; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; }
+  .qr-col-title { font-size: ${baseFontPx - 1}px; font-weight: 800; color: #0a0a0a; }
   .qr-box {
-    width: ${isA5 ? '72px' : '88px'}; height: ${isA5 ? '72px' : '88px'};
+    width: ${isA5 ? '48px' : '60px'}; height: ${isA5 ? '48px' : '60px'};
     border: 1px solid #bbb; border-radius: 3px;
     display: flex; align-items: center; justify-content: center;
-    font-size: 9px; color: #aaa; background: #fafafa;
+    font-size: 8px; color: #aaa; background: #fafafa;
   }
-  .scan-label { font-size: ${baseFontPx - 1.5}px; color: #666; text-align: center; }
+  .scan-label { font-size: ${baseFontPx - 3}px; color: #666; text-align: center; }
 
   /* Summary column */
   .summary { flex: 2.2 2.2 0; display: flex; flex-direction: column; }
-  .summary-title { font-size: ${baseFontPx + 1.5}px; font-weight: 800; color: #0a0a0a; padding: 8px 10px 5px; }
+  .summary-title { font-size: ${baseFontPx - 1}px; font-weight: 800; color: #0a0a0a; padding: 3px 6px 2px; }
   .s-row {
     display: flex; justify-content: space-between; align-items: center;
-    padding: 3px 10px; border-top: 1px solid #f0f0f0; font-size: ${baseFontPx}px; color: #444;
+    padding: 1px 6px; border-top: 1px solid #f0f0f0; font-size: ${baseFontPx - 1.5}px; color: #444;
   }
   .s-row .s-val { font-weight: 500; color: #1a1a1a; }
   .s-row.disc .s-val { color: #c0392b; }
   .s-total {
     display: flex; justify-content: space-between; align-items: center;
-    padding: 6px 10px; background: #f5f5f5; border-top: 1.5px solid #bbb; margin-top: auto;
+    padding: 3px 6px; background: #f5f5f5; border-top: 1.5px solid #bbb; margin-top: auto;
   }
-  .s-total .t-label { font-size: ${baseFontPx + 0.5}px; font-weight: 700; color: #0a0a0a; }
-  .s-total .t-value { font-size: ${baseFontPx + 8}px; font-weight: 900; color: #0a0a0a; }
+  .s-total .t-label { font-size: ${baseFontPx - 1}px; font-weight: 700; color: #0a0a0a; }
+  .s-total .t-value { font-size: ${baseFontPx + 4}px; font-weight: 900; color: #0a0a0a; }
 
   /* ── AMOUNT IN WORDS ── */
   .words-box {
     border: 1px solid #c8c8c8; border-radius: 3px;
-    padding: 4px 10px; margin-bottom: 5px; background: #fafafa;
+    padding: 2px 8px; margin-bottom: 3px; background: #fafafa;
   }
-  .words-label { font-size: ${baseFontPx - 3}px; color: #999; text-transform: uppercase; letter-spacing: 0.9px; font-weight: 700; margin-bottom: 2px; }
-  .words-text { font-size: ${baseFontPx + 1.5}px; font-weight: 800; color: #0a0a0a; line-height: 1.35; }
+  .words-label { font-size: ${baseFontPx - 3.5}px; color: #999; text-transform: uppercase; letter-spacing: 0.9px; font-weight: 700; margin-bottom: 1px; }
+  .words-text { font-size: ${baseFontPx}px; font-weight: 800; color: #0a0a0a; line-height: 1.3; }
 
   /* ── FOOTER STUB ── */
   .stub {
     border: 1px solid #c8c8c8; border-radius: 3px;
-    padding: 5px 10px; margin-bottom: 5px;
-    display: flex; gap: 12px; align-items: flex-end;
+    padding: 3px 8px; margin-bottom: 3px;
+    display: flex; gap: 8px; align-items: flex-end;
     background: #fafafa;
   }
-  .stub-left { flex: 1; font-size: ${baseFontPx - 0.5}px; line-height: 1.65; color: #222; }
+  .stub-left { flex: 1; font-size: ${baseFontPx - 1}px; line-height: 1.45; color: #222; }
   .stub-left .row { display: flex; gap: 0; flex-wrap: wrap; }
-  .stub-left .sk { display: inline-block; width: 64px; font-weight: 700; color: #444; }
+  .stub-left .sk { display: inline-block; width: 56px; font-weight: 700; color: #444; }
   .stub-left .sv { font-weight: 500; }
-  .stub-right { text-align: right; font-size: ${baseFontPx - 1}px; color: #555; }
-  .sig-line { border-top: 1px solid #999; width: 110px; margin-left: auto; margin-bottom: 3px; }
+  .stub-right { text-align: right; font-size: ${baseFontPx - 1.5}px; color: #555; }
+  .sig-line { border-top: 1px solid #999; width: 90px; margin-left: auto; margin-bottom: 2px; }
 
   /* ── OUTSIDE-CITY EXTRA: transport / state details strip ── */
   .transport-strip {
@@ -394,8 +394,8 @@ export function buildInvoiceHtml({
 
   /* ── THANK YOU ── */
   .thankyou {
-    text-align: center; font-size: ${baseFontPx - 1}px; font-weight: 800;
-    letter-spacing: 3px; color: #555; padding-top: 6px;
+    text-align: center; font-size: ${baseFontPx - 1.5}px; font-weight: 800;
+    letter-spacing: 2px; color: #555; padding-top: 3px;
     border-top: 1px solid #c8c8c8; text-transform: uppercase;
   }
 
@@ -415,8 +415,7 @@ export function buildInvoiceHtml({
     <div class="shop-name">SHAYONA SHOE PALACE</div>
     <div class="header-rule"></div>
     <div class="shop-addr">
-      PLOT NO 16,17, SAHKAR GROUP SOCIETY, OPP HARINAGAR, UDHNA<br>
-      GST NO : 24ABEPA6540L1ZV
+      PLOT NO 16,17, SAHKAR GROUP SOCIETY, OPP HARINAGAR, UDHNA &nbsp;|&nbsp; GST NO : 24ABEPA6540L1ZV
     </div>
     ${billTypeLabel}
   </div>
